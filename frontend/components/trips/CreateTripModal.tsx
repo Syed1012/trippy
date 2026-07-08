@@ -181,6 +181,7 @@ export default function CreateTripModal({
   const [budget, setBudget] = useState<Budget>("MODERATE");
   const [tripType, setTripType] = useState<TripType | null>(null);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
+  const [preferenceNotes, setPreferenceNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -204,6 +205,7 @@ export default function CreateTripModal({
         setBudget("MODERATE");
         setTripType(null);
         setPreferredWeather(null);
+        setPreferenceNotes("");
       }, 400);
     }
   }, [open]);
@@ -239,8 +241,8 @@ export default function CreateTripModal({
         },
         {
           tripType: tripType ?? undefined,
-          budgetTier: budget,
           preferredWeather: preferredWeather ?? undefined,
+          notes: preferenceNotes.trim() || undefined,
         },
       );
     } finally {
@@ -792,14 +794,18 @@ export default function CreateTripModal({
 
                   <div className="space-y-4 rounded-2xl border-2 border-border bg-gradient-to-br from-shore-50 to-white p-4">
                     <p className="text-[11px] leading-snug text-muted">
-                      Share the vibe and our AI tailors destinations and
-                      day-by-day plans to match. Everything here is optional.
+                      Pick a trip type and weather if you like — or skip them
+                      and just tell our AI what you&apos;re expecting in the
+                      notes. Everything here is optional.
                     </p>
 
                     {/* Trip type */}
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Trip type
+                        Trip type{" "}
+                        <span className="font-normal normal-case text-muted/60">
+                          · optional
+                        </span>
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         {tripTypeOptions.map((opt) => {
@@ -897,65 +903,28 @@ export default function CreateTripModal({
                       </div>
                     </div>
 
-                    {/* Budget tier — shown here only when it isn't a package
-                        trip (package trips capture budget in their own toggle) */}
-                    <AnimatePresence initial={false}>
-                      {!isPackage && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.25, ease: "easeInOut" }}
-                          className="overflow-hidden"
-                        >
-                          <div className="space-y-2">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                              Budget tier
-                            </label>
-                            <div className="grid grid-cols-3 gap-2">
-                              {budgetOptions.map((opt) => {
-                                const OptIcon = opt.icon;
-                                const active = budget === opt.key;
-                                return (
-                                  <button
-                                    key={opt.key}
-                                    type="button"
-                                    onClick={() => setBudget(opt.key)}
-                                    className={cn(
-                                      "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all duration-200 cursor-pointer",
-                                      active
-                                        ? "border-accent-500 bg-gradient-to-b from-accent-50 to-white shadow-sm"
-                                        : "border-border bg-white hover:border-accent-300 hover:shadow-sm"
-                                    )}
-                                  >
-                                    <div
-                                      className={cn(
-                                        "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                                        active
-                                          ? "bg-accent-500 text-white"
-                                          : "bg-shore-100 text-muted"
-                                      )}
-                                    >
-                                      <OptIcon size={14} />
-                                    </div>
-                                    <span
-                                      className={cn(
-                                        "text-xs font-bold",
-                                        active
-                                          ? "text-accent-600"
-                                          : "text-foreground"
-                                      )}
-                                    >
-                                      {opt.label}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {/* Free-form expectations — the traveller can skip the
+                        chips above entirely and just describe their ideal trip */}
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="trip-pref-notes"
+                        className="text-xs font-semibold uppercase tracking-wider text-muted"
+                      >
+                        What are you expecting?{" "}
+                        <span className="font-normal normal-case text-muted/60">
+                          · optional
+                        </span>
+                      </label>
+                      <textarea
+                        id="trip-pref-notes"
+                        rows={3}
+                        maxLength={500}
+                        placeholder="e.g. laid-back beach mornings, amazing local food, a mix of culture and nightlife — or leave the options above unset and describe your ideal trip here."
+                        value={preferenceNotes}
+                        onChange={(e) => setPreferenceNotes(e.target.value)}
+                        className="w-full resize-none rounded-xl border border-border bg-white px-4 py-3 text-sm text-foreground placeholder:text-muted/50 transition-all duration-200 focus:border-accent-400 focus:outline-none focus:ring-2 focus:ring-accent-200/50 hover:border-accent-300"
+                      />
+                    </div>
                   </div>
                 </motion.section>
 
