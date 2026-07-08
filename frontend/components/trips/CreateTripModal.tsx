@@ -34,6 +34,7 @@ import type {
   PreferredWeather,
   TripPreferenceInput,
 } from "@/lib/api";
+import type { CreateTripInitialValues } from "@/lib/pending-trip";
 
 interface CreateTripModalProps {
   open: boolean;
@@ -42,6 +43,8 @@ interface CreateTripModalProps {
     data: CreateTripRequest,
     preferences: TripPreferenceInput,
   ) => Promise<void>;
+  /** Pre-fills the form when opening, e.g. from a trip drafted on the landing page. */
+  initialValues?: CreateTripInitialValues;
 }
 
 type Visibility = "PRIVATE" | "PUBLIC";
@@ -170,6 +173,7 @@ export default function CreateTripModal({
   open,
   onClose,
   onCreate,
+  initialValues,
 }: CreateTripModalProps) {
   const [title, setTitle] = useState("");
   const [destination, setDestination] = useState("");
@@ -182,6 +186,7 @@ export default function CreateTripModal({
   const [tripType, setTripType] = useState<TripType | null>(null);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
   const [preferenceNotes, setPreferenceNotes] = useState("");
+  const [budgetTier, setBudgetTier] = useState<Budget | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -191,6 +196,18 @@ export default function CreateTripModal({
       setTimeout(() => titleRef.current?.focus(), 400);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !initialValues) return;
+    if (initialValues.title) setTitle(initialValues.title);
+    if (initialValues.destination) setDestination(initialValues.destination);
+    if (initialValues.startDate) setStartDate(initialValues.startDate);
+    if (initialValues.endDate) setEndDate(initialValues.endDate);
+    if (initialValues.tripType) setTripType(initialValues.tripType);
+    if (initialValues.budgetTier) setBudgetTier(initialValues.budgetTier);
+    if (initialValues.visibility) setVisibility(initialValues.visibility);
+    if (initialValues.preferenceNotes) setPreferenceNotes(initialValues.preferenceNotes);
+  }, [open, initialValues]);
 
   useEffect(() => {
     if (!open) {
@@ -206,6 +223,7 @@ export default function CreateTripModal({
         setTripType(null);
         setPreferredWeather(null);
         setPreferenceNotes("");
+        setBudgetTier(undefined);
       }, 400);
     }
   }, [open]);
@@ -241,6 +259,7 @@ export default function CreateTripModal({
         },
         {
           tripType: tripType ?? undefined,
+          budgetTier,
           preferredWeather: preferredWeather ?? undefined,
           notes: preferenceNotes.trim() || undefined,
         },

@@ -27,6 +27,12 @@ import {
   type TripPreferenceInput,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import {
+  clearPendingTrip,
+  loadPendingTrip,
+  pendingTripToInitialValues,
+  type CreateTripInitialValues,
+} from "@/lib/pending-trip";
 import { useToast } from "@/lib/toast";
 import { cn, tripSlug } from "@/lib/utils";
 
@@ -43,6 +49,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const { addToast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
+  const [createInitialValues, setCreateInitialValues] = useState<CreateTripInitialValues | undefined>(undefined);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,6 +82,17 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchTrips();
   }, [fetchTrips]);
+
+  // A trip drafted on the landing page before auth — open the modal pre-filled.
+  useEffect(() => {
+    const pending = loadPendingTrip();
+    if (!pending) return;
+    clearPendingTrip();
+    setCreateInitialValues(pendingTripToInitialValues(pending));
+    setCreateOpen(true);
+    addToast("Almost there — review your trip and create it.", "success");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setPublicLoading(true);
@@ -157,8 +175,12 @@ export default function DashboardPage() {
     <>
       <CreateTripModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreateInitialValues(undefined);
+        }}
         onCreate={handleCreateTrip}
+        initialValues={createInitialValues}
       />
 
       {/* ── Join Reason Modal ───────────────────────────────────── */}

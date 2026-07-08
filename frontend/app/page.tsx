@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
@@ -11,16 +12,23 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
+  LayoutDashboard,
   Route,
   Search,
   SlidersHorizontal,
-  Users,
+  Sparkles,
+  Stamp,
+  Globe,
   Utensils,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
+import AuthModal from "@/components/auth/AuthModal";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
+import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
+import { useAuth } from "@/lib/auth-context";
+import { savePendingTrip } from "@/lib/pending-trip";
 import { cn } from "@/lib/utils";
 
 const HERO_IDEAS = [
@@ -37,13 +45,7 @@ const NO_PREFERENCE_LABEL = "No preference";
 
 const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "Luxury"];
 
-const TRAVEL_GROUPS = [
-  { label: "Solo", people: 1 },
-  { label: "Couple", people: 2 },
-  { label: "Friends", people: 4 },
-  { label: "Family", people: 4 },
-  { label: "Group", people: 8 },
-];
+const VISIBILITY_OPTIONS = ["Public", "Private"];
 
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
@@ -100,22 +102,83 @@ function useTypingEffect(words: string[], typingSpeed = 62, pause = 1500) {
 }
 
 export default function LandingPage() {
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const requestIdRef = useRef(0);
   const typedIdea = useTypingEffect(HERO_IDEAS);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [travelGroup, setTravelGroup] = useState("");
+  const [tripVisibility, setTripVisibility] = useState("");
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [aiBuilderRequest, setAiBuilderRequest] = useState<AIBuilderRequest | undefined>(undefined);
 
-  const selectedGroup = TRAVEL_GROUPS.find((group) => group.label === travelGroup);
+  const hasTicketData = Boolean(
+    searchQuery.trim() ||
+      startDate ||
+      activeFilters.length > 0 ||
+      heroBudget ||
+      tripVisibility ||
+      dietPreference ||
+      pacePreference,
+  );
+
+  const ticketReady = Boolean(
+    searchQuery.trim() &&
+      startDate &&
+      !isPastDateValue(startDate) &&
+      !isPastDateValue(endDate || startDate),
+  );
+
+  const stashPendingTrip = () => {
+    savePendingTrip({
+      destination: searchQuery.trim(),
+      startDate,
+      endDate: endDate || startDate,
+      filters: activeFilters,
+      budget: heroBudget || undefined,
+      visibility: tripVisibility || undefined,
+      diet: dietPreference || undefined,
+      pace: pacePreference || undefined,
+    });
+  };
+
+  const startCreateTripFlow = () => {
+    if (!startDate) {
+      setDateError("Select a start date to create your trip.");
+      return;
+    }
+    if (isPastDateValue(startDate) || isPastDateValue(endDate || startDate)) {
+      setDateError("Please choose today or a future date.");
+      return;
+    }
+    if (!searchQuery.trim()) {
+      setDateError("Enter a destination to create your trip.");
+      return;
+    }
+
+    setDateError("");
+    stashPendingTrip();
+
+    if (isAuthenticated) {
+      router.push("/dashboard");
+    } else {
+      setShowAuthModal(true);
+    }
+  };
+
+  const handleAuthSuccess = () => {
+    // The pending trip is already stashed; the dashboard picks it up on mount.
+    setShowAuthModal(false);
+    router.push("/dashboard");
+  };
 
   const nextRequestId = () => {
     requestIdRef.current += 1;
@@ -126,7 +189,7 @@ export default function LandingPage() {
     city = searchQuery.trim(),
     start = startDate,
     end = endDate,
-    people = selectedGroup?.people ?? DEFAULT_PEOPLE,
+    people = DEFAULT_PEOPLE,
     budget = heroBudget,
     filters = activeFilters,
     diet = dietPreference,
@@ -205,21 +268,33 @@ export default function LandingPage() {
           </Link>
 
           <div className="flex items-center gap-2">
-            <Link href="/login">
-              <Button
-                size="sm"
-                className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
-              >
-                Log in
-              </Button>
-            </Link>
+            {isAuthenticated ? (
+              <Link href="/dashboard">
+                <Button
+                  size="sm"
+                  className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
+                >
+                  <LayoutDashboard size={14} />
+                  Dashboard
+                </Button>
+              </Link>
+            ) : (
+              <Link href="/login">
+                <Button
+                  size="sm"
+                  className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
+                >
+                  Log in
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </header>
 
       <main className="relative z-10">
         <section className="relative isolate overflow-hidden">
-          <div className="relative mx-auto flex min-h-[calc(100svh-8rem)] max-w-7xl flex-col justify-center px-4 py-14 lg:px-8 lg:py-16">
+          <div className="relative mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl flex-col justify-center px-4 py-14 lg:px-8 lg:py-16">
             <motion.div
               variants={revealContainer}
               initial="hidden"
@@ -234,18 +309,19 @@ export default function LandingPage() {
               </motion.h1>
 
               <motion.p variants={revealItem} className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#5f6f69] sm:text-lg">
-                Your next adventure, planned in seconds by AI.
+                Build the trip your way and let AI suggest as you go — or hand it over
+                and let AI plan the whole thing.
               </motion.p>
 
               <motion.form
                 variants={revealItem}
                 onSubmit={(event) => {
                   event.preventDefault();
-                  openAIBuilder({ autoGenerate: true });
+                  startCreateTripFlow();
                 }}
                 className="relative z-30 mx-auto mt-8 w-full max-w-5xl rounded-[1.35rem] border border-white/80 bg-white/78 p-2.5 shadow-[0_34px_96px_-58px_rgba(20,47,43,0.82)] backdrop-blur-xl"
               >
-                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_250px_178px]">
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_250px]">
                   <label
                     className={cn(
                       "flex min-h-16 items-center gap-3 rounded-[1.05rem] border bg-[#fbf7ee]/92 px-4 text-left transition-all duration-200",
@@ -278,15 +354,41 @@ export default function LandingPage() {
                     onEndDateChange={handleEndDateChange}
                   />
 
+                </div>
+
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <Button
                     type="submit"
                     size="lg"
-                    className="group min-h-16 whitespace-nowrap !rounded-[1.05rem] !border-[#d5653e] !bg-[#d5653e] px-5 !text-white shadow-[0_22px_42px_-25px_rgba(213,101,62,0.95)] transition-all duration-300 hover:-translate-y-0.5 hover:!border-[#b95534] hover:!bg-[#b95534] hover:shadow-[0_28px_48px_-25px_rgba(213,101,62,0.98)]"
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
                   >
-                    <span>Plan with AI</span>
-                    <span className="grid h-7 w-7 place-items-center rounded-full bg-white/14 text-white transition-all duration-300 group-hover:bg-[#142f2b]/18">
-                      <ArrowRight size={16} />
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
+                      <Stamp size={15} />
                     </span>
+                    <span className="flex min-w-0 flex-col items-start text-left leading-tight">
+                      <span>Create this trip</span>
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/80">
+                        You build it · AI suggests
+                      </span>
+                    </span>
+                    <ArrowRight size={16} className="ml-1 shrink-0 transition-transform duration-300 group-hover:translate-x-0.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    onClick={() => openAIBuilder({ autoGenerate: true })}
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#3a2b1e_0%,#271c12_55%,#180f09_100%)] px-5 !text-white ring-1 ring-inset ring-[#f0b091]/30 shadow-[inset_0_1px_0_rgba(255,224,196,0.16),0_18px_36px_-20px_rgba(24,15,9,0.92),0_0_28px_-10px_rgba(240,176,145,0.5)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.08] hover:shadow-[inset_0_1px_0_rgba(255,224,196,0.24),0_26px_50px_-22px_rgba(24,15,9,0.95),0_0_36px_-8px_rgba(240,176,145,0.62)] active:translate-y-0 active:brightness-100"
+                  >
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0b091]/15 text-[#f7c9a8] ring-1 ring-inset ring-[#f0b091]/25">
+                      <Sparkles size={15} className="transition-transform duration-300 group-hover:rotate-[18deg] group-hover:scale-110" />
+                    </span>
+                    <span className="flex min-w-0 flex-col items-start text-left leading-tight">
+                      <span>Let AI plan it all</span>
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/65">
+                        Sit back · full itinerary
+                      </span>
+                    </span>
+                    <ArrowRight size={16} className="ml-1 shrink-0 transition-transform duration-300 group-hover:translate-x-0.5" />
                   </Button>
                 </div>
                 {dateError && (
@@ -316,12 +418,12 @@ export default function LandingPage() {
                   onChange={setHeroBudget}
                 />
                 <PlannerChoiceGroup
-                  icon={<Users size={12} />}
-                  label="Travelers"
-                  value={travelGroup}
-                  selected={Boolean(travelGroup)}
-                  options={[NO_PREFERENCE_LABEL, ...TRAVEL_GROUPS.map((group) => group.label)]}
-                  onChange={setTravelGroup}
+                  icon={<Globe size={12} />}
+                  label="Visibility"
+                  value={tripVisibility}
+                  selected={Boolean(tripVisibility)}
+                  options={[NO_PREFERENCE_LABEL, ...VISIBILITY_OPTIONS]}
+                  onChange={setTripVisibility}
                 />
                 <PlannerChoiceGroup
                   icon={<Utensils size={12} />}
@@ -341,6 +443,24 @@ export default function LandingPage() {
                 />
               </motion.div>
 
+              {/* Live trip ticket — assembles as the hero form is filled */}
+              <AnimatePresence>
+                {hasTicketData && (
+                  <TripTicket
+                    destination={searchQuery.trim()}
+                    startDate={startDate}
+                    endDate={endDate || startDate}
+                    filters={activeFilters}
+                    budget={heroBudget}
+                    visibility={tripVisibility}
+                    diet={dietPreference}
+                    pace={pacePreference}
+                    ready={ticketReady}
+                    onCreate={startCreateTripFlow}
+                  />
+                )}
+              </AnimatePresence>
+
             </motion.div>
           </div>
         </section>
@@ -350,6 +470,12 @@ export default function LandingPage() {
         open={showAIBuilder}
         onClose={() => setShowAIBuilder(false)}
         initialRequest={aiBuilderRequest}
+      />
+      <AuthModal
+        open={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={handleAuthSuccess}
+        destination={searchQuery.trim() || undefined}
       />
     </div>
   );
@@ -427,7 +553,7 @@ function PlannerMultiGroup({
           open
             ? "border-[#d5653e] bg-white text-[#17211f] shadow-[0_0_0_3px_rgba(213,101,62,0.1),0_16px_28px_-22px_rgba(20,47,43,0.9)]"
             : hasSelection
-              ? "border-[#142f2b] bg-[#142f2b] text-white hover:-translate-y-0.5 hover:bg-[#203f39]"
+              ? "border-[#2a2018] bg-[#2a2018] text-white hover:-translate-y-0.5 hover:bg-[#3a2b1e]"
               : "border-[#d8e0d3] bg-[linear-gradient(180deg,#fffdf8_0%,#f5efe4_100%)] text-[#53635d] hover:-translate-y-0.5 hover:border-[#c5d0c3] hover:bg-white",
         )}
       >
@@ -471,7 +597,7 @@ function PlannerMultiGroup({
                 onClick={selectNoPreference}
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-colors",
-                  !hasSelection ? "bg-[#142f2b] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
+                  !hasSelection ? "bg-[#2a2018] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
                 )}
               >
                 <span>{NO_PREFERENCE_LABEL}</span>
@@ -488,7 +614,7 @@ function PlannerMultiGroup({
                     onClick={() => selectOption(option)}
                     className={cn(
                       "flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-colors",
-                      active ? "bg-[#142f2b] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
+                      active ? "bg-[#2a2018] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
                     )}
                   >
                     <span>{option}</span>
@@ -562,7 +688,7 @@ function PlannerChoiceGroup({
           open
             ? "border-[#d5653e] bg-white text-[#17211f] shadow-[0_0_0_3px_rgba(213,101,62,0.1),0_16px_28px_-22px_rgba(20,47,43,0.9)]"
             : selected
-              ? "border-[#142f2b] bg-[#142f2b] text-white hover:-translate-y-0.5 hover:bg-[#203f39]"
+              ? "border-[#2a2018] bg-[#2a2018] text-white hover:-translate-y-0.5 hover:bg-[#3a2b1e]"
               : "border-[#d8e0d3] bg-[linear-gradient(180deg,#fffdf8_0%,#f5efe4_100%)] text-[#53635d] hover:-translate-y-0.5 hover:border-[#c5d0c3] hover:bg-white",
         )}
       >
@@ -610,7 +736,7 @@ function PlannerChoiceGroup({
                     onClick={() => selectOption(option)}
                     className={cn(
                       "flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-colors",
-                      active ? "bg-[#142f2b] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
+                      active ? "bg-[#2a2018] text-white" : "text-[#53635d] hover:bg-[#fbf7ee] hover:text-[#b95534]",
                     )}
                   >
                     <span>{option}</span>
@@ -731,7 +857,7 @@ function DateRangePicker({
                 type="button"
                 onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
                 disabled={calendarMonth.getFullYear() === today.getFullYear() && calendarMonth.getMonth() === today.getMonth()}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-[#d6ded4] bg-[#fbf7ee] text-[#142f2b] hover:border-[#d5653e] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-[#d6ded4]"
+                className="grid h-9 w-9 place-items-center rounded-lg border border-[#d6ded4] bg-[#fbf7ee] text-[#2a2018] hover:border-[#d5653e] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-[#d6ded4]"
                 aria-label="Previous month"
               >
                 <ChevronLeft size={17} />
@@ -747,7 +873,7 @@ function DateRangePicker({
               <button
                 type="button"
                 onClick={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-[#d6ded4] bg-[#fbf7ee] text-[#142f2b] hover:border-[#d5653e]"
+                className="grid h-9 w-9 place-items-center rounded-lg border border-[#d6ded4] bg-[#fbf7ee] text-[#2a2018] hover:border-[#d5653e]"
                 aria-label="Next month"
               >
                 <ChevronRight size={17} />
@@ -780,9 +906,9 @@ function DateRangePicker({
                       isPast
                         ? "cursor-not-allowed bg-transparent text-[#b8beb9]"
                         : isStart || isEnd
-                        ? "bg-[#142f2b] text-white"
+                        ? "bg-[#2a2018] text-white"
                         : isBetween
-                          ? "bg-[#e1ebe0] text-[#142f2b]"
+                          ? "bg-[#f2e7d9] text-[#2a2018]"
                           : "text-[#17211f] hover:bg-[#fbf1e8] hover:text-[#b95534]",
                     )}
                   >
@@ -800,7 +926,7 @@ function DateRangePicker({
               >
                 Clear
               </button>
-              <Button type="button" size="sm" className="rounded-lg bg-[#142f2b] text-white hover:border-[#142f2b] hover:bg-[#203f39]" onClick={() => setOpen(false)}>
+              <Button type="button" size="sm" className="rounded-lg bg-[#2a2018] text-white hover:border-[#2a2018] hover:bg-[#3a2b1e]" onClick={() => setOpen(false)}>
                 Done
               </Button>
             </div>

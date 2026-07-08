@@ -281,3 +281,26 @@ body::selection {
     transition: none;
   }
 }
+
+/* ─── Landing CTA sheen sweep (hover-triggered, motion-safe) ───────────── */
+.cta-sheen { position: relative; overflow: hidden; }
+.cta-sheen > * { position: relative; z-index: 1; }
+.cta-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 80%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.8s ease;
+  pointer-events: none;
+}
+.cta-sheen:hover::after { transform: translateX(130%); }
+@media (prefers-reduced-motion: reduce) {
+  .cta-sheen::after { transition: none; opacity: 0; }
+}
