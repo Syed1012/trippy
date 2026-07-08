@@ -476,6 +476,9 @@ export const tripsApi = {
   create: async (data: CreateTripRequest) => normalizeTrip(await api.post<RawTrip>("/trips", data), 1),
   update: (id: string, data: Partial<CreateTripRequest>) =>
     api.patch<RawTrip>(`/trips/${id}`, data).then((trip) => normalizeTrip(trip)),
+  /** Dedicated trip status lifecycle transition (owner-only). */
+  updateStatus: (id: string, status: Trip["status"]) =>
+    api.patch<RawTrip>(`/trips/${id}/status`, { status }).then((trip) => normalizeTrip(trip)),
   delete: (id: string) => api.delete<void>(`/trips/${id}`),
 };
 

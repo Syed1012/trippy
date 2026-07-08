@@ -234,6 +234,29 @@ public class TripService {
         return toTripResponse(trip);
     }
 
+    /**
+     * Trip status lifecycle transition. Restricted to the trip owner.
+     *
+     * <p>Moves a trip between its lifecycle states
+     * ({@code DRAFT → PLANNED → ONGOING → COMPLETED}, or {@code CANCELLED}).
+     */
+    @Transactional
+    public TripResponse updateTripStatus(UUID tripId, String status, UUID userId) {
+        log.info("Updating trip status: tripId={}, requestedStatus={}, requestedBy={}",
+                tripId, status, userId);
+        Trip trip = findTripOrThrow(tripId);
+        ensureOwner(tripId, userId);
+
+        TripStatus previous = trip.getStatus();
+        TripStatus next = parseStatus(status);
+        trip.setStatus(next);
+        trip = tripRepository.save(trip);
+
+        log.info("Trip status changed: tripId={}, {} → {}, by={}",
+                tripId, previous, next, userId);
+        return toTripResponse(trip);
+    }
+
     @Transactional
     public void deleteTrip(UUID tripId, UUID userId) {
         log.info("Deleting (cancelling) trip: tripId={}, requestedBy={}", tripId, userId);

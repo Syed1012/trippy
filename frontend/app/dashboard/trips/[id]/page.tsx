@@ -1707,6 +1707,7 @@ function EditTripModal({
               className="w-full rounded-xl border border-border px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 cursor-pointer"
             >
               <option value="DRAFT">Draft</option>
+              <option value="PLANNED">Planned</option>
               <option value="ONGOING">Active</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
@@ -2744,9 +2745,13 @@ export default function TripDetailPage() {
           <EditTripModal
             trip={trip}
             onClose={() => setEditModalOpen(false)}
-            onSave={async (updates) => {
+            onSave={async ({ status, ...updates }) => {
               try {
                 await tripsApi.update(tripId, updates);
+                // Route status changes through the dedicated lifecycle endpoint.
+                if (status && status !== trip.status) {
+                  await tripsApi.updateStatus(tripId, status as TripDetail["status"]);
+                }
                 const refreshed = await tripsApi.get(tripId);
                 setTrip(refreshed);
                 setEditModalOpen(false);
