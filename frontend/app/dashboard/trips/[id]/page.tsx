@@ -31,6 +31,8 @@ import {
   DollarSign,
   Navigation,
   Crown,
+  Wallet,
+  Gem,
   Heart,
   Map,
   ThumbsUp,
@@ -57,7 +59,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 
@@ -1528,6 +1530,12 @@ const WEATHER_OPTIONS: { key: PreferredWeather; label: string; icon: typeof Sun 
   { key: "ANY", label: "Any", icon: Globe },
 ];
 
+const BUDGET_OPTIONS: { key: BudgetTier; label: string; icon: typeof Sun }[] = [
+  { key: "ECONOMY", label: "Economy", icon: Wallet },
+  { key: "MODERATE", label: "Moderate", icon: Gem },
+  { key: "LUXURY", label: "Luxury", icon: Crown },
+];
+
 function EditTripModal({
   trip,
   onClose,
@@ -1547,6 +1555,7 @@ function EditTripModal({
   const [saving, setSaving] = useState(false);
   const [tripType, setTripType] = useState<TripType | null>(null);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
+  const [budgetTier, setBudgetTier] = useState<BudgetTier | null>(null);
   const [preferenceNotes, setPreferenceNotes] = useState("");
   const [prefsExisted, setPrefsExisted] = useState(false);
 
@@ -1559,6 +1568,7 @@ function EditTripModal({
         if (cancelled) return;
         setTripType(pref.tripType ?? null);
         setPreferredWeather(pref.preferredWeather ?? null);
+        setBudgetTier(pref.budgetTier ?? null);
         setPreferenceNotes(pref.notes ?? "");
         setPrefsExisted(true);
       })
@@ -1577,12 +1587,13 @@ function EditTripModal({
     // Upsert preferences when the user has any set, or to clear preferences
     // that previously existed. Non-fatal: never block the trip update.
     const hasAnyPreference =
-      Boolean(tripType) || Boolean(preferredWeather) || Boolean(preferenceNotes.trim());
+      Boolean(tripType) || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
     if (hasAnyPreference || prefsExisted) {
       try {
         await preferencesApi.save(trip.tripId, {
           tripType: tripType ?? undefined,
           preferredWeather: preferredWeather ?? undefined,
+          budgetTier: budgetTier ?? undefined,
           notes: preferenceNotes.trim() || undefined,
         });
       } catch (err) {
@@ -1811,6 +1822,40 @@ function EditTripModal({
                     >
                       <OptIcon size={14} />
                       <span className="text-[10px] font-semibold">
+                        {opt.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Budget tier */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Budget tier{" "}
+                <span className="font-normal normal-case text-muted/60">
+                  · optional
+                </span>
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {BUDGET_OPTIONS.map((opt) => {
+                  const OptIcon = opt.icon;
+                  const active = budgetTier === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setBudgetTier(active ? null : opt.key)}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-center transition-all cursor-pointer",
+                        active
+                          ? "border-accent-400 bg-accent-50 text-accent-700"
+                          : "border-border text-muted hover:border-accent-300"
+                      )}
+                    >
+                      <OptIcon size={15} />
+                      <span className="text-[11px] font-semibold">
                         {opt.label}
                       </span>
                     </button>
