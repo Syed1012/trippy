@@ -31,6 +31,8 @@ import {
   DollarSign,
   Navigation,
   Crown,
+  Wallet,
+  Gem,
   Heart,
   Map,
   ThumbsUp,
@@ -46,10 +48,18 @@ import {
   Send,
   Eye,
   EyeOff,
+  TreePalm,
+  Mountain,
+  Building2,
+  Trees,
+  Compass,
+  Landmark,
+  CloudSun,
+  Snowflake,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 
@@ -841,12 +851,22 @@ function DayCard({
     <motion.div
       layout
       className={cn(
-        "rounded-2xl border-2 transition-all duration-300",
+        "group/day relative overflow-hidden rounded-[1.35rem] border transition-all duration-300",
         expanded
-          ? "border-accent-400/50 shadow-lg shadow-accent-500/5 bg-white"
-          : "border-border bg-surface hover:border-accent-300 hover:shadow-sm"
+          ? "border-accent-300/60 bg-white shadow-[0_28px_56px_-30px_rgba(231,111,81,0.5)]"
+          : "border-white/70 bg-white/80 backdrop-blur-md hover:border-accent-300/50 hover:shadow-[0_20px_44px_-28px_rgba(20,47,43,0.5)]",
       )}
     >
+      {/* Left timeline accent */}
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 w-1 transition-colors",
+          expanded
+            ? "bg-gradient-to-b from-accent-400 to-accent-600"
+            : "bg-transparent group-hover/day:bg-accent-200",
+        )}
+      />
+
       {/* Day header */}
       <div className="p-5">
         <div
@@ -858,13 +878,14 @@ function DayCard({
         >
           <div
             className={cn(
-              "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-bold text-lg transition-colors",
+              "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
               expanded
-                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-md shadow-accent-500/20"
-                : "bg-shore-100 text-muted"
+                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
+                : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
             )}
           >
-            {day.dayNumber}
+            <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+            <span className="text-lg">{day.dayNumber}</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -1504,6 +1525,28 @@ function InviteModal({
 }
 
 /* ─── Edit Trip Modal ─────────────────────────────────────────────── */
+const TRIP_TYPE_OPTIONS: { key: TripType; label: string; icon: typeof Sun }[] = [
+  { key: "BEACH", label: "Beach", icon: TreePalm },
+  { key: "MOUNTAIN", label: "Mountains", icon: Mountain },
+  { key: "CITY", label: "City", icon: Building2 },
+  { key: "NATURE", label: "Nature", icon: Trees },
+  { key: "ADVENTURE", label: "Adventure", icon: Compass },
+  { key: "CULTURE", label: "Culture", icon: Landmark },
+];
+
+const WEATHER_OPTIONS: { key: PreferredWeather; label: string; icon: typeof Sun }[] = [
+  { key: "WARM", label: "Warm", icon: Sun },
+  { key: "MILD", label: "Mild", icon: CloudSun },
+  { key: "COLD", label: "Cold", icon: Snowflake },
+  { key: "ANY", label: "Any", icon: Globe },
+];
+
+const BUDGET_OPTIONS: { key: BudgetTier; label: string; icon: typeof Sun }[] = [
+  { key: "ECONOMY", label: "Economy", icon: Wallet },
+  { key: "MODERATE", label: "Moderate", icon: Gem },
+  { key: "LUXURY", label: "Luxury", icon: Crown },
+];
+
 function EditTripModal({
   trip,
   onClose,
@@ -1521,10 +1564,54 @@ function EditTripModal({
   const [status, setStatus] = useState(trip.status);
   const [visibility, setVisibility] = useState(trip.visibility);
   const [saving, setSaving] = useState(false);
+  const [tripType, setTripType] = useState<TripType | null>(null);
+  const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
+  const [budgetTier, setBudgetTier] = useState<BudgetTier | null>(null);
+  const [preferenceNotes, setPreferenceNotes] = useState("");
+  const [prefsExisted, setPrefsExisted] = useState(false);
+
+  // Load any preferences the user set for this trip so they can edit them.
+  useEffect(() => {
+    let cancelled = false;
+    preferencesApi
+      .getForTrip(trip.tripId)
+      .then((pref) => {
+        if (cancelled) return;
+        setTripType(pref.tripType ?? null);
+        setPreferredWeather(pref.preferredWeather ?? null);
+        setBudgetTier(pref.budgetTier ?? null);
+        setPreferenceNotes(pref.notes ?? "");
+        setPrefsExisted(true);
+      })
+      .catch(() => {
+        /* 404 — no preferences saved for this trip yet */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.tripId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+
+    // Upsert preferences when the user has any set, or to clear preferences
+    // that previously existed. Non-fatal: never block the trip update.
+    const hasAnyPreference =
+      Boolean(tripType) || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
+    if (hasAnyPreference || prefsExisted) {
+      try {
+        await preferencesApi.save(trip.tripId, {
+          tripType: tripType ?? undefined,
+          preferredWeather: preferredWeather ?? undefined,
+          budgetTier: budgetTier ?? undefined,
+          notes: preferenceNotes.trim() || undefined,
+        });
+      } catch (err) {
+        console.error("Failed to save trip preferences", err);
+      }
+    }
+
     await onSave({
       title: title.trim(),
       description: description.trim() || undefined,
@@ -1631,6 +1718,7 @@ function EditTripModal({
               className="w-full rounded-xl border border-border px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 cursor-pointer"
             >
               <option value="DRAFT">Draft</option>
+              <option value="PLANNED">Planned</option>
               <option value="ONGOING">Active</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
@@ -1665,6 +1753,145 @@ function EditTripModal({
               >
                 <EyeOff size={14} /> Private
               </button>
+            </div>
+          </div>
+
+          {/* Trip preferences */}
+          <div className="space-y-3 rounded-xl border border-border bg-shore-50/50 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Sparkles size={14} className="text-accent-500" />
+              <span className="text-xs font-bold text-foreground">
+                Trip preferences
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-trippy-500/10 px-2 py-0.5 text-[10px] font-semibold text-trippy-600">
+                Smarter AI itineraries
+              </span>
+            </div>
+            <p className="text-[11px] leading-snug text-muted">
+              Update the vibe so our AI can retune its suggestions. Everything
+              here is optional.
+            </p>
+
+            {/* Trip type */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Trip type{" "}
+                <span className="font-normal normal-case text-muted/60">
+                  · optional
+                </span>
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {TRIP_TYPE_OPTIONS.map((opt) => {
+                  const OptIcon = opt.icon;
+                  const active = tripType === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setTripType(active ? null : opt.key)}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-center transition-all cursor-pointer",
+                        active
+                          ? "border-accent-400 bg-accent-50 text-accent-700"
+                          : "border-border text-muted hover:border-accent-300"
+                      )}
+                    >
+                      <OptIcon size={15} />
+                      <span className="text-[11px] font-semibold">
+                        {opt.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Preferred weather */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Preferred weather{" "}
+                <span className="font-normal normal-case text-muted/60">
+                  · optional
+                </span>
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {WEATHER_OPTIONS.map((opt) => {
+                  const OptIcon = opt.icon;
+                  const active = preferredWeather === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() =>
+                        setPreferredWeather(active ? null : opt.key)
+                      }
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2 text-center transition-all cursor-pointer",
+                        active
+                          ? "border-accent-400 bg-accent-50 text-accent-700"
+                          : "border-border text-muted hover:border-accent-300"
+                      )}
+                    >
+                      <OptIcon size={14} />
+                      <span className="text-[10px] font-semibold">
+                        {opt.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Budget tier */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Budget tier{" "}
+                <span className="font-normal normal-case text-muted/60">
+                  · optional
+                </span>
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {BUDGET_OPTIONS.map((opt) => {
+                  const OptIcon = opt.icon;
+                  const active = budgetTier === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setBudgetTier(active ? null : opt.key)}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-center transition-all cursor-pointer",
+                        active
+                          ? "border-accent-400 bg-accent-50 text-accent-700"
+                          : "border-border text-muted hover:border-accent-300"
+                      )}
+                    >
+                      <OptIcon size={15} />
+                      <span className="text-[11px] font-semibold">
+                        {opt.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
+                What are you expecting?{" "}
+                <span className="font-normal normal-case text-muted/60">
+                  · optional
+                </span>
+              </label>
+              <textarea
+                value={preferenceNotes}
+                onChange={(e) => setPreferenceNotes(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="e.g. relaxed beach mornings, great local food, a mix of culture and nightlife..."
+                className="w-full resize-none rounded-xl border border-border bg-white px-3 py-2.5 text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100"
+              />
             </div>
           </div>
 
@@ -2036,13 +2263,16 @@ export default function TripDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 sm:p-10"
+        className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] sm:p-10"
       >
-        {/* Decorative elements */}
-        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
-        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10">
-          <Plane size={80} className="text-white rotate-12" />
+        {/* Immersive texture + warm mesh */}
+        <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
+        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
+          <Plane size={90} className="rotate-12 text-white" />
         </div>
 
         <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -2057,7 +2287,7 @@ export default function TripDetailPage() {
                 </span>
               )}
             </div>
-            <h1 className="text-3xl font-bold text-white sm:text-4xl">{trip.title}</h1>
+            <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">{trip.title}</h1>
             {trip.description && (
               <p className="mt-2 text-sm text-white/60 max-w-xl">{trip.description}</p>
             )}
@@ -2390,16 +2620,24 @@ export default function TripDetailPage() {
         className="space-y-5"
       >
         {/* Section header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-md shadow-accent-500/20">
-              <Calendar size={16} className="text-white" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_16px_32px_-16px_rgba(231,111,81,0.9)]">
+              <Map size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold">Itinerary</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-2xl font-black tracking-tight">Itinerary</h2>
+                {totalEstimatedCost > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-accent-500/12 px-2.5 py-0.5 text-[11px] font-bold text-accent-700">
+                    <DollarSign size={11} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}
+                    {totalEstimatedCost.toFixed(0)}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted">
                 {itineraryDays.length > 0
-                  ? `${itineraryDays.length} day${itineraryDays.length !== 1 ? "s" : ""} planned`
+                  ? `${itineraryDays.length} day${itineraryDays.length !== 1 ? "s" : ""} of adventure planned`
                   : "Plan your day-by-day adventure"}
               </p>
             </div>
@@ -2529,9 +2767,13 @@ export default function TripDetailPage() {
           <EditTripModal
             trip={trip}
             onClose={() => setEditModalOpen(false)}
-            onSave={async (updates) => {
+            onSave={async ({ status, ...updates }) => {
               try {
                 await tripsApi.update(tripId, updates);
+                // Route status changes through the dedicated lifecycle endpoint.
+                if (status && status !== trip.status) {
+                  await tripsApi.updateStatus(tripId, status as TripDetail["status"]);
+                }
                 const refreshed = await tripsApi.get(tripId);
                 setTrip(refreshed);
                 setEditModalOpen(false);

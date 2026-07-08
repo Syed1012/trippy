@@ -213,3 +213,193 @@ body::selection {
 /* Hide scrollbar while keeping scroll behaviour */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Premium frosted-glass surface system (luxury soft UI)
+   Scoped to post-login/internal pages via `.neu-scope` on the dashboard shell,
+   which sits over the landing's ambient background. Surfaces become tactile
+   frosted glass with a lit top edge and a soft warm drop shadow so they float
+   elegantly above the scene. `.neu-interactive` adds a lift on hover,
+   `.neu-inset` carves a recessed well (search fields, toggles, wells).
+   ───────────────────────────────────────────────────────────────────────── */
+.neu-scope .glass,
+.neu-scope .glass-sm,
+.neu-scope .glass-strong,
+.neu {
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.88) 0%, rgba(251, 247, 238, 0.74) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 1.35rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 6px -2px rgba(20, 47, 43, 0.10),
+    0 26px 52px -32px rgba(20, 47, 43, 0.44);
+  backdrop-filter: blur(15px) saturate(1.18);
+  -webkit-backdrop-filter: blur(15px) saturate(1.18);
+  transition: box-shadow 0.32s ease, transform 0.32s ease, border-color 0.32s ease;
+}
+
+[data-theme="dark"] .neu-scope .glass,
+[data-theme="dark"] .neu-scope .glass-sm,
+[data-theme="dark"] .neu-scope .glass-strong,
+[data-theme="dark"] .neu {
+  background: linear-gradient(158deg, rgba(39, 48, 61, 0.82) 0%, rgba(24, 30, 39, 0.74) 100%);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 26px 52px -32px rgba(0, 0, 0, 0.72);
+}
+
+/* Lift for interactive/clickable frosted surfaces */
+.neu-scope .neu-interactive:hover,
+.neu-interactive.neu:hover {
+  transform: translateY(-3px);
+  border-color: rgba(231, 111, 81, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 6px 14px -6px rgba(20, 47, 43, 0.14),
+    0 34px 64px -30px rgba(231, 111, 81, 0.42);
+}
+
+[data-theme="dark"] .neu-scope .neu-interactive:hover,
+[data-theme="dark"] .neu-interactive.neu:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 34px 64px -30px rgba(231, 111, 81, 0.32);
+}
+
+/* Recessed well — search fields, toggles, muted panels */
+.neu-inset {
+  background: rgba(251, 247, 238, 0.5);
+  border: 1px solid rgba(20, 47, 43, 0.07);
+  box-shadow: inset 0 2px 6px rgba(20, 47, 43, 0.08);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+[data-theme="dark"] .neu-inset {
+  background: rgba(0, 0, 0, 0.24);
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.42);
+}
+
+/* ─── Luxury primitives ───────────────────────────────────────────────── */
+
+/* Warm gradient text (headings, numerals) */
+.text-gradient-warm {
+  background: linear-gradient(102deg, #123c69 0%, #e76f51 56%, #f0b091 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+[data-theme="dark"] .text-gradient-warm {
+  background: linear-gradient(102deg, #9fb9d3 0%, #e76f51 54%, #f0b091 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Opaque luxe surface for hero panels sitting over the ambient scene */
+.premium-panel {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(251, 247, 238, 0.82));
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 32px 72px -36px rgba(20, 47, 43, 0.5);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+[data-theme="dark"] .premium-panel {
+  background: linear-gradient(160deg, rgba(39, 48, 61, 0.9), rgba(24, 30, 39, 0.8));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Warm accent glow (buttons, highlighted cards) */
+.glow-accent {
+  box-shadow: 0 22px 48px -20px rgba(231, 111, 81, 0.55);
+}
+
+/* Animated conic sheen ring for "premium/AI" accents */
+@property --lux-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.lux-ring {
+  position: relative;
+  isolation: isolate;
+}
+
+.lux-ring::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--lux-angle), #f0b091, #e76f51, #123c69, #f0b091);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lux-ring::before {
+    animation: lux-spin 7s linear infinite;
+  }
+}
+
+@keyframes lux-spin {
+  to {
+    --lux-angle: 360deg;
+  }
+}
+
+/* Soft rising float for hero accents */
+@media (prefers-reduced-motion: no-preference) {
+  .lux-float {
+    animation: lux-float 6s ease-in-out infinite;
+  }
+}
+
+@keyframes lux-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neu-scope .glass,
+  .neu-scope .glass-sm,
+  .neu-scope .glass-strong,
+  .neu,
+  .neu-interactive {
+    transition: none;
+  }
+}
+
+/* ─── Landing CTA sheen sweep (hover-triggered, motion-safe) ───────────── */
+.cta-sheen { position: relative; overflow: hidden; }
+.cta-sheen > * { position: relative; z-index: 1; }
+.cta-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 80%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.8s ease;
+  pointer-events: none;
+}
+.cta-sheen:hover::after { transform: translateX(130%); }
+@media (prefers-reduced-motion: reduce) {
+  .cta-sheen::after { transition: none; opacity: 0; }
+}

@@ -476,7 +476,56 @@ export const tripsApi = {
   create: async (data: CreateTripRequest) => normalizeTrip(await api.post<RawTrip>("/trips", data), 1),
   update: (id: string, data: Partial<CreateTripRequest>) =>
     api.patch<RawTrip>(`/trips/${id}`, data).then((trip) => normalizeTrip(trip)),
+  /** Dedicated trip status lifecycle transition (owner-only). */
+  updateStatus: (id: string, status: Trip["status"]) =>
+    api.patch<RawTrip>(`/trips/${id}/status`, { status }).then((trip) => normalizeTrip(trip)),
   delete: (id: string) => api.delete<void>(`/trips/${id}`),
+};
+
+/* ------------------------------------------------------------------ */
+/*  Trip Preferences API                                               */
+/* ------------------------------------------------------------------ */
+
+export type TripType =
+  | "BEACH"
+  | "MOUNTAIN"
+  | "CITY"
+  | "NATURE"
+  | "ADVENTURE"
+  | "CULTURE";
+
+export type BudgetTier = "ECONOMY" | "MODERATE" | "LUXURY";
+
+export type PreferredWeather = "WARM" | "MILD" | "COLD" | "ANY";
+
+/** Preference fields captured at trip creation and used by the AI service. */
+export interface TripPreferenceInput {
+  tripType?: TripType;
+  budgetTier?: BudgetTier;
+  preferredWeather?: PreferredWeather;
+  notes?: string;
+}
+
+export interface TripPreference extends TripPreferenceInput {
+  preferenceId: string;
+  userId: string;
+  tripId: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** True when at least one preference field has a value worth persisting. */
+export function hasTripPreferences(input: TripPreferenceInput): boolean {
+  return Boolean(
+    input.tripType || input.budgetTier || input.preferredWeather || input.notes?.trim(),
+  );
+}
+
+export const preferencesApi = {
+  save: (tripId: string, data: TripPreferenceInput) =>
+    api.post<TripPreference>("/users/trip-preferences", { tripId, ...data }),
+  getForTrip: (tripId: string) =>
+    api.get<TripPreference>(`/users/trip-preferences/${tripId}`),
 };
 
 /* ------------------------------------------------------------------ */

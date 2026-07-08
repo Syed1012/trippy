@@ -21,14 +21,30 @@ import {
   CloudSun,
   Navigation,
   Calendar,
+  Building2,
+  Trees,
+  Compass,
+  Landmark,
+  Snowflake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CreateTripRequest } from "@/lib/api";
+import type {
+  CreateTripRequest,
+  TripType,
+  PreferredWeather,
+  TripPreferenceInput,
+} from "@/lib/api";
+import type { CreateTripInitialValues } from "@/lib/pending-trip";
 
 interface CreateTripModalProps {
   open: boolean;
   onClose: () => void;
-  onCreate?: (data: CreateTripRequest) => Promise<void>;
+  onCreate?: (
+    data: CreateTripRequest,
+    preferences: TripPreferenceInput,
+  ) => Promise<void>;
+  /** Pre-fills the form when opening, e.g. from a trip drafted on the landing page. */
+  initialValues?: CreateTripInitialValues;
 }
 
 type Visibility = "PRIVATE" | "PUBLIC";
@@ -157,6 +173,7 @@ export default function CreateTripModal({
   open,
   onClose,
   onCreate,
+  initialValues,
 }: CreateTripModalProps) {
   const [title, setTitle] = useState("");
   const [destination, setDestination] = useState("");
@@ -166,6 +183,10 @@ export default function CreateTripModal({
   const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [isPackage, setIsPackage] = useState(false);
   const [budget, setBudget] = useState<Budget>("MODERATE");
+  const [tripType, setTripType] = useState<TripType | null>(null);
+  const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
+  const [preferenceNotes, setPreferenceNotes] = useState("");
+  const [budgetTier, setBudgetTier] = useState<Budget | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,6 +196,18 @@ export default function CreateTripModal({
       setTimeout(() => titleRef.current?.focus(), 400);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !initialValues) return;
+    if (initialValues.title) setTitle(initialValues.title);
+    if (initialValues.destination) setDestination(initialValues.destination);
+    if (initialValues.startDate) setStartDate(initialValues.startDate);
+    if (initialValues.endDate) setEndDate(initialValues.endDate);
+    if (initialValues.tripType) setTripType(initialValues.tripType);
+    if (initialValues.budgetTier) setBudgetTier(initialValues.budgetTier);
+    if (initialValues.visibility) setVisibility(initialValues.visibility);
+    if (initialValues.preferenceNotes) setPreferenceNotes(initialValues.preferenceNotes);
+  }, [open, initialValues]);
 
   useEffect(() => {
     if (!open) {
@@ -187,6 +220,10 @@ export default function CreateTripModal({
         setVisibility("PRIVATE");
         setIsPackage(false);
         setBudget("MODERATE");
+        setTripType(null);
+        setPreferredWeather(null);
+        setPreferenceNotes("");
+        setBudgetTier(undefined);
       }, 400);
     }
   }, [open]);
@@ -210,15 +247,23 @@ export default function CreateTripModal({
     if (!onCreate || !canSubmit) return;
     setLoading(true);
     try {
-      await onCreate({
-        title,
-        destination,
-        description: description || undefined,
-        startDate,
-        endDate,
-        visibility,
-        ...(isPackage ? { budgetLevel: budget } : {}),
-      });
+      await onCreate(
+        {
+          title,
+          destination,
+          description: description || undefined,
+          startDate,
+          endDate,
+          visibility,
+          ...(isPackage ? { budgetLevel: budget } : {}),
+        },
+        {
+          tripType: tripType ?? undefined,
+          budgetTier,
+          preferredWeather: preferredWeather ?? undefined,
+          notes: preferenceNotes.trim() || undefined,
+        },
+      );
     } finally {
       setLoading(false);
     }
@@ -248,6 +293,30 @@ export default function CreateTripModal({
       icon: Crown,
       desc: "Premium everything",
     },
+  ];
+
+  const tripTypeOptions: {
+    key: TripType;
+    label: string;
+    icon: typeof Wallet;
+  }[] = [
+    { key: "BEACH", label: "Beach", icon: TreePalm },
+    { key: "MOUNTAIN", label: "Mountains", icon: Mountain },
+    { key: "CITY", label: "City", icon: Building2 },
+    { key: "NATURE", label: "Nature", icon: Trees },
+    { key: "ADVENTURE", label: "Adventure", icon: Compass },
+    { key: "CULTURE", label: "Culture", icon: Landmark },
+  ];
+
+  const weatherOptions: {
+    key: PreferredWeather;
+    label: string;
+    icon: typeof Sun;
+  }[] = [
+    { key: "WARM", label: "Warm", icon: Sun },
+    { key: "MILD", label: "Mild", icon: CloudSun },
+    { key: "COLD", label: "Cold", icon: Snowflake },
+    { key: "ANY", label: "Any", icon: Globe },
   ];
 
   return (
@@ -720,6 +789,161 @@ export default function CreateTripModal({
                         </motion.div>
                       )}
                     </AnimatePresence>
+                  </div>
+                </motion.section>
+
+                {/* ─── Section: Trip preferences ──────────── */}
+                <motion.section
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35 }}
+                  className="space-y-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent-500/10">
+                      <Sparkles size={12} className="text-accent-500" />
+                    </div>
+                    <h4 className="text-sm font-bold text-foreground">
+                      Trip preferences
+                    </h4>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-trippy-500/10 px-2 py-0.5 text-[10px] font-semibold text-trippy-600">
+                      <Sparkles size={9} /> Smarter AI itineraries
+                    </span>
+                  </div>
+
+                  <div className="space-y-4 rounded-2xl border-2 border-border bg-gradient-to-br from-shore-50 to-white p-4">
+                    <p className="text-[11px] leading-snug text-muted">
+                      Pick a trip type and weather if you like — or skip them
+                      and just tell our AI what you&apos;re expecting in the
+                      notes. Everything here is optional.
+                    </p>
+
+                    {/* Trip type */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Trip type{" "}
+                        <span className="font-normal normal-case text-muted/60">
+                          · optional
+                        </span>
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {tripTypeOptions.map((opt) => {
+                          const OptIcon = opt.icon;
+                          const active = tripType === opt.key;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() =>
+                                setTripType(active ? null : opt.key)
+                              }
+                              className={cn(
+                                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all duration-200 cursor-pointer",
+                                active
+                                  ? "border-accent-500 bg-gradient-to-b from-accent-50 to-white shadow-sm"
+                                  : "border-border bg-white hover:border-accent-300 hover:shadow-sm"
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                                  active
+                                    ? "bg-accent-500 text-white"
+                                    : "bg-shore-100 text-muted"
+                                )}
+                              >
+                                <OptIcon size={14} />
+                              </div>
+                              <span
+                                className={cn(
+                                  "text-xs font-bold",
+                                  active
+                                    ? "text-accent-600"
+                                    : "text-foreground"
+                                )}
+                              >
+                                {opt.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Preferred weather (optional) */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Preferred weather{" "}
+                        <span className="font-normal normal-case text-muted/60">
+                          · optional
+                        </span>
+                      </label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {weatherOptions.map((opt) => {
+                          const OptIcon = opt.icon;
+                          const active = preferredWeather === opt.key;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() =>
+                                setPreferredWeather(active ? null : opt.key)
+                              }
+                              className={cn(
+                                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-2.5 text-center transition-all duration-200 cursor-pointer",
+                                active
+                                  ? "border-accent-500 bg-gradient-to-b from-accent-50 to-white shadow-sm"
+                                  : "border-border bg-white hover:border-accent-300 hover:shadow-sm"
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+                                  active
+                                    ? "bg-accent-500 text-white"
+                                    : "bg-shore-100 text-muted"
+                                )}
+                              >
+                                <OptIcon size={13} />
+                              </div>
+                              <span
+                                className={cn(
+                                  "text-[11px] font-semibold",
+                                  active
+                                    ? "text-accent-600"
+                                    : "text-foreground"
+                                )}
+                              >
+                                {opt.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Free-form expectations — the traveller can skip the
+                        chips above entirely and just describe their ideal trip */}
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="trip-pref-notes"
+                        className="text-xs font-semibold uppercase tracking-wider text-muted"
+                      >
+                        What are you expecting?{" "}
+                        <span className="font-normal normal-case text-muted/60">
+                          · optional
+                        </span>
+                      </label>
+                      <textarea
+                        id="trip-pref-notes"
+                        rows={3}
+                        maxLength={500}
+                        placeholder="e.g. laid-back beach mornings, amazing local food, a mix of culture and nightlife — or leave the options above unset and describe your ideal trip here."
+                        value={preferenceNotes}
+                        onChange={(e) => setPreferenceNotes(e.target.value)}
+                        className="w-full resize-none rounded-xl border border-border bg-white px-4 py-3 text-sm text-foreground placeholder:text-muted/50 transition-all duration-200 focus:border-accent-400 focus:outline-none focus:ring-2 focus:ring-accent-200/50 hover:border-accent-300"
+                      />
+                    </div>
                   </div>
                 </motion.section>
 

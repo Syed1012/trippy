@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pse.trippy.tripservice.dto.request.CreateTripRequest;
 import pse.trippy.tripservice.dto.request.UpdateTripRequest;
+import pse.trippy.tripservice.dto.request.UpdateTripStatusRequest;
 import pse.trippy.tripservice.dto.response.TripDetailResponse;
 import pse.trippy.tripservice.dto.response.TripPageResponse;
 import pse.trippy.tripservice.dto.response.TripResponse;
@@ -79,6 +80,20 @@ public class TripController {
             @RequestHeader("X-User-Id") UUID userId) {
         log.info("PATCH /trips/{} — Update trip, user={}", tripId, userId);
         TripResponse response = tripService.updateTrip(tripId, request, userId);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Trip status lifecycle transition (owner-only).
+     * e.g. DRAFT → PLANNED → ONGOING → COMPLETED, or CANCELLED.
+     */
+    @PatchMapping("/{tripId}/status")
+    public ResponseEntity<TripResponse> updateTripStatus(
+            @PathVariable UUID tripId,
+            @Valid @RequestBody UpdateTripStatusRequest request,
+            @RequestHeader("X-User-Id") UUID userId) {
+        log.info("PATCH /trips/{}/status — status={}, user={}", tripId, request.status(), userId);
+        TripResponse response = tripService.updateTripStatus(tripId, request.status(), userId);
         return ResponseEntity.ok(response);
     }
 
