@@ -109,100 +109,81 @@ export default function TripCard({
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.DRAFT;
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border bg-surface transition-all duration-300 hover:shadow-xl hover:-translate-y-1 hover:border-accent-300/50">
+    <div className="group neu neu-interactive relative flex h-full flex-col overflow-hidden rounded-[1.5rem]">
       {/* ── Cover area ────────────────────────────────────── */}
-      <div className="relative h-40 overflow-hidden">
+      <div className="relative h-52 overflow-hidden">
         {coverImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={coverImageUrl}
             alt={title}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+            className="h-full w-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.08]"
           />
         ) : (
-          <div
-            className={cn(
-              "h-full w-full bg-gradient-to-br",
-              getGradient(title)
-            )}
-          >
-            {/* Decorative plane icon */}
+          <div className={cn("relative h-full w-full bg-gradient-to-br", getGradient(title))}>
+            {/* Subtle dotted texture */}
+            <div className="absolute inset-0 bg-[radial-gradient(rgba(18,60,105,0.10)_1px,transparent_1px)] bg-[size:16px_16px] opacity-60" />
             <Plane
-              size={64}
-              className="absolute right-4 bottom-2 text-trippy-400/15 rotate-12 transition-transform duration-500 group-hover:translate-x-2 group-hover:-translate-y-2"
+              size={72}
+              className="absolute right-5 bottom-3 text-white/25 rotate-12 transition-transform duration-700 group-hover:translate-x-2 group-hover:-translate-y-2"
             />
           </div>
         )}
-        {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+
+        {/* Cinematic gradient wash for legible overlay text */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0f1a17]/82 via-[#0f1a17]/18 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-br from-accent-500/10 via-transparent to-trippy-600/10 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
 
         {/* Status pill */}
-        <div className="absolute top-3.5 left-3.5">
+        <div className="absolute top-4 left-4">
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-md",
-              cfg.bg,
-              cfg.text
+              "inline-flex items-center gap-1.5 rounded-full bg-white/92 px-3 py-1 text-[11px] font-bold shadow-sm backdrop-blur-md",
+              cfg.text,
             )}
           >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                cfg.dot,
-                status === "ACTIVE" && "animate-pulse"
-              )}
-            />
+            <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot, status === "ACTIVE" && "animate-pulse")} />
             {cfg.label}
           </span>
         </div>
 
         {/* Hover arrow */}
-        <div className="absolute top-3.5 right-3.5 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/0 backdrop-blur-sm transition-all duration-300 group-hover:bg-white/20 group-hover:text-white">
-          <ArrowUpRight size={14} />
+        <div className="absolute top-4 right-4 flex h-9 w-9 translate-y-1 items-center justify-center rounded-full bg-white/15 text-white opacity-0 backdrop-blur-md transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+          <ArrowUpRight size={16} />
         </div>
 
-        {/* Title overlay on cover */}
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <h3 className="text-base font-bold text-white leading-snug line-clamp-1 drop-shadow-sm">
+        {/* Title + destination over cover */}
+        <div className="absolute inset-x-0 bottom-0 p-4">
+          <h3 className="text-lg font-extrabold leading-tight text-white drop-shadow-md line-clamp-1">
             {title}
           </h3>
+          <div className="mt-1 flex items-center gap-1.5">
+            <MapPin size={13} className="shrink-0 text-accent-300" />
+            <span className="truncate text-xs font-medium text-white/85 drop-shadow">{destination}</span>
+          </div>
         </div>
       </div>
 
       {/* ── Card body ─────────────────────────────────────── */}
-      <div className="p-4 space-y-3">
-        {/* Destination */}
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-50">
-            <MapPin size={13} className="text-accent-500" />
-          </div>
-          <span className="text-sm text-foreground font-medium line-clamp-1">
-            {destination}
+      <div className="flex flex-1 flex-col gap-3 p-4">
+        {/* Date + members chips */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+            <Calendar size={12} className="text-accent-500" />
+            {formatDateRange(startDate, endDate)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+            <Users size={12} className="text-trippy-500" />
+            {participantCount}
           </span>
         </div>
 
-        {/* Date + members row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs text-muted">
-            <Calendar size={12} className="text-trippy-400" />
-            <span>{formatDateRange(startDate, endDate)}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs text-muted">
-            <Users size={12} className="text-trippy-400" />
-            <span>
-              {participantCount} member
-              {participantCount !== 1 && "s"}
-            </span>
-          </div>
-        </div>
-
-        {/* Join button for public trips */}
+        {/* Join / status actions (public trips) */}
         {onJoin && !joinRequested && !invited && (
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onJoin(); }}
             disabled={joinLoading}
-            className="w-full rounded-lg bg-accent-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-auto w-full rounded-xl bg-gradient-to-r from-accent-500 to-accent-600 px-3 py-2.5 text-xs font-bold text-white shadow-[0_14px_28px_-16px_rgba(231,111,81,0.9)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_34px_-16px_rgba(231,111,81,0.95)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {joinLoading ? "Sending request…" : "Join Trip"}
           </button>
@@ -210,23 +191,16 @@ export default function TripCard({
         {joinRequested && (
           <button
             disabled
-            className="w-full rounded-lg bg-shore-200 px-3 py-2 text-xs font-semibold text-muted cursor-not-allowed border border-border"
+            className="mt-auto w-full rounded-xl bg-shore-100/80 px-3 py-2.5 text-xs font-bold text-muted cursor-not-allowed border border-border/60"
           >
             Requested to Join
           </button>
         )}
-
-        {/* Invited badge — accept/decline via notifications */}
         {invited && (
-          <div className="w-full rounded-lg bg-accent-50 border border-accent-200 px-3 py-2 text-center text-xs font-semibold text-accent-700">
-            ✉️ Invited — check notifications to respond
+          <div className="mt-auto w-full rounded-xl bg-accent-50 border border-accent-200 px-3 py-2.5 text-center text-xs font-bold text-accent-700">
+            ✉️ Invited — respond in notifications
           </div>
         )}
-
-        {/* Bottom accent line */}
-        <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-border">
-          <div className="absolute inset-y-0 left-0 w-0 rounded-full bg-gradient-to-r from-accent-400 to-accent-500 transition-all duration-500 group-hover:w-full" />
-        </div>
       </div>
     </div>
   );

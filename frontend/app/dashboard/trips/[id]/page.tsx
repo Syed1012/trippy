@@ -851,12 +851,22 @@ function DayCard({
     <motion.div
       layout
       className={cn(
-        "rounded-2xl border-2 transition-all duration-300",
+        "group/day relative overflow-hidden rounded-[1.35rem] border transition-all duration-300",
         expanded
-          ? "border-accent-400/50 shadow-lg shadow-accent-500/5 bg-white"
-          : "border-border bg-surface hover:border-accent-300 hover:shadow-sm"
+          ? "border-accent-300/60 bg-white shadow-[0_28px_56px_-30px_rgba(231,111,81,0.5)]"
+          : "border-white/70 bg-white/80 backdrop-blur-md hover:border-accent-300/50 hover:shadow-[0_20px_44px_-28px_rgba(20,47,43,0.5)]",
       )}
     >
+      {/* Left timeline accent */}
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 w-1 transition-colors",
+          expanded
+            ? "bg-gradient-to-b from-accent-400 to-accent-600"
+            : "bg-transparent group-hover/day:bg-accent-200",
+        )}
+      />
+
       {/* Day header */}
       <div className="p-5">
         <div
@@ -868,13 +878,14 @@ function DayCard({
         >
           <div
             className={cn(
-              "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-bold text-lg transition-colors",
+              "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
               expanded
-                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-md shadow-accent-500/20"
-                : "bg-shore-100 text-muted"
+                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
+                : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
             )}
           >
-            {day.dayNumber}
+            <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+            <span className="text-lg">{day.dayNumber}</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -2252,13 +2263,16 @@ export default function TripDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 sm:p-10"
+        className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] sm:p-10"
       >
-        {/* Decorative elements */}
-        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
-        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10">
-          <Plane size={80} className="text-white rotate-12" />
+        {/* Immersive texture + warm mesh */}
+        <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
+        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
+          <Plane size={90} className="rotate-12 text-white" />
         </div>
 
         <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -2273,7 +2287,7 @@ export default function TripDetailPage() {
                 </span>
               )}
             </div>
-            <h1 className="text-3xl font-bold text-white sm:text-4xl">{trip.title}</h1>
+            <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">{trip.title}</h1>
             {trip.description && (
               <p className="mt-2 text-sm text-white/60 max-w-xl">{trip.description}</p>
             )}
@@ -2606,16 +2620,24 @@ export default function TripDetailPage() {
         className="space-y-5"
       >
         {/* Section header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-md shadow-accent-500/20">
-              <Calendar size={16} className="text-white" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_16px_32px_-16px_rgba(231,111,81,0.9)]">
+              <Map size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold">Itinerary</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-2xl font-black tracking-tight">Itinerary</h2>
+                {totalEstimatedCost > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-accent-500/12 px-2.5 py-0.5 text-[11px] font-bold text-accent-700">
+                    <DollarSign size={11} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}
+                    {totalEstimatedCost.toFixed(0)}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted">
                 {itineraryDays.length > 0
-                  ? `${itineraryDays.length} day${itineraryDays.length !== 1 ? "s" : ""} planned`
+                  ? `${itineraryDays.length} day${itineraryDays.length !== 1 ? "s" : ""} of adventure planned`
                   : "Plan your day-by-day adventure"}
               </p>
             </div>
