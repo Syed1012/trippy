@@ -50,6 +50,7 @@ export default function DashboardPage() {
   const { addToast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [createInitialValues, setCreateInitialValues] = useState<CreateTripInitialValues | undefined>(undefined);
+  const [autoCreating, setAutoCreating] = useState(false);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,14 +84,69 @@ export default function DashboardPage() {
     fetchTrips();
   }, [fetchTrips]);
 
-  // A trip drafted on the landing page before auth — open the modal pre-filled.
+  // Create a trip, then best-effort save its preferences (a preference failure
+  // must never undo the already-created trip).
+  const createTripWithPreferences = useCallback(
+    async (data: CreateTripRequest, preferences: TripPreferenceInput) => {
+      const trip = await tripsApi.create(data);
+      let prefsSaved = true;
+      if (hasTripPreferences(preferences)) {
+        try {
+          await preferencesApi.save(trip.tripId, preferences);
+        } catch (err) {
+          prefsSaved = false;
+          console.error("Failed to save trip preferences", err);
+        }
+      }
+      return { trip, prefsSaved };
+    },
+    [],
+  );
+
+  // A trip drafted on the landing page before auth. Rather than re-prompting the
+  // New Trip modal, create it straight from the stashed data and glide into it.
   useEffect(() => {
     const pending = loadPendingTrip();
     if (!pending) return;
     clearPendingTrip();
-    setCreateInitialValues(pendingTripToInitialValues(pending));
-    setCreateOpen(true);
-    addToast("Almost there — review your trip and create it.", "success");
+
+    const values = pendingTripToInitialValues(pending);
+    const data: CreateTripRequest = {
+      title: values.title ?? "",
+      destination: values.destination ?? "",
+      startDate: values.startDate,
+      endDate: values.endDate,
+      visibility: values.visibility,
+    };
+    const preferences: TripPreferenceInput = {
+      tripType: values.tripType,
+      budgetTier: values.budgetTier,
+      notes: values.preferenceNotes,
+    };
+
+    // Missing essentials — fall back to the pre-filled modal instead of failing.
+    if (!data.title || !data.destination || !data.startDate || !data.endDate) {
+      setCreateInitialValues(values);
+      setCreateOpen(true);
+      return;
+    }
+
+    setAutoCreating(true);
+    createTripWithPreferences(data, preferences)
+      .then(({ trip, prefsSaved }) => {
+        addToast(
+          prefsSaved ? "Your trip is ready!" : "Trip created — preferences need a retry.",
+          prefsSaved ? "success" : "error",
+        );
+        router.replace(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`);
+      })
+      .catch(() => {
+        // Keep the user's work: open the modal pre-filled so they can retry.
+        setAutoCreating(false);
+        setCreateInitialValues(values);
+        setCreateOpen(true);
+        addToast("We couldn't auto-create your trip — please review and try again.", "error");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,21 +174,8 @@ export default function DashboardPage() {
     preferences: TripPreferenceInput,
   ) {
     try {
-      const trip = await tripsApi.create(data);
+      const { trip, prefsSaved } = await createTripWithPreferences(data, preferences);
       setCreateOpen(false);
-
-      // Persist trip preferences separately — a failure here must not undo the
-      // already-created trip, so surface it without blocking navigation.
-      let prefsSaved = true;
-      if (hasTripPreferences(preferences)) {
-        try {
-          await preferencesApi.save(trip.tripId, preferences);
-        } catch (err) {
-          prefsSaved = false;
-          console.error("Failed to save trip preferences", err);
-        }
-      }
-
       addToast(
         prefsSaved ? "Trip created!" : "Trip created — preferences need a retry.",
         prefsSaved ? "success" : "error",
@@ -182,6 +225,51 @@ export default function DashboardPage() {
         onCreate={handleCreateTrip}
         initialValues={createInitialValues}
       />
+
+      {/* Auto-create overlay — shown while a trip drafted on the landing page is
+          saved straight to the DB after sign-in, for a seamless handoff. */}
+      <AnimatePresence>
+        {autoCreating && (
+          <motion.div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-background/80 backdrop-blur-xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="flex flex-col items-center gap-5 text-center"
+            >
+              <div className="relative grid h-20 w-20 place-items-center rounded-3xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-[0_20px_44px_-18px_rgba(213,101,62,0.9)]">
+                <motion.div
+                  animate={{ y: [0, -6, 0], rotate: [0, 8, 0] }}
+                  transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <Plane size={30} className="text-white" />
+                </motion.div>
+                <motion.div
+                  className="absolute -right-1.5 -top-1.5 text-accent-200"
+                  animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <Sparkles size={18} />
+                </motion.div>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-lg font-bold text-foreground">Creating your trip…</p>
+                <p className="text-sm text-muted">Saving your plan and preferences — hang tight.</p>
+              </div>
+              <div className="flex items-center gap-2 text-muted">
+                <Loader2 size={15} className="animate-spin" />
+                <span className="text-xs font-semibold uppercase tracking-wider">Almost ready</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Join Reason Modal ───────────────────────────────────── */}
       <AnimatePresence>
