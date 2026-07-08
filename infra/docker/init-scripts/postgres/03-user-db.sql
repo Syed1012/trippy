@@ -52,3 +52,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_email_verification_tokens_token
 
 CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id
     ON user_schema.email_verification_tokens (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Trip preferences
+-- Per-user, per-trip travel preferences captured at trip creation. Aligns a
+-- User with a specific trip (see domain model) and feeds the AI service so it
+-- can tailor itinerary suggestions (trip vibe, budget tier, weather, notes).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_schema.trip_preferences (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    trip_id UUID NOT NULL,
+    trip_type VARCHAR(30),
+    budget_tier VARCHAR(20),
+    preferred_weather VARCHAR(20),
+    notes VARCHAR(500),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_trip_preferences_user
+        FOREIGN KEY (user_id)
+        REFERENCES user_schema.users (id),
+    CONSTRAINT uq_trip_preferences_user_trip
+        UNIQUE (user_id, trip_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_preferences_user_id
+    ON user_schema.trip_preferences (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_trip_preferences_trip_id
+    ON user_schema.trip_preferences (trip_id);

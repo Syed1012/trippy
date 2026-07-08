@@ -480,6 +480,52 @@ export const tripsApi = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Trip Preferences API                                               */
+/* ------------------------------------------------------------------ */
+
+export type TripType =
+  | "BEACH"
+  | "MOUNTAIN"
+  | "CITY"
+  | "NATURE"
+  | "ADVENTURE"
+  | "CULTURE";
+
+export type BudgetTier = "ECONOMY" | "MODERATE" | "LUXURY";
+
+export type PreferredWeather = "WARM" | "MILD" | "COLD" | "ANY";
+
+/** Preference fields captured at trip creation and used by the AI service. */
+export interface TripPreferenceInput {
+  tripType?: TripType;
+  budgetTier?: BudgetTier;
+  preferredWeather?: PreferredWeather;
+  notes?: string;
+}
+
+export interface TripPreference extends TripPreferenceInput {
+  preferenceId: string;
+  userId: string;
+  tripId: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** True when at least one preference field has a value worth persisting. */
+export function hasTripPreferences(input: TripPreferenceInput): boolean {
+  return Boolean(
+    input.tripType || input.budgetTier || input.preferredWeather || input.notes?.trim(),
+  );
+}
+
+export const preferencesApi = {
+  save: (tripId: string, data: TripPreferenceInput) =>
+    api.post<TripPreference>("/users/trip-preferences", { tripId, ...data }),
+  getForTrip: (tripId: string) =>
+    api.get<TripPreference>(`/users/trip-preferences/${tripId}`),
+};
+
+/* ------------------------------------------------------------------ */
 /*  Participants API                                                    */
 /* ------------------------------------------------------------------ */
 

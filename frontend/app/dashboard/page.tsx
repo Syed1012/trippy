@@ -17,7 +17,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button, Input } from "@/components/ui";
 import TripCard from "@/components/trips/TripCard";
 import CreateTripModal from "@/components/trips/CreateTripModal";
-import { tripsApi, participantsApi, type Trip, type CreateTripRequest } from "@/lib/api";
+import {
+  tripsApi,
+  participantsApi,
+  preferencesApi,
+  hasTripPreferences,
+  type Trip,
+  type CreateTripRequest,
+  type TripPreferenceInput,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
 import { cn, tripSlug } from "@/lib/utils";
@@ -87,11 +95,30 @@ export default function DashboardPage() {
     }).finally(() => setPublicLoading(false));
   }, []);
 
-  async function handleCreateTrip(data: CreateTripRequest) {
+  async function handleCreateTrip(
+    data: CreateTripRequest,
+    preferences: TripPreferenceInput,
+  ) {
     try {
       const trip = await tripsApi.create(data);
-      addToast("Trip created!", "success");
       setCreateOpen(false);
+
+      // Persist trip preferences separately — a failure here must not undo the
+      // already-created trip, so surface it without blocking navigation.
+      let prefsSaved = true;
+      if (hasTripPreferences(preferences)) {
+        try {
+          await preferencesApi.save(trip.tripId, preferences);
+        } catch (err) {
+          prefsSaved = false;
+          console.error("Failed to save trip preferences", err);
+        }
+      }
+
+      addToast(
+        prefsSaved ? "Trip created!" : "Trip created — preferences need a retry.",
+        prefsSaved ? "success" : "error",
+      );
       router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`);
     } catch {
       addToast("Failed to create trip", "error");
