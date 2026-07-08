@@ -10,7 +10,7 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-background">
+      <div className="neu-scope min-h-screen bg-background">
         {/* Decorative gradient blobs */}
         <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
           <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-trippy-600/10 blur-3xl" />

@@ -213,3 +213,71 @@ body::selection {
 /* Hide scrollbar while keeping scroll behaviour */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Neumorphism (soft UI)
+   Scoped to post-login/internal pages via `.neu-scope` on the dashboard shell.
+   Surfaces get a soft dual shadow (light top-left, dark bottom-right) so they
+   read as gently extruded from the page. Also exposes standalone `.neu`,
+   `.neu-inset`, and `.neu-interactive` utilities for bespoke surfaces.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --neu-light: #ffffff;
+  --neu-dark: rgba(140, 120, 92, 0.30);
+  --neu-distance: 6px;
+  --neu-blur: 15px;
+}
+
+[data-theme="dark"] {
+  --neu-light: rgba(255, 255, 255, 0.045);
+  --neu-dark: rgba(0, 0, 0, 0.60);
+}
+
+.neu-scope .glass,
+.neu-scope .glass-sm,
+.neu-scope .glass-strong,
+.neu {
+  border-color: transparent;
+  box-shadow:
+    var(--neu-distance) var(--neu-distance) var(--neu-blur) var(--neu-dark),
+    calc(-1 * var(--neu-distance)) calc(-1 * var(--neu-distance)) var(--neu-blur) var(--neu-light);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+/* Preserve a hair of edge definition on dark surfaces */
+[data-theme="dark"] .neu-scope .glass,
+[data-theme="dark"] .neu-scope .glass-sm,
+[data-theme="dark"] .neu-scope .glass-strong,
+[data-theme="dark"] .neu {
+  border-color: var(--border);
+}
+
+/* Extra lift for interactive/clickable neumorphic surfaces */
+.neu-scope .neu-interactive:hover,
+.neu-interactive.neu:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    calc(var(--neu-distance) + 2px) calc(var(--neu-distance) + 2px)
+      calc(var(--neu-blur) + 6px) var(--neu-dark),
+    calc(-1 * (var(--neu-distance) + 2px)) calc(-1 * (var(--neu-distance) + 2px))
+      calc(var(--neu-blur) + 6px) var(--neu-light);
+}
+
+/* Pressed / recessed surfaces (search bars, wells, toggles) */
+.neu-inset {
+  border: 1px solid transparent;
+  box-shadow:
+    inset var(--neu-distance) var(--neu-distance) var(--neu-blur) var(--neu-dark),
+    inset calc(-1 * var(--neu-distance)) calc(-1 * var(--neu-distance))
+      var(--neu-blur) var(--neu-light);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neu-scope .glass,
+  .neu-scope .glass-sm,
+  .neu-scope .glass-strong,
+  .neu,
+  .neu-interactive {
+    transition: none;
+  }
+}
