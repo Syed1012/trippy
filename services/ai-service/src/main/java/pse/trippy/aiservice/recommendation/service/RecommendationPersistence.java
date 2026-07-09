@@ -22,6 +22,11 @@ class RecommendationPersistence {
 
     private final ItineraryRecommendationRepository repository;
 
+    @Transactional(readOnly = true)
+    public List<ItineraryRecommendation> findForTrip(UUID tripId) {
+        return repository.findByTripIdOrderByDayNumberAscOptionIndexAsc(tripId);
+    }
+
     @Transactional
     public void replaceForTrip(UUID tripId, List<ItineraryRecommendation> rows) {
         repository.deleteByTripId(tripId);

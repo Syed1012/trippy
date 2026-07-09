@@ -55,8 +55,12 @@ public class TripImageService {
 
     public TripImageResponse generate(TripImageRequest request) {
         if (!enabled) {
+            log.info("Cover image generation skipped for trip={} (AI_IMAGE_ENABLED=false)", request.tripId());
             return new TripImageResponse(request.tripId(), null, null, imageModel, "DISABLED", "DISABLED");
         }
+
+        log.info("Cover image generation started for trip={} destination='{}'",
+                request.tripId(), request.destination());
 
         String prompt;
         String source;
@@ -69,12 +73,15 @@ public class TripImageService {
             }
             source = "AI";
         } catch (Exception ex) {
-            log.warn("Image prompt generation failed ({}), using template", ex.getMessage());
+            log.warn("Cover image prompt fell back to a template for trip={} ({})",
+                    request.tripId(), ex.getMessage());
             prompt = fallbackPrompt(request.destination());
             source = "FALLBACK";
         }
 
         String url = buildImageUrl(prompt, request.tripId());
+        log.info("Cover image ready for trip={} source={} model={}",
+                request.tripId(), source, imageModel);
         return new TripImageResponse(request.tripId(), url, prompt, imageModel, source, "READY");
     }
 

@@ -50,6 +50,17 @@ public class ItineraryRecommendationService {
         List<Integer> dayNumbers = singleDay
                 ? List.of(Math.max(1, request.dayNumber()))
                 : IntStream.rangeClosed(1, Math.max(1, request.days())).boxed().toList();
+        long startedAt = System.currentTimeMillis();
+
+        if (singleDay) {
+            log.info("AI itinerary regeneration started for trip={} day={} destination='{}' preferences=[{}] model={}",
+                    request.tripId(), dayNumbers.get(0), request.destination(),
+                    summarizePreferences(request.preferences()), ollama.model());
+        } else {
+            log.info("AI itinerary generation started for trip={} destination='{}' days={} preferences=[{}] model={}",
+                    request.tripId(), request.destination(), dayNumbers.size(),
+                    summarizePreferences(request.preferences()), ollama.model());
+        }
 
         String source = "AI";
         String model = ollama.model();
@@ -62,7 +73,8 @@ public class ItineraryRecommendationService {
             String content = ollama.chatJson(buildSystemPrompt(), buildUserPrompt(request, dayNumbers), OLLAMA_TIMEOUT);
             byDay = parseOptions(content, dayNumbers, request);
         } catch (Exception ex) {
-            log.warn("Ollama itinerary recommendation failed ({}), using fallback", ex.getMessage());
+            log.warn("AI itinerary generation fell back to templates for trip={} ({})",
+                    request.tripId(), ex.getMessage());
             source = "FALLBACK";
             model = "fallback";
             byDay = fallbackOptions(dayNumbers, request);
@@ -73,7 +85,7 @@ public class ItineraryRecommendationService {
         try {
             persist(request, dayNumbers, byDay, model, source, singleDay);
         } catch (Exception ex) {
-            log.warn("Failed to store itinerary recommendations for trip {}: {}",
+            log.warn("Failed to store itinerary recommendations for trip={}: {}",
                     request.tripId(), ex.getMessage());
         }
 
@@ -81,7 +93,50 @@ public class ItineraryRecommendationService {
         for (int day : dayNumbers) {
             days.add(new DayRecommendations(day, byDay.getOrDefault(day, List.of())));
         }
+        log.info("AI itinerary {} completed for trip={} source={} model={} days={} durationMs={}",
+                singleDay ? "regeneration" : "generation", request.tripId(), source, model,
+                dayNumbers.size(), System.currentTimeMillis() - startedAt);
         return new RecommendationResponse(request.tripId(), model, source, Instant.now(), days);
+    }
+
+    /** Returns the previously generated recommendations for a trip (empty if none stored). */
+    public RecommendationResponse getStored(UUID tripId) {
+        List<ItineraryRecommendation> rows = persistence.findForTrip(tripId);
+        if (rows.isEmpty()) {
+            log.info("No stored AI itinerary found for trip={}", tripId);
+            return new RecommendationResponse(tripId, null, null, null, List.of());
+        }
+
+        Map<Integer, List<RecommendationOption>> byDay = new LinkedHashMap<>();
+        String model = null;
+        String source = null;
+        for (ItineraryRecommendation row : rows) {
+            model = row.getModel();
+            source = row.getSource();
+            byDay.computeIfAbsent(row.getDayNumber(), key -> new ArrayList<>())
+                    .add(new RecommendationOption(
+                            row.getId(), row.getVibe(), row.getTitle(), row.getStartTime(),
+                            row.getEndTime(), row.getEstimatedCost(), row.getCurrency(),
+                            row.getMapsUrl(), row.getNotes()));
+        }
+
+        List<DayRecommendations> days = byDay.entrySet().stream()
+                .map(entry -> new DayRecommendations(entry.getKey(), entry.getValue()))
+                .toList();
+        log.info("Returning stored AI itinerary for trip={} days={}", tripId, days.size());
+        return new RecommendationResponse(tripId, model, source, Instant.now(), days);
+    }
+
+    private String summarizePreferences(RecommendationRequest.PreferenceContext prefs) {
+        if (prefs == null) {
+            return "none";
+        }
+        List<String> parts = new ArrayList<>();
+        if (isSet(prefs.tripType())) parts.add("type=" + prefs.tripType());
+        if (isSet(prefs.budgetTier())) parts.add("budget=" + prefs.budgetTier());
+        if (isSet(prefs.preferredWeather())) parts.add("weather=" + prefs.preferredWeather());
+        if (isSet(prefs.notes())) parts.add("notes");
+        return parts.isEmpty() ? "none" : String.join(", ", parts);
     }
 
     // ------------------------------------------------------------------ prompts
