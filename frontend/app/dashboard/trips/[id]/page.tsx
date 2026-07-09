@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -2499,6 +2499,25 @@ export default function TripDetailPage() {
     applyParticipantFlags(data);
   }, [tripId, enrichParticipants, applyParticipantFlags]);
 
+  // Generate a cover image in the background for trips that don't have one yet.
+  useEffect(() => {
+    if (!trip || trip.coverImageUrl || !isOwnerOrEditor) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = await ensureTripCoverImage(trip.tripId, trip.destination);
+        if (cancelled || !url) return;
+        setTrip((prev) => (prev ? { ...prev, coverImageUrl: url } : prev));
+      } catch {
+        // Keep the gradient hero on failure.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip?.tripId, trip?.coverImageUrl, trip?.destination, isOwnerOrEditor]);
+
   async function handleApproveRequest(requesterUserId: string) {
     if (!tripId) return;
     setProcessingRequestUserId(requesterUserId);
@@ -2776,6 +2795,21 @@ export default function TripDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] sm:p-10"
       >
+        {/* AI-generated cover as a softly blurred backdrop (fades in when loaded) */}
+        {trip.coverImageUrl && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={trip.coverImageUrl}
+              alt=""
+              aria-hidden
+              className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover opacity-0 blur-[3px] transition-opacity duration-1000"
+              onLoad={(e) => { e.currentTarget.style.opacity = "0.7"; }}
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-trippy-900/78 via-trippy-800/68 to-trippy-900/85" />
+          </>
+        )}
+
         {/* Immersive texture + warm mesh */}
         <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />

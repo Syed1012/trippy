@@ -461,6 +461,7 @@ export interface CreateTripRequest {
   visibility?: string;
   status?: string;
   budgetLevel?: "ECONOMY" | "MODERATE" | "LUXURY";
+  coverImageUrl?: string;
 }
 
 export const tripsApi = {
@@ -588,6 +589,63 @@ export const recommendationsApi = {
     return res.json() as Promise<RecommendationResponse>;
   },
 };
+
+/* ------------------------------------------------------------------ */
+/*  Trip cover images (local model prompt + text-to-image)             */
+/* ------------------------------------------------------------------ */
+
+export interface TripImageResult {
+  tripId?: string;
+  imageUrl: string | null;
+  prompt?: string;
+  model?: string;
+  source?: string;
+  status?: string;
+}
+
+export interface TripImageInput {
+  tripId: string;
+  destination: string;
+  preferences?: TripPreferenceInput;
+}
+
+export const tripImageApi = {
+  /** Generate a cover image URL for a trip via the AI proxy route. */
+  async generate(input: TripImageInput): Promise<TripImageResult> {
+    const token = getAccessToken();
+    const res = await fetch("/api/ai/trip-images", {
+      method: "POST",
+      headers: token
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        : { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      throw new Error(`Trip image generation failed (${res.status})`);
+    }
+    return res.json() as Promise<TripImageResult>;
+  },
+};
+
+/**
+ * Generate a cover image for a trip and persist it onto the trip. Safe to call
+ * fire-and-forget: it runs in the background and a failed persist (e.g. a viewer
+ * without edit rights) is swallowed. Returns the image URL, or null if disabled.
+ */
+export async function ensureTripCoverImage(
+  tripId: string,
+  destination: string,
+  preferences?: TripPreferenceInput,
+): Promise<string | null> {
+  const result = await tripImageApi.generate({ tripId, destination, preferences });
+  if (!result.imageUrl) return null;
+  try {
+    await tripsApi.update(tripId, { coverImageUrl: result.imageUrl });
+  } catch {
+    // Non-owners can't persist; the URL is still usable for the current session.
+  }
+  return result.imageUrl;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Participants API                                                    */
