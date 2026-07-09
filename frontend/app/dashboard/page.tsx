@@ -224,7 +224,6 @@ export default function DashboardPage() {
   const heroStats = [
     { icon: Plane, label: "Trips", value: trips.length },
     { icon: Calendar, label: "Upcoming", value: upcomingCount },
-    { icon: Globe2, label: "Explore", value: publicTrips.length },
   ];
 
   return (
