@@ -5,13 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import pse.trippy.aiservice.recommendation.dto.RecommendationRequest;
 import pse.trippy.aiservice.recommendation.dto.RecommendationResponse;
 import pse.trippy.aiservice.recommendation.dto.RecommendationResponse.DayRecommendations;
 import pse.trippy.aiservice.recommendation.dto.RecommendationResponse.RecommendationOption;
 import pse.trippy.aiservice.recommendation.model.ItineraryRecommendation;
-import pse.trippy.aiservice.recommendation.repository.ItineraryRecommendationRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -44,10 +42,9 @@ public class ItineraryRecommendationService {
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(90);
 
     private final OllamaRecommendationClient ollama;
-    private final ItineraryRecommendationRepository repository;
+    private final RecommendationPersistence persistence;
     private final ObjectMapper mapper;
 
-    @Transactional
     public RecommendationResponse generate(RecommendationRequest request) {
         boolean singleDay = request.dayNumber() != null;
         List<Integer> dayNumbers = singleDay
@@ -71,7 +68,14 @@ public class ItineraryRecommendationService {
             byDay = fallbackOptions(dayNumbers, request);
         }
 
-        persist(request, dayNumbers, byDay, model, source, singleDay);
+        // Persistence is best-effort: the recommendations are already built, so a
+        // storage hiccup (e.g. a concurrent regeneration) must not fail the request.
+        try {
+            persist(request, dayNumbers, byDay, model, source, singleDay);
+        } catch (Exception ex) {
+            log.warn("Failed to store itinerary recommendations for trip {}: {}",
+                    request.tripId(), ex.getMessage());
+        }
 
         List<DayRecommendations> days = new ArrayList<>();
         for (int day : dayNumbers) {
@@ -287,11 +291,6 @@ public class ItineraryRecommendationService {
         if (request.tripId() == null) {
             return;
         }
-        if (singleDay) {
-            repository.deleteByTripIdAndDayNumber(request.tripId(), dayNumbers.get(0));
-        } else {
-            repository.deleteByTripId(request.tripId());
-        }
 
         List<ItineraryRecommendation> rows = new ArrayList<>();
         for (int day : dayNumbers) {
@@ -315,7 +314,12 @@ public class ItineraryRecommendationService {
                         .build());
             }
         }
-        repository.saveAll(rows);
+
+        if (singleDay) {
+            persistence.replaceForDay(request.tripId(), dayNumbers.get(0), rows);
+        } else {
+            persistence.replaceForTrip(request.tripId(), rows);
+        }
     }
 
     // --------------------------------------------------------------------- utils
