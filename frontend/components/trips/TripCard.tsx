@@ -117,7 +117,8 @@ export default function TripCard({
           <img
             src={coverImageUrl}
             alt={title}
-            className="h-full w-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.08]"
+            className="h-full w-full object-cover opacity-0 transition-all duration-700 ease-out group-hover:scale-[1.08]"
+            onLoad={(e) => { e.currentTarget.style.opacity = "1"; }}
           />
         ) : (
           <div className={cn("relative h-full w-full bg-gradient-to-br", getGradient(title))}>

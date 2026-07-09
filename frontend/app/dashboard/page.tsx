@@ -23,6 +23,7 @@ import {
   participantsApi,
   preferencesApi,
   hasTripPreferences,
+  ensureTripCoverImage,
   type Trip,
   type CreateTripRequest,
   type TripPreferenceInput,
@@ -90,6 +91,8 @@ export default function DashboardPage() {
   const createTripWithPreferences = useCallback(
     async (data: CreateTripRequest, preferences: TripPreferenceInput) => {
       const trip = await tripsApi.create(data);
+      // Kick off cover-image generation in the background — never blocks or fails creation.
+      void ensureTripCoverImage(trip.tripId, trip.destination, preferences).catch(() => {});
       let prefsSaved = true;
       if (hasTripPreferences(preferences)) {
         try {
@@ -224,7 +227,6 @@ export default function DashboardPage() {
   const heroStats = [
     { icon: Plane, label: "Trips", value: trips.length },
     { icon: Calendar, label: "Upcoming", value: upcomingCount },
-    { icon: Globe2, label: "Explore", value: publicTrips.length },
   ];
 
   return (
