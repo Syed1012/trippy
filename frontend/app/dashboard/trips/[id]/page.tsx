@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse, type UpdateItineraryRequest } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -2416,36 +2416,42 @@ export default function TripDetailPage() {
     setPanelWidth(clamped);
     setReserve(clamped + AI_RAIL_GAP);
   }
-  // Add an AI suggestion into the working itinerary (persisted on Save).
+  // Add an AI suggestion into the working itinerary and persist it immediately,
+  // so generated plans survive a logout without needing a manual Save.
   function applySuggestion(dayNumber: number, s: AISuggestion) {
-    setItineraryDays((prev) => {
-      const activity: Activity = {
-        activityId: `ai-rec-${dayNumber}-${Date.now()}`,
-        time: s.startTime || undefined,
-        title: s.title,
-        description: s.notes || undefined,
-        estimatedCost: s.cost ? String(Math.round(s.cost)) : undefined,
-        category: "sightseeing",
-      };
-      const exists = prev.some((d) => d.dayNumber === dayNumber);
-      if (exists) {
-        return prev.map((d) =>
+    const activity: Activity = {
+      activityId: `ai-rec-${dayNumber}-${Date.now()}`,
+      time: s.startTime || undefined,
+      title: s.title,
+      description: s.notes || undefined,
+      estimatedCost: s.cost ? String(Math.round(s.cost)) : undefined,
+      category: "sightseeing",
+    };
+    const exists = itineraryDays.some((d) => d.dayNumber === dayNumber);
+    const nextDays = exists
+      ? itineraryDays.map((d) =>
           d.dayNumber === dayNumber
             ? { ...d, title: d.title?.trim() ? d.title : s.title, activities: [...d.activities, activity] }
             : d,
-        );
-      }
-      return [
-        ...prev,
-        { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: s.title, activities: [activity] },
-      ].sort((a, b) => a.dayNumber - b.dayNumber);
-    });
+        )
+      : [
+          ...itineraryDays,
+          { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: s.title, activities: [activity] },
+        ].sort((a, b) => a.dayNumber - b.dayNumber);
+
+    setItineraryDays(nextDays);
     setExpandedDays((prev) => new Set(prev).add(dayNumber));
     setHasUnsavedChanges(true);
+    // Auto-save in the background so the AI-generated plan is stored right away.
+    void persistItinerary(nextDays, { silent: true });
   }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currency, setCurrency] = useState("USD");
   const [saving, setSaving] = useState(false);
+  // Serialize itinerary saves so rapid changes (e.g. adding several AI
+  // suggestions in a row) can't race — the latest pending state always wins.
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef<DayPlan[] | null>(null);
   const [votingSettingsOpen, setVotingSettingsOpen] = useState(false);
   const [isOwnerOrEditor, setIsOwnerOrEditor] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
@@ -2668,43 +2674,66 @@ export default function TripDetailPage() {
     setHasUnsavedChanges(true);
   }
 
-  async function handleSave() {
-    setSaving(true);
+  // Build the trip-service payload from the working itinerary days.
+  function buildItineraryPayload(days: DayPlan[]): UpdateItineraryRequest {
+    return {
+      dayPlans: days.map((day) => ({
+        dayNumber: day.dayNumber,
+        date: day.date ?? undefined,
+        title: day.title || undefined,
+        activities: day.activities.map((a) => {
+          // Parse time "09:00 - 11:00" into startTime/endTime
+          const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
+          const startTime = timeParts[0] || a.startTime || undefined;
+          const endTime = timeParts[1] || a.endTime || undefined;
+          // Map frontend "default" category to backend "OTHER"
+          const rawCat = (a.category ?? "OTHER").toUpperCase();
+          const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
+          return {
+            title: a.title || "Untitled activity",
+            description: a.description || undefined,
+            location: a.location || undefined,
+            startTime,
+            endTime,
+            category,
+            notes: undefined,
+          };
+        }),
+      })),
+    };
+  }
+
+  // Persist the itinerary. Saves are serialized (see savingRef/pendingSaveRef) so
+  // rapid changes can't race; a silent save skips the spinner/toast (auto-save).
+  async function persistItinerary(days: DayPlan[], opts?: { silent?: boolean }): Promise<boolean> {
+    if (savingRef.current) {
+      pendingSaveRef.current = days;
+      return false;
+    }
+    savingRef.current = true;
+    if (!opts?.silent) setSaving(true);
     try {
-      const payload = {
-        dayPlans: itineraryDays.map((day) => ({
-          dayNumber: day.dayNumber,
-          date: day.date ?? undefined,
-          title: day.title || undefined,
-          activities: day.activities.map((a) => {
-            // Parse time "09:00 - 11:00" into startTime/endTime
-            const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
-            const startTime = timeParts[0] || a.startTime || undefined;
-            const endTime = timeParts[1] || a.endTime || undefined;
-            // Map frontend "default" category to backend "OTHER"
-            const rawCat = (a.category ?? "OTHER").toUpperCase();
-            const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
-            return {
-              title: a.title || "Untitled activity",
-              description: a.description || undefined,
-              location: a.location || undefined,
-              startTime,
-              endTime,
-              category,
-              notes: undefined,
-            };
-          }),
-        })),
-      };
-      const result = await itineraryApi.update(tripId, payload);
+      const result = await itineraryApi.update(tripId, buildItineraryPayload(days));
       setItineraryDays(result.days);
       setHasUnsavedChanges(false);
-      addToast("Itinerary saved successfully", "success");
+      if (!opts?.silent) addToast("Itinerary saved successfully", "success");
+      return true;
     } catch {
       addToast("Failed to save itinerary", "error");
+      return false;
     } finally {
-      setSaving(false);
+      savingRef.current = false;
+      if (!opts?.silent) setSaving(false);
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        void persistItinerary(pending, { silent: true });
+      }
     }
+  }
+
+  async function handleSave() {
+    await persistItinerary(itineraryDays);
   }
 
   function handleVoteUpdate(dayNumber: number, summary: VoteSummary) {
