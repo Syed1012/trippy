@@ -61,6 +61,8 @@ import {
   Star,
   Zap,
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
@@ -1010,25 +1012,28 @@ interface AISuggestion {
 
 const AI_VIBES: Record<
   AISuggestion["vibe"],
-  { icon: typeof Star; gradient: string; chip: string; glow: string }
+  { icon: typeof Star; gradient: string; chip: string; bar: string; glow: string }
 > = {
   "Top Pick": {
     icon: Star,
     gradient: "from-accent-400 to-accent-600",
-    chip: "bg-accent-500/15 text-accent-100 border-accent-400/40",
-    glow: "rgba(231,111,81,0.5)",
+    chip: "bg-accent-500/12 text-accent-700 border-accent-400/40",
+    bar: "from-accent-400 to-accent-600",
+    glow: "rgba(231,111,81,0.32)",
   },
   "Adventurer": {
     icon: Zap,
     gradient: "from-sky-400 to-blue-600",
-    chip: "bg-sky-500/15 text-sky-100 border-sky-400/40",
-    glow: "rgba(56,152,236,0.45)",
+    chip: "bg-sky-500/12 text-sky-700 border-sky-400/40",
+    bar: "from-sky-400 to-blue-600",
+    glow: "rgba(56,152,236,0.3)",
   },
   "Hidden Gem": {
     icon: Heart,
     gradient: "from-emerald-400 to-teal-600",
-    chip: "bg-emerald-500/15 text-emerald-100 border-emerald-400/40",
-    glow: "rgba(45,212,160,0.45)",
+    chip: "bg-emerald-500/12 text-emerald-700 border-emerald-400/40",
+    bar: "from-emerald-400 to-teal-600",
+    glow: "rgba(45,212,160,0.3)",
   },
 };
 
@@ -1101,7 +1106,7 @@ function AILoadingMessages({ messages }: { messages: string[] }) {
   }, [messages.length]);
   return (
     <div className="text-center">
-      <p className="text-sm font-bold text-white">Crafting your itinerary</p>
+      <p className="text-sm font-bold text-foreground">Crafting your itinerary</p>
       <AnimatePresence mode="wait">
         <motion.p
           key={i}
@@ -1109,7 +1114,7 @@ function AILoadingMessages({ messages }: { messages: string[] }) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.3 }}
-          className="mt-1 text-xs text-white/55"
+          className="mt-1 text-xs text-muted"
         >
           {messages[i]}
         </motion.p>
@@ -1120,40 +1125,40 @@ function AILoadingMessages({ messages }: { messages: string[] }) {
 
 function AIItinerarySidebar({
   open,
+  minimized,
   onClose,
+  onMinimize,
+  onExpand,
   destination,
   numDays,
   currencySymbol,
 }: {
   open: boolean;
+  minimized: boolean;
   onClose: () => void;
+  onMinimize: () => void;
+  onExpand: () => void;
   destination: string;
   numDays: number;
   currencySymbol: string;
 }) {
   const { addToast } = useToast();
+  const days = Math.max(1, numDays);
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [activeDay, setActiveDay] = useState(1);
-  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>({});
-  const [chosen, setChosen] = useState<Record<number, string>>({});
-  const [regenning, setRegenning] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
-
-  const days = Math.max(1, numDays);
-
-  useEffect(() => {
-    if (!open) return;
-    setPhase("loading");
-    setActiveDay(1);
-    setChosen({});
+  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>(() => {
     const map: Record<number, AISuggestion[]> = {};
     for (let d = 1; d <= days; d++) map[d] = buildDaySuggestions(d, destination);
-    setSuggestions(map);
+    return map;
+  });
+  const [chosen, setChosen] = useState<Record<number, string>>({});
+  const [regenning, setRegenning] = useState(false);
+
+  // A fresh mount (keyed per open by the parent) plays the crafting sequence once.
+  useEffect(() => {
     const t = setTimeout(() => setPhase("ready"), 1500);
     return () => clearTimeout(t);
-  }, [open, days, destination]);
+  }, []);
 
   function regenerateDay() {
     setRegenning(true);
@@ -1183,253 +1188,296 @@ function AIItinerarySidebar({
     "Polishing your day-by-day plan…",
   ];
 
-  if (!mounted) return null;
+  if (typeof document === "undefined") return null;
 
   return createPortal(
     <AnimatePresence>
-      {open && (
-        <>
-          {/* Light scrim — keeps the left view visible; only catches outside clicks */}
-          <motion.div
-            className="fixed inset-0 z-[100] bg-[#08120f]/20"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
-
-          {/* Panel */}
-          <motion.aside
-            className="fixed right-0 top-0 z-[110] flex h-full w-full max-w-[30rem] flex-col overflow-hidden bg-gradient-to-b from-[#0e2137] via-[#0b1a2e] to-[#0a1424] text-white shadow-[0_0_120px_-20px_rgba(0,0,0,0.85)]"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 320, damping: 34 }}
+      {/* Minimized vertical tab */}
+      {open && minimized && (
+        <motion.div
+          key="ai-tab"
+          className="fixed right-0 top-1/2 z-[110] -translate-y-1/2"
+          initial={{ x: "110%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "110%" }}
+          transition={{ type: "spring", stiffness: 320, damping: 34 }}
+        >
+          <button
+            onClick={onExpand}
+            title="Expand AI Itinerary Studio"
+            className="group flex flex-col items-center gap-3 rounded-l-2xl border border-r-0 border-border bg-surface/95 py-5 pl-3 pr-2.5 shadow-[-18px_0_50px_-30px_rgba(20,47,43,0.55)] backdrop-blur-xl transition-all hover:pr-4 cursor-pointer"
           >
-            {/* Aurora glows */}
-            <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent-500/25 blur-3xl" />
-            <div className="pointer-events-none absolute top-1/3 -left-20 h-64 w-64 rounded-full bg-sky-500/15 blur-3xl" />
+            <span className="lux-ring flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]">
+              <Wand2 size={16} />
+            </span>
+            <span className="text-[11px] font-black uppercase tracking-[0.18em] text-foreground [writing-mode:vertical-rl]">
+              AI Studio
+            </span>
+            {chosenCount > 0 && (
+              <span className="rounded-full bg-accent-500 px-1.5 py-0.5 text-[9px] font-black text-white">
+                {chosenCount}
+              </span>
+            )}
+            <ChevronLeft
+              size={16}
+              className="text-muted transition group-hover:-translate-x-0.5 group-hover:text-accent-600"
+            />
+          </button>
+        </motion.div>
+      )}
 
-            {/* Header */}
-            <div className="relative z-10 shrink-0 px-6 pt-6 pb-5">
-              <button
-                onClick={onClose}
-                className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-              <div className="flex items-center gap-3.5">
-                <div className="lux-ring relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-[0_16px_32px_-14px_rgba(231,111,81,0.9)]">
-                  <Wand2 size={20} className="text-white" />
+      {/* Full panel */}
+      {open && !minimized && (
+        <motion.aside
+          key="ai-panel"
+          className="fixed right-0 top-0 z-[110] flex h-full w-full max-w-[30rem] flex-col overflow-hidden border-l border-border bg-surface/95 text-foreground shadow-[-30px_0_90px_-45px_rgba(20,47,43,0.6)] backdrop-blur-2xl"
+          initial={{ x: "100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "100%" }}
+          transition={{ type: "spring", stiffness: 320, damping: 34 }}
+        >
+          {/* Warm ambient accents */}
+          <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent-400/15 blur-3xl" />
+          <div className="pointer-events-none absolute top-1/3 -left-24 h-64 w-64 rounded-full bg-trippy-400/10 blur-3xl" />
+
+          {/* Header */}
+          <div className="relative z-10 shrink-0 border-b border-border/70 px-5 pt-5 pb-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="lux-ring relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_16px_32px_-14px_rgba(231,111,81,0.9)]">
+                  <Wand2 size={19} />
                 </div>
                 <div>
-                  <h3 className="font-display text-xl font-black leading-tight">AI Itinerary Studio</h3>
-                  <p className="text-xs text-white/55">
+                  <h3 className="font-display text-lg font-black leading-tight">AI Itinerary Studio</h3>
+                  <p className="text-[11px] text-muted">
                     {destination} · {days} day{days !== 1 ? "s" : ""} · 3 ideas each
                   </p>
                 </div>
               </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={onMinimize}
+                  title="Minimize to side"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-shore-100 text-muted transition hover:bg-shore-200 hover:text-foreground cursor-pointer"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={onClose}
+                  title="Close"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-shore-100 text-muted transition hover:bg-shore-200 hover:text-foreground cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              </div>
             </div>
+          </div>
 
-            {phase === "loading" ? (
-              /* Loading phase */
-              <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-8">
-                <div className="relative flex h-28 w-28 items-center justify-center">
-                  <span className="absolute inset-0 animate-ping rounded-full bg-accent-500/20" />
-                  <span className="absolute inset-2 rounded-full border-2 border-dashed border-white/15 animate-[spin_9s_linear_infinite]" />
-                  <div className="lux-ring flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent-400 to-accent-600 shadow-[0_0_40px_-4px_rgba(231,111,81,0.8)]">
-                    <Sparkles size={26} className="text-white" />
-                  </div>
-                </div>
-                <AILoadingMessages messages={loadingMessages} />
-                <div className="w-full max-w-xs space-y-3">
-                  {[0, 1, 2].map((i) => (
-                    <div
-                      key={i}
-                      className="h-16 animate-pulse rounded-2xl bg-white/5"
-                      style={{ animationDelay: `${i * 150}ms` }}
-                    />
-                  ))}
+          {phase === "loading" ? (
+            /* Loading phase */
+            <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-8">
+              <div className="relative flex h-28 w-28 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-accent-500/15" />
+                <span className="absolute inset-2 rounded-full border-2 border-dashed border-accent-200 animate-[spin_9s_linear_infinite]" />
+                <div className="lux-ring flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_0_40px_-6px_rgba(231,111,81,0.7)]">
+                  <Sparkles size={26} />
                 </div>
               </div>
-            ) : (
-              <>
-                {/* Day tabs */}
-                <div className="relative z-10 shrink-0 border-y border-white/8 bg-white/[0.02] px-4 py-3">
-                  <div className="no-scrollbar flex gap-2 overflow-x-auto">
-                    {Array.from({ length: days }, (_, i) => i + 1).map((d) => {
-                      const active = d === activeDay;
-                      const done = Boolean(chosen[d]);
-                      return (
-                        <button
-                          key={d}
-                          onClick={() => setActiveDay(d)}
-                          className={cn(
-                            "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer",
-                            active ? "text-white" : "text-white/55 hover:text-white/80",
-                          )}
-                        >
-                          {active && (
-                            <motion.span
-                              layoutId="ai-day-pill"
-                              className="absolute inset-0 rounded-full bg-gradient-to-r from-accent-500 to-accent-600 shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]"
-                              transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                            />
-                          )}
-                          <span className="relative z-10">Day {d}</span>
-                          {done && <Check size={12} className="relative z-10" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <AILoadingMessages messages={loadingMessages} />
+              <div className="w-full max-w-xs space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-16 animate-pulse rounded-2xl bg-shore-200/60"
+                    style={{ animationDelay: `${i * 150}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Day tabs */}
+              <div className="relative z-10 shrink-0 border-b border-border/70 bg-shore-50/50 px-4 py-3">
+                <div className="no-scrollbar flex gap-2 overflow-x-auto">
+                  {Array.from({ length: days }, (_, i) => i + 1).map((d) => {
+                    const active = d === activeDay;
+                    const done = Boolean(chosen[d]);
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => setActiveDay(d)}
+                        className={cn(
+                          "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer",
+                          active ? "text-white" : "text-muted hover:text-foreground",
+                        )}
+                      >
+                        {active && (
+                          <motion.span
+                            layoutId="ai-day-pill"
+                            className="absolute inset-0 rounded-full bg-gradient-to-r from-accent-500 to-accent-600 shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]"
+                            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                          />
+                        )}
+                        <span className="relative z-10">Day {d}</span>
+                        {done && (
+                          <Check
+                            size={12}
+                            className={cn("relative z-10", active ? "text-white" : "text-accent-500")}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
 
-                {/* Suggestions */}
-                <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
-                  <div className="mb-4 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-wider text-white/45">
-                      Day {activeDay} · pick your vibe
-                    </p>
-                    <button
-                      onClick={regenerateDay}
-                      disabled={regenning}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50 cursor-pointer"
-                    >
-                      <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
-                      {regenning ? "Reimagining…" : "Regenerate"}
-                    </button>
-                  </div>
-
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={`${activeDay}-${regenning}`}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.25 }}
-                      className="space-y-4"
-                    >
-                      {daySuggestions.map((s, idx) => {
-                        const vibe = AI_VIBES[s.vibe];
-                        const VibeIcon = vibe.icon;
-                        const isChosen = chosen[activeDay] === s.id;
-                        return (
-                          <motion.div
-                            key={s.id}
-                            initial={{ opacity: 0, y: 16 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.08, type: "spring", stiffness: 260, damping: 24 }}
-                            className={cn(
-                              "group relative overflow-hidden rounded-2xl border p-4 transition-all",
-                              isChosen
-                                ? "border-accent-400/70 bg-accent-500/10"
-                                : "border-white/10 bg-white/[0.04] hover:border-white/25 hover:bg-white/[0.07]",
-                            )}
-                          >
-                            {/* vibe glow */}
-                            <div
-                              className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full opacity-60 blur-2xl transition-opacity group-hover:opacity-100"
-                              style={{ background: vibe.glow }}
-                            />
-
-                            {/* header row */}
-                            <div className="relative flex items-center justify-between">
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider",
-                                  vibe.chip,
-                                )}
-                              >
-                                <VibeIcon size={11} /> {s.vibe}
-                              </span>
-                              <span className="text-[10px] font-bold text-white/40">Option {idx + 1}/3</span>
-                            </div>
-
-                            {/* title */}
-                            <h4 className="relative mt-3 text-[15px] font-extrabold leading-snug text-white">
-                              {s.title}
-                            </h4>
-
-                            {/* meta chips */}
-                            <div className="relative mt-3 flex flex-wrap gap-2">
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80">
-                                <Clock size={11} className="text-accent-300" /> {s.startTime}–{s.endTime}
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80">
-                                <DollarSign size={11} className="text-emerald-300" /> ~{currencySymbol}
-                                {s.cost}
-                              </span>
-                              <a
-                                href={s.mapsUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/15 hover:text-white"
-                              >
-                                <MapPin size={11} className="text-sky-300" /> Maps
-                                <ArrowUpRight size={10} />
-                              </a>
-                            </div>
-
-                            {/* notes */}
-                            <p className="relative mt-3 text-xs leading-relaxed text-white/60">{s.notes}</p>
-
-                            {/* CTA */}
-                            <button
-                              onClick={() => choose(s)}
-                              className={cn(
-                                "relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
-                                isChosen
-                                  ? "border border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
-                                  : cn(
-                                      "bg-gradient-to-r text-white shadow-[0_14px_28px_-16px_rgba(0,0,0,0.8)] hover:-translate-y-0.5",
-                                      vibe.gradient,
-                                    ),
-                              )}
-                            >
-                              {isChosen ? (
-                                <>
-                                  <Check size={14} /> Added to Day {activeDay}
-                                </>
-                              ) : (
-                                <>
-                                  <Plus size={14} /> Add as Day {activeDay} plan
-                                </>
-                              )}
-                            </button>
-                          </motion.div>
-                        );
-                      })}
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-
-                {/* Footer progress */}
-                <div className="relative z-10 shrink-0 border-t border-white/8 bg-white/[0.02] px-5 py-4">
-                  <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-white/60">
-                    <span>
-                      {chosenCount} of {days} days chosen
-                    </span>
-                    <span>{Math.round((chosenCount / days) * 100)}%</span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <motion.div
-                      className="h-full rounded-full bg-gradient-to-r from-accent-400 to-accent-600"
-                      animate={{ width: `${(chosenCount / days) * 100}%` }}
-                      transition={{ type: "spring", stiffness: 200, damping: 28 }}
-                    />
-                  </div>
+              {/* Suggestions */}
+              <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                    Day {activeDay} · pick your vibe
+                  </p>
                   <button
-                    onClick={onClose}
-                    className="mt-3 w-full rounded-xl border border-white/15 bg-white/5 py-2.5 text-xs font-bold text-white/80 transition hover:bg-white/10 cursor-pointer"
+                    onClick={regenerateDay}
+                    disabled={regenning}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
                   >
-                    Done for now
+                    <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
+                    {regenning ? "Reimagining…" : "Regenerate"}
                   </button>
                 </div>
-              </>
-            )}
-          </motion.aside>
-        </>
+
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`${activeDay}-${regenning}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                    className="space-y-4"
+                  >
+                    {daySuggestions.map((s, idx) => {
+                      const vibe = AI_VIBES[s.vibe];
+                      const VibeIcon = vibe.icon;
+                      const isChosen = chosen[activeDay] === s.id;
+                      return (
+                        <motion.div
+                          key={s.id}
+                          initial={{ opacity: 0, y: 16 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.08, type: "spring", stiffness: 260, damping: 24 }}
+                          className={cn(
+                            "group relative overflow-hidden rounded-2xl border p-4 pl-5 backdrop-blur-sm transition-all",
+                            isChosen
+                              ? "border-accent-400 bg-accent-50 shadow-[0_18px_40px_-26px_rgba(231,111,81,0.55)]"
+                              : "border-border bg-surface/80 shadow-[0_16px_36px_-26px_rgba(20,47,43,0.42)] hover:-translate-y-0.5 hover:shadow-[0_24px_48px_-24px_rgba(231,111,81,0.4)]",
+                          )}
+                        >
+                          {/* left vibe accent bar */}
+                          <div className={cn("absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b", vibe.bar)} />
+                          {/* corner glow */}
+                          <div
+                            className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full opacity-50 blur-2xl transition-opacity group-hover:opacity-90"
+                            style={{ background: vibe.glow }}
+                          />
+
+                          {/* header row */}
+                          <div className="relative flex items-center justify-between">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider",
+                                vibe.chip,
+                              )}
+                            >
+                              <VibeIcon size={11} /> {s.vibe}
+                            </span>
+                            <span className="text-[10px] font-bold text-muted">Option {idx + 1}/3</span>
+                          </div>
+
+                          {/* title */}
+                          <h4 className="relative mt-3 text-[15px] font-extrabold leading-snug text-foreground">
+                            {s.title}
+                          </h4>
+
+                          {/* meta chips */}
+                          <div className="relative mt-3 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+                              <Clock size={11} className="text-accent-500" /> {s.startTime}–{s.endTime}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+                              <DollarSign size={11} className="text-emerald-600" /> ~{currencySymbol}
+                              {s.cost}
+                            </span>
+                            <a
+                              href={s.mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75 transition hover:bg-accent-50 hover:text-accent-700"
+                            >
+                              <MapPin size={11} className="text-sky-600" /> Maps
+                              <ArrowUpRight size={10} />
+                            </a>
+                          </div>
+
+                          {/* notes */}
+                          <p className="relative mt-3 text-xs leading-relaxed text-muted">{s.notes}</p>
+
+                          {/* CTA */}
+                          <button
+                            onClick={() => choose(s)}
+                            className={cn(
+                              "relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
+                              isChosen
+                                ? "border border-emerald-400/50 bg-emerald-50 text-emerald-700"
+                                : cn(
+                                    "bg-gradient-to-r text-white shadow-[0_14px_28px_-16px_rgba(20,47,43,0.6)] hover:-translate-y-0.5",
+                                    vibe.gradient,
+                                  ),
+                            )}
+                          >
+                            {isChosen ? (
+                              <>
+                                <Check size={14} /> Added to Day {activeDay}
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={14} /> Add as Day {activeDay} plan
+                              </>
+                            )}
+                          </button>
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              {/* Footer progress */}
+              <div className="relative z-10 shrink-0 border-t border-border/70 bg-shore-50/50 px-5 py-4">
+                <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-muted">
+                  <span>
+                    {chosenCount} of {days} days chosen
+                  </span>
+                  <span>{Math.round((chosenCount / days) * 100)}%</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-shore-200">
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-r from-accent-400 to-accent-600"
+                    animate={{ width: `${(chosenCount / days) * 100}%` }}
+                    transition={{ type: "spring", stiffness: 200, damping: 28 }}
+                  />
+                </div>
+                <button
+                  onClick={onClose}
+                  className="mt-3 w-full rounded-xl border border-border bg-surface py-2.5 text-xs font-bold text-foreground transition hover:bg-shore-50 cursor-pointer"
+                >
+                  Done for now
+                </button>
+              </div>
+            </>
+          )}
+        </motion.aside>
       )}
     </AnimatePresence>,
     document.body,
@@ -2182,6 +2230,8 @@ export default function TripDetailPage() {
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
   const [itineraryDays, setItineraryDays] = useState<DayPlan[]>([]);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiMinimized, setAiMinimized] = useState(false);
+  const [aiSession, setAiSession] = useState(0);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currency, setCurrency] = useState("USD");
   const [saving, setSaving] = useState(false);
@@ -2487,7 +2537,13 @@ export default function TripDetailPage() {
   );
 
   return (
-    <div className="space-y-8 pb-12">
+    <div
+      className={cn(
+        "space-y-8 pb-12 transition-[margin] duration-500 ease-out",
+        aiPanelOpen && !aiMinimized && "xl:mr-[31rem]",
+        aiPanelOpen && aiMinimized && "xl:mr-[3.75rem]",
+      )}
+    >
       {/* Back link */}
       <Link
         href="/dashboard"
@@ -2917,7 +2973,7 @@ export default function TripDetailPage() {
             )}
             {isParticipant && (
               <button
-                onClick={() => setAiPanelOpen(true)}
+                onClick={() => { setAiPanelOpen(true); setAiMinimized(false); setAiSession((n) => n + 1); }}
                 className={cn(
                   "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
                   "bg-gradient-to-r from-trippy-600 to-trippy-700 text-white shadow-md shadow-trippy-500/20",
@@ -2991,7 +3047,7 @@ export default function TripDetailPage() {
                 </Button>
               )}
               <button
-                onClick={() => setAiPanelOpen(true)}
+                onClick={() => { setAiPanelOpen(true); setAiMinimized(false); setAiSession((n) => n + 1); }}
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
               >
                 <Sparkles size={14} /> Generate with AI
@@ -3003,8 +3059,15 @@ export default function TripDetailPage() {
 
       {/* AI Itinerary Studio */}
       <AIItinerarySidebar
+        key={aiSession}
         open={aiPanelOpen}
-        onClose={() => setAiPanelOpen(false)}
+        minimized={aiMinimized}
+        onClose={() => {
+          setAiPanelOpen(false);
+          setAiMinimized(false);
+        }}
+        onMinimize={() => setAiMinimized(true)}
+        onExpand={() => setAiMinimized(false)}
         destination={trip.destination}
         numDays={numDays > 0 ? numDays : 5}
         currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
