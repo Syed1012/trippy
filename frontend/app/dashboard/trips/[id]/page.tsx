@@ -56,6 +56,10 @@ import {
   Landmark,
   CloudSun,
   Snowflake,
+  RefreshCw,
+  Star,
+  Zap,
+  ArrowUpRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
@@ -991,192 +995,438 @@ function DayCard({
   );
 }
 
-/* ─── AI Generation Modal (dummy) ────────────────────────────────── */
-function AIGeneratePanel({
+/* ─── AI Itinerary Studio (immersive right sidebar — design preview) ─── */
+interface AISuggestion {
+  id: string;
+  vibe: "Top Pick" | "Adventurer" | "Hidden Gem";
+  title: string;
+  startTime: string;
+  endTime: string;
+  cost: number;
+  mapsUrl: string;
+  notes: string;
+}
+
+const AI_VIBES: Record<
+  AISuggestion["vibe"],
+  { icon: typeof Star; gradient: string; chip: string; glow: string }
+> = {
+  "Top Pick": {
+    icon: Star,
+    gradient: "from-accent-400 to-accent-600",
+    chip: "bg-accent-500/15 text-accent-100 border-accent-400/40",
+    glow: "rgba(231,111,81,0.5)",
+  },
+  "Adventurer": {
+    icon: Zap,
+    gradient: "from-sky-400 to-blue-600",
+    chip: "bg-sky-500/15 text-sky-100 border-sky-400/40",
+    glow: "rgba(56,152,236,0.45)",
+  },
+  "Hidden Gem": {
+    icon: Heart,
+    gradient: "from-emerald-400 to-teal-600",
+    chip: "bg-emerald-500/15 text-emerald-100 border-emerald-400/40",
+    glow: "rgba(45,212,160,0.45)",
+  },
+};
+
+function buildDaySuggestions(day: number, destination: string): AISuggestion[] {
+  const city = destination.split(",")[0]?.trim() || destination || "your destination";
+  const maps = (q: string) =>
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${q} ${city}`)}`;
+  const rot = <T,>(arr: T[]) => arr[(day - 1) % arr.length];
+  const stamp = `${day}-${Math.random().toString(36).slice(2, 7)}`;
+
+  const top = rot([
+    `Iconic ${city} Highlights`,
+    `Landmarks & Local Flavors of ${city}`,
+    `${city} Old Town & Skyline`,
+    `Best of ${city} in a Day`,
+  ]);
+  const adv = rot([
+    `${city} Trails & Viewpoints`,
+    `Sunrise Hike & River Day`,
+    `Adventure Circuit near ${city}`,
+    `Cliffs, Kayaks & Peaks`,
+  ]);
+  const gem = rot([
+    `Secret ${city} Neighborhoods`,
+    `Artisan Lanes & Hidden Cafés`,
+    `Backstreet ${city} Food Crawl`,
+    `Quiet Gardens & Local Markets`,
+  ]);
+
+  return [
+    {
+      id: `s-top-${stamp}`,
+      vibe: "Top Pick",
+      title: top,
+      startTime: "09:00",
+      endTime: "18:30",
+      cost: 85,
+      mapsUrl: maps(top),
+      notes: `A crowd-pleasing blend of ${city}'s signature sights, a leisurely local lunch, and a golden-hour viewpoint to finish.`,
+    },
+    {
+      id: `s-adv-${stamp}`,
+      vibe: "Adventurer",
+      title: adv,
+      startTime: "07:30",
+      endTime: "17:00",
+      cost: 120,
+      mapsUrl: maps(adv),
+      notes: `Early start, scenic trails and one big adrenaline hit — wrapped up with a well-earned meal and a view.`,
+    },
+    {
+      id: `s-gem-${stamp}`,
+      vibe: "Hidden Gem",
+      title: gem,
+      startTime: "10:30",
+      endTime: "20:00",
+      cost: 55,
+      mapsUrl: maps(gem),
+      notes: `Skip the crowds and roam where locals go — indie cafés, tiny galleries and flavors the guidebooks miss.`,
+    },
+  ];
+}
+
+/* Rotating status line for the AI loading state */
+function AILoadingMessages({ messages }: { messages: string[] }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % messages.length), 900);
+    return () => clearInterval(t);
+  }, [messages.length]);
+  return (
+    <div className="text-center">
+      <p className="text-sm font-bold text-white">Crafting your itinerary</p>
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={i}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.3 }}
+          className="mt-1 text-xs text-white/55"
+        >
+          {messages[i]}
+        </motion.p>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AIItinerarySidebar({
   open,
   onClose,
-  tripTitle,
   destination,
   numDays,
-  onGenerate,
+  currencySymbol,
 }: {
   open: boolean;
   onClose: () => void;
-  tripTitle: string;
   destination: string;
   numDays: number;
-  onGenerate: (days: DayPlan[]) => void;
+  currencySymbol: string;
 }) {
-  const [generating, setGenerating] = useState(false);
-  const [style, setStyle] = useState<"adventure" | "relaxed" | "cultural" | "foodie">("adventure");
+  const { addToast } = useToast();
+  const [phase, setPhase] = useState<"loading" | "ready">("loading");
+  const [activeDay, setActiveDay] = useState(1);
+  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>({});
+  const [chosen, setChosen] = useState<Record<number, string>>({});
+  const [regenning, setRegenning] = useState(false);
 
-  async function handleGenerate() {
-    setGenerating(true);
-    // Simulate AI generation delay
-    await new Promise((r) => setTimeout(r, 2500));
+  const days = Math.max(1, numDays);
 
-    // Generate dummy itinerary
-    const dummyDays: DayPlan[] = Array.from({ length: numDays }, (_, i) => ({
-      dayPlanId: `ai-day-${i + 1}-${Date.now()}`,
-      dayNumber: i + 1,
-      title: getDummyDayTitle(i, destination, style),
-      activities: getDummyActivities(i, destination, style),
-    }));
+  useEffect(() => {
+    if (!open) return;
+    setPhase("loading");
+    setActiveDay(1);
+    setChosen({});
+    const map: Record<number, AISuggestion[]> = {};
+    for (let d = 1; d <= days; d++) map[d] = buildDaySuggestions(d, destination);
+    setSuggestions(map);
+    const t = setTimeout(() => setPhase("ready"), 1500);
+    return () => clearTimeout(t);
+  }, [open, days, destination]);
 
-    setGenerating(false);
-    onGenerate(dummyDays);
-    onClose();
+  function regenerateDay() {
+    setRegenning(true);
+    setTimeout(() => {
+      setSuggestions((prev) => ({ ...prev, [activeDay]: buildDaySuggestions(activeDay, destination) }));
+      setChosen((prev) => {
+        const next = { ...prev };
+        delete next[activeDay];
+        return next;
+      });
+      setRegenning(false);
+    }, 850);
   }
 
-  const styles = [
-    { key: "adventure" as const, label: "Adventure", emoji: "🏔️" },
-    { key: "relaxed" as const, label: "Relaxed", emoji: "🏖️" },
-    { key: "cultural" as const, label: "Cultural", emoji: "🏛️" },
-    { key: "foodie" as const, label: "Foodie", emoji: "🍽️" },
+  function choose(s: AISuggestion) {
+    setChosen((prev) => ({ ...prev, [activeDay]: s.id }));
+    addToast(`“${s.title}” set as Day ${activeDay} (preview)`, "success");
+  }
+
+  const daySuggestions = suggestions[activeDay] ?? [];
+  const chosenCount = Object.keys(chosen).length;
+  const city = destination.split(",")[0]?.trim() || "your destination";
+  const loadingMessages = [
+    `Scanning the best of ${city}…`,
+    "Balancing sights, food & downtime…",
+    "Pricing activities & routes…",
+    "Polishing your day-by-day plan…",
   ];
 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+        <>
+          {/* Backdrop */}
           <motion.div
-            className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl bg-surface border border-border shadow-2xl"
-            initial={{ opacity: 0, scale: 0.9, y: 30 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 30 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+            className="fixed inset-0 z-[80] bg-[#08120f]/60 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+
+          {/* Panel */}
+          <motion.aside
+            className="fixed right-0 top-0 z-[85] flex h-full w-full max-w-[30rem] flex-col overflow-hidden bg-gradient-to-b from-[#0e2137] via-[#0b1a2e] to-[#0a1424] text-white shadow-[0_0_120px_-20px_rgba(0,0,0,0.85)]"
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 320, damping: 34 }}
           >
+            {/* Aurora glows */}
+            <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent-500/25 blur-3xl" />
+            <div className="pointer-events-none absolute top-1/3 -left-20 h-64 w-64 rounded-full bg-sky-500/15 blur-3xl" />
+
             {/* Header */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 px-6 py-5">
-              <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-accent-500/10 blur-2xl" />
-              <div className="pointer-events-none absolute -left-4 bottom-0 h-20 w-20 rounded-full bg-white/5" />
+            <div className="relative z-10 shrink-0 px-6 pt-6 pb-5">
               <button
                 onClick={onClose}
-                className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white cursor-pointer"
+                className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white cursor-pointer"
               >
-                <X size={14} />
+                <X size={16} />
               </button>
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm">
-                  <Wand2 size={18} className="text-white" />
+              <div className="flex items-center gap-3.5">
+                <div className="lux-ring relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 shadow-[0_16px_32px_-14px_rgba(231,111,81,0.9)]">
+                  <Wand2 size={20} className="text-white" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">AI Itinerary Builder</h3>
-                  <p className="text-xs text-white/60">Generate a full plan with one click</p>
+                  <h3 className="font-display text-xl font-black leading-tight">AI Itinerary Studio</h3>
+                  <p className="text-xs text-white/55">
+                    {destination} · {days} day{days !== 1 ? "s" : ""} · 3 ideas each
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Content */}
-            <div className="p-6 space-y-5">
-              <div className="rounded-xl bg-shore-50 border border-border p-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <MapPin size={13} className="text-accent-500" />
-                  <span className="font-medium">{destination}</span>
+            {phase === "loading" ? (
+              /* Loading phase */
+              <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-8">
+                <div className="relative flex h-28 w-28 items-center justify-center">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-accent-500/20" />
+                  <span className="absolute inset-2 rounded-full border-2 border-dashed border-white/15 animate-[spin_9s_linear_infinite]" />
+                  <div className="lux-ring flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent-400 to-accent-600 shadow-[0_0_40px_-4px_rgba(231,111,81,0.8)]">
+                    <Sparkles size={26} className="text-white" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Calendar size={13} className="text-accent-500" />
-                  <span className="text-muted">{numDays} day{numDays !== 1 ? "s" : ""}</span>
-                </div>
-              </div>
-
-              {/* Style selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted uppercase tracking-wider">
-                  Travel style
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {styles.map((s) => (
-                    <button
-                      key={s.key}
-                      onClick={() => setStyle(s.key)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-xl border-2 p-3 text-left transition-all cursor-pointer",
-                        style === s.key
-                          ? "border-accent-500 bg-accent-50 shadow-sm"
-                          : "border-border bg-white hover:border-accent-300"
-                      )}
-                    >
-                      <span className="text-lg">{s.emoji}</span>
-                      <span className={cn(
-                        "text-sm font-medium",
-                        style === s.key ? "text-accent-600" : "text-foreground"
-                      )}>
-                        {s.label}
-                      </span>
-                    </button>
+                <AILoadingMessages messages={loadingMessages} />
+                <div className="w-full max-w-xs space-y-3">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="h-16 animate-pulse rounded-2xl bg-white/5"
+                      style={{ animationDelay: `${i * 150}ms` }}
+                    />
                   ))}
                 </div>
               </div>
+            ) : (
+              <>
+                {/* Day tabs */}
+                <div className="relative z-10 shrink-0 border-y border-white/8 bg-white/[0.02] px-4 py-3">
+                  <div className="no-scrollbar flex gap-2 overflow-x-auto">
+                    {Array.from({ length: days }, (_, i) => i + 1).map((d) => {
+                      const active = d === activeDay;
+                      const done = Boolean(chosen[d]);
+                      return (
+                        <button
+                          key={d}
+                          onClick={() => setActiveDay(d)}
+                          className={cn(
+                            "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer",
+                            active ? "text-white" : "text-white/55 hover:text-white/80",
+                          )}
+                        >
+                          {active && (
+                            <motion.span
+                              layoutId="ai-day-pill"
+                              className="absolute inset-0 rounded-full bg-gradient-to-r from-accent-500 to-accent-600 shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]"
+                              transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                            />
+                          )}
+                          <span className="relative z-10">Day {d}</span>
+                          {done && <Check size={12} className="relative z-10" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              {/* Generate button */}
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2.5 rounded-2xl py-3.5 text-sm font-bold text-white transition-all cursor-pointer",
-                  "bg-gradient-to-r from-accent-500 to-accent-600 shadow-lg shadow-accent-500/20",
-                  "hover:shadow-xl hover:-translate-y-0.5",
-                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                )}
-              >
-                {generating ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Crafting your itinerary...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    Generate {numDays}-Day Itinerary
-                  </>
-                )}
-              </button>
+                {/* Suggestions */}
+                <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-wider text-white/45">
+                      Day {activeDay} · pick your vibe
+                    </p>
+                    <button
+                      onClick={regenerateDay}
+                      disabled={regenning}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
+                      {regenning ? "Reimagining…" : "Regenerate"}
+                    </button>
+                  </div>
 
-              {generating && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center text-xs text-muted"
-                >
-                  AI is planning activities, meals, and sightseeing for each day...
-                </motion.div>
-              )}
-            </div>
-          </motion.div>
-        </motion.div>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`${activeDay}-${regenning}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="space-y-4"
+                    >
+                      {daySuggestions.map((s, idx) => {
+                        const vibe = AI_VIBES[s.vibe];
+                        const VibeIcon = vibe.icon;
+                        const isChosen = chosen[activeDay] === s.id;
+                        return (
+                          <motion.div
+                            key={s.id}
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.08, type: "spring", stiffness: 260, damping: 24 }}
+                            className={cn(
+                              "group relative overflow-hidden rounded-2xl border p-4 transition-all",
+                              isChosen
+                                ? "border-accent-400/70 bg-accent-500/10"
+                                : "border-white/10 bg-white/[0.04] hover:border-white/25 hover:bg-white/[0.07]",
+                            )}
+                          >
+                            {/* vibe glow */}
+                            <div
+                              className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full opacity-60 blur-2xl transition-opacity group-hover:opacity-100"
+                              style={{ background: vibe.glow }}
+                            />
+
+                            {/* header row */}
+                            <div className="relative flex items-center justify-between">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider",
+                                  vibe.chip,
+                                )}
+                              >
+                                <VibeIcon size={11} /> {s.vibe}
+                              </span>
+                              <span className="text-[10px] font-bold text-white/40">Option {idx + 1}/3</span>
+                            </div>
+
+                            {/* title */}
+                            <h4 className="relative mt-3 text-[15px] font-extrabold leading-snug text-white">
+                              {s.title}
+                            </h4>
+
+                            {/* meta chips */}
+                            <div className="relative mt-3 flex flex-wrap gap-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80">
+                                <Clock size={11} className="text-accent-300" /> {s.startTime}–{s.endTime}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80">
+                                <DollarSign size={11} className="text-emerald-300" /> ~{currencySymbol}
+                                {s.cost}
+                              </span>
+                              <a
+                                href={s.mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/15 hover:text-white"
+                              >
+                                <MapPin size={11} className="text-sky-300" /> Maps
+                                <ArrowUpRight size={10} />
+                              </a>
+                            </div>
+
+                            {/* notes */}
+                            <p className="relative mt-3 text-xs leading-relaxed text-white/60">{s.notes}</p>
+
+                            {/* CTA */}
+                            <button
+                              onClick={() => choose(s)}
+                              className={cn(
+                                "relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
+                                isChosen
+                                  ? "border border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                                  : cn(
+                                      "bg-gradient-to-r text-white shadow-[0_14px_28px_-16px_rgba(0,0,0,0.8)] hover:-translate-y-0.5",
+                                      vibe.gradient,
+                                    ),
+                              )}
+                            >
+                              {isChosen ? (
+                                <>
+                                  <Check size={14} /> Added to Day {activeDay}
+                                </>
+                              ) : (
+                                <>
+                                  <Plus size={14} /> Add as Day {activeDay} plan
+                                </>
+                              )}
+                            </button>
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+
+                {/* Footer progress */}
+                <div className="relative z-10 shrink-0 border-t border-white/8 bg-white/[0.02] px-5 py-4">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-white/60">
+                    <span>
+                      {chosenCount} of {days} days chosen
+                    </span>
+                    <span>{Math.round((chosenCount / days) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-accent-400 to-accent-600"
+                      animate={{ width: `${(chosenCount / days) * 100}%` }}
+                      transition={{ type: "spring", stiffness: 200, damping: 28 }}
+                    />
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="mt-3 w-full rounded-xl border border-white/15 bg-white/5 py-2.5 text-xs font-bold text-white/80 transition hover:bg-white/10 cursor-pointer"
+                  >
+                    Done for now
+                  </button>
+                </div>
+              </>
+            )}
+          </motion.aside>
+        </>
       )}
     </AnimatePresence>
   );
-}
-
-/* ─── Dummy data generators ───────────────────────────────────────── */
-function getDummyDayTitle(dayIdx: number, destination: string, style: string): string {
-  const titles: Record<string, string[]> = {
-    adventure: ["Arrival & First Exploration", "Mountain Trek & Scenic Views", "River Rafting Day", "Cycling the Countryside", "Summit Challenge", "Forest Trail & Waterfalls", "Final Adventure"],
-    relaxed: ["Settle In & Stroll", "Beach & Spa Morning", "Leisurely Brunch & Gardens", "Art Gallery & Café Hopping", "Sunset Cruise", "Local Market & Cooking Class", "Farewell Day"],
-    cultural: ["Historic Old Town Walk", "Museum & Heritage Tour", "Local Traditions Workshop", "Architecture & Landmarks", "Traditional Music & Dance", "Sacred Sites Visit", "Cultural Wrap-up"],
-    foodie: ["Street Food Discovery", "Market & Cooking Class", "Fine Dining Experience", "Wine & Cheese Tour", "Bakery & Dessert Trail", "Farm-to-Table Visit", "Farewell Feast"],
-  };
-  const list = titles[style] ?? titles.adventure;
-  return list[dayIdx % list.length];
-}
-
-function getDummyActivities(dayIdx: number, destination: string, style: string): Activity[] {
-  const base: Activity[] = [
-    { activityId: `ai-${dayIdx}-1-${Date.now()}`, time: "08:00", title: "Breakfast at hotel", category: "breakfast", location: "Hotel", estimatedCost: "15" },
-    { activityId: `ai-${dayIdx}-2-${Date.now()}`, time: "09:30", title: style === "adventure" ? "Hiking trail exploration" : style === "cultural" ? "Guided museum tour" : style === "foodie" ? "Local market visit" : "Morning yoga session", category: "sightseeing", location: destination, estimatedCost: style === "adventure" ? "25" : "20" },
-    { activityId: `ai-${dayIdx}-3-${Date.now()}`, time: "12:30", title: "Lunch at local restaurant", category: "lunch", location: `${destination} city center`, estimatedCost: "30" },
-    { activityId: `ai-${dayIdx}-4-${Date.now()}`, time: "14:00", title: style === "adventure" ? "Rock climbing" : style === "cultural" ? "Heritage site visit" : style === "foodie" ? "Wine tasting" : "Spa treatment", category: "sightseeing", location: destination, estimatedCost: "40" },
-    { activityId: `ai-${dayIdx}-5-${Date.now()}`, time: "19:00", title: "Dinner", category: "dinner", location: destination, estimatedCost: "45" },
-  ];
-  return base;
 }
 
 /* ─── Voting Settings Panel (admin only) ──────────────────────────── */
@@ -2121,13 +2371,6 @@ export default function TripDetailPage() {
     setHasUnsavedChanges(true);
   }
 
-  function handleAIGenerate(days: DayPlan[]) {
-    setItineraryDays(days);
-    setExpandedDays(new Set([1]));
-    setHasUnsavedChanges(true);
-    addToast("AI itinerary generated! Review and customize as needed.", "success");
-  }
-
   function addDay() {
     const nextNum = itineraryDays.length + 1;
     setItineraryDays((prev) => [
@@ -2751,14 +2994,13 @@ export default function TripDetailPage() {
         )}
       </motion.section>
 
-      {/* AI Generate Panel */}
-      <AIGeneratePanel
+      {/* AI Itinerary Studio */}
+      <AIItinerarySidebar
         open={aiPanelOpen}
         onClose={() => setAiPanelOpen(false)}
-        tripTitle={trip.title}
         destination={trip.destination}
         numDays={numDays > 0 ? numDays : 5}
-        onGenerate={handleAIGenerate}
+        currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
       />
 
       {/* Edit Trip Modal */}
