@@ -18,6 +18,36 @@ spring:
       password: ${REDIS_PASSWORD:}
   cloud:
     gateway:
+      # Add Resilience4j configuration
+      resilience4j:
+        config:
+          default:
+            # After 50% of requests fail, the circuit opens
+            sliding-window-type: COUNT_BASED
+            sliding-window-size: 20 # Last 20 requests
+            failure-rate-threshold: 50
+            # Wait 10s in open state before transitioning to half-open
+            wait-duration-in-open-state: 10s
+            # Number of permitted calls in half-open state
+            permitted-number-of-calls-in-half-open-state: 5
+
+      default-filters:
+        - name: RequestRateLimiter
+          args:
+            # The bean name for our KeyResolver
+            key-resolver: '#{@userOrIpKeyResolver}'
+            # How many requests per second are allowed
+            redis-rate-limiter.replenishRate: 10
+            # Maximum number of requests allowed in a burst
+            redis-rate-limiter.burstCapacity: 20
+            # How many tokens are consumed per request
+            redis-rate-limiter.requestedTokens: 1
+        # Add the CircuitBreaker filter
+        - name: CircuitBreaker
+          args:
+            # A name for the circuit breaker instance
+            name: trippy-backend-cb
+
       routes:
         # User Service Routes
         - id: auth-route
@@ -36,6 +66,7 @@ spring:
             - Path=/.well-known/**
 
         # Chat Service Routes (REST) - /trips/{tripId}/chat/**
+
         # Must be before trips-route so the more specific path matches first
         - id: trips-chat-route
           uri: http://localhost:8083
@@ -43,6 +74,12 @@ spring:
             - Path=/trips/{tripId}/chat/**
 
         # Trip Service Routes
+        # Public discover route must be before the general authenticated route
+        - id: trips-discover-route
+          uri: http://localhost:8082
+          predicates:
+            - Path=/trips/discover
+            - Method=GET
         - id: trips-route
           uri: http://localhost:8082
           predicates:

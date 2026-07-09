@@ -1,2 +1,27 @@
-/mvnw text eol=lf
-*.cmd text eol=crlf
+# Set default behavior, in case users don't have core.autocrlf set.
+# This will handle line endings automatically for files Git considers text.
+* text=auto
+
+#
+# The above will handle all files NOT found below
+#
+
+# Explicitly declare text files you want to always be normalized and converted
+# to native line endings on checkout.
+*.css text
+*.html text
+*.java text
+*.js text
+*.json text
+*.md text
+*.ts text
+*.tsx text
+*.xml text
+*.yaml text
+*.yml text
+.gitignore text
+mvnw text
+
+# These files are scripts and must have LF line endings.
+*.sh text eol=lf
+mvnw.cmd text eol=crlf

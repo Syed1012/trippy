@@ -1,20 +1,12 @@
 package pse.trippy.paymentservice.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotNull;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class CheckoutRequest {
+import java.util.UUID;
 
-    @NotBlank(message = "Plan ID is required")
-    private String planId;
-
-    @NotBlank(message = "Payment method ID is required")
-    private String paymentMethodId;
+public record CheckoutRequest(
+        @NotBlank(message = "Plan ID is required") String planId,
+        @NotNull(message = "Payment method ID is required") UUID paymentMethodId
+) {
 }

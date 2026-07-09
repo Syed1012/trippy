@@ -7,8 +7,6 @@ import { NextResponse } from "next/server";
  * Usage: GET /api/images/city?q=Paris,France
  */
 
-const imageCache = new Map<string, string>();
-
 async function fetchWikipediaImage(query: string): Promise<string | null> {
   // Try Wikipedia REST API — returns the main image of an article
   const encoded = encodeURIComponent(query);
@@ -39,11 +37,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing ?q= parameter" }, { status: 400 });
   }
 
-  // Check in-memory cache
-  if (imageCache.has(query)) {
-    return NextResponse.json({ image: imageCache.get(query), cached: true });
-  }
-
   // Try different search terms for better results
   const parts = query.split(",").map((s) => s.trim());
   const cityName = parts[0];
@@ -58,13 +51,11 @@ export async function GET(request: Request) {
   for (const term of searches) {
     const img = await fetchWikipediaImage(term);
     if (img) {
-      imageCache.set(query, img);
       return NextResponse.json({ image: img, cached: false });
     }
   }
 
   // Final fallback
   const fallback = `https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop&q=80`;
-  imageCache.set(query, fallback);
   return NextResponse.json({ image: fallback, cached: false, fallback: true });
 }
