@@ -66,10 +66,12 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse, type UpdateItineraryRequest } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
+import { useAIGeneration } from "@/lib/ai-generation";
+import { type AISuggestion, buildDaySuggestions } from "@/lib/ai-suggestions";
 
 const statusVariant: Record<string, "default" | "success" | "warning" | "accent" | "danger"> = {
   DRAFT: "default",
@@ -1008,17 +1010,6 @@ const AI_RAIL_GAP = 32; // breathing room between content and the floating panel
 const AI_MIN_RESERVE = 64; // space kept for the collapsed tab
 const AI_RIGHT_GAP = 16; // panel distance from the right viewport edge (right-4)
 
-interface AISuggestion {
-  id: string;
-  vibe: "Top Pick" | "Adventurer" | "Hidden Gem";
-  title: string;
-  startTime: string;
-  endTime: string;
-  cost: number;
-  mapsUrl: string;
-  notes: string;
-}
-
 const AI_VIBES: Record<
   AISuggestion["vibe"],
   { icon: typeof Star; gradient: string; chip: string; bar: string; glow: string }
@@ -1045,97 +1036,6 @@ const AI_VIBES: Record<
     glow: "rgba(45,212,160,0.3)",
   },
 };
-
-function buildDaySuggestions(day: number, destination: string): AISuggestion[] {
-  const city = destination.split(",")[0]?.trim() || destination || "your destination";
-  const maps = (q: string) =>
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${q} ${city}`)}`;
-  const rot = <T,>(arr: T[]) => arr[(day - 1) % arr.length];
-  const stamp = `${day}-${Math.random().toString(36).slice(2, 7)}`;
-
-  const top = rot([
-    `Iconic ${city} Highlights`,
-    `Landmarks & Local Flavors of ${city}`,
-    `${city} Old Town & Skyline`,
-    `Best of ${city} in a Day`,
-  ]);
-  const adv = rot([
-    `${city} Trails & Viewpoints`,
-    `Sunrise Hike & River Day`,
-    `Adventure Circuit near ${city}`,
-    `Cliffs, Kayaks & Peaks`,
-  ]);
-  const gem = rot([
-    `Secret ${city} Neighborhoods`,
-    `Artisan Lanes & Hidden Cafés`,
-    `Backstreet ${city} Food Crawl`,
-    `Quiet Gardens & Local Markets`,
-  ]);
-
-  return [
-    {
-      id: `s-top-${stamp}`,
-      vibe: "Top Pick",
-      title: top,
-      startTime: "09:00",
-      endTime: "18:30",
-      cost: 85,
-      mapsUrl: maps(top),
-      notes: `A crowd-pleasing blend of ${city}'s signature sights, a leisurely local lunch, and a golden-hour viewpoint to finish.`,
-    },
-    {
-      id: `s-adv-${stamp}`,
-      vibe: "Adventurer",
-      title: adv,
-      startTime: "07:30",
-      endTime: "17:00",
-      cost: 120,
-      mapsUrl: maps(adv),
-      notes: `Early start, scenic trails and one big adrenaline hit — wrapped up with a well-earned meal and a view.`,
-    },
-    {
-      id: `s-gem-${stamp}`,
-      vibe: "Hidden Gem",
-      title: gem,
-      startTime: "10:30",
-      endTime: "20:00",
-      cost: 55,
-      mapsUrl: maps(gem),
-      notes: `Skip the crowds and roam where locals go — indie cafés, tiny galleries and flavors the guidebooks miss.`,
-    },
-  ];
-}
-
-const VIBE_ORDER: AISuggestion["vibe"][] = ["Top Pick", "Adventurer", "Hidden Gem"];
-
-/* Map a backend recommendation response into per-day suggestion cards. */
-function groupRecommendations(
-  res: RecommendationResponse,
-  destination: string,
-): Record<number, AISuggestion[]> {
-  const map: Record<number, AISuggestion[]> = {};
-  for (const day of res.days ?? []) {
-    const options = (day.options ?? []).slice(0, 3).map((o, i) => {
-      const vibe = VIBE_ORDER.includes(o.vibe as AISuggestion["vibe"])
-        ? (o.vibe as AISuggestion["vibe"])
-        : VIBE_ORDER[i] ?? "Top Pick";
-      return {
-        id: o.id || `s-${day.dayNumber}-${i}-${Math.random().toString(36).slice(2, 7)}`,
-        vibe,
-        title: o.title,
-        startTime: o.startTime ?? "",
-        endTime: o.endTime ?? "",
-        cost: typeof o.cost === "number" ? o.cost : 0,
-        mapsUrl:
-          o.mapsUrl ||
-          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.title} ${destination}`)}`,
-        notes: o.notes ?? "",
-      } satisfies AISuggestion;
-    });
-    map[day.dayNumber] = options.length ? options : buildDaySuggestions(day.dayNumber, destination);
-  }
-  return map;
-}
 
 /* Rotating status line for the AI loading state */
 function AILoadingMessages({ messages }: { messages: string[] }) {
@@ -1176,7 +1076,6 @@ function AIItinerarySidebar({
   destination,
   numDays,
   currencySymbol,
-  existingItinerary,
   onApply,
 }: {
   open: boolean;
@@ -1191,113 +1090,32 @@ function AIItinerarySidebar({
   destination: string;
   numDays: number;
   currencySymbol: string;
-  existingItinerary: DayPlan[];
   onApply: (dayNumber: number, suggestion: AISuggestion) => void;
 }) {
   const { addToast } = useToast();
+  const { states, regenerateDay: regenerate, setChosen: chooseInStore } = useAIGeneration();
   const days = Math.max(1, numDays);
-  const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [activeDay, setActiveDay] = useState(1);
-  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>({});
-  const [chosen, setChosen] = useState<Record<number, string>>({});
   const [regenning, setRegenning] = useState(false);
-  const prefsRef = useRef<TripPreferenceInput | undefined>(undefined);
 
-  // A fresh mount (keyed per open by the parent) fetches real recommendations once.
-  useEffect(() => {
-    let cancelled = false;
-
-    const localFallback = () => {
-      const map: Record<number, AISuggestion[]> = {};
-      for (let d = 1; d <= days; d++) map[d] = buildDaySuggestions(d, destination);
-      return map;
-    };
-
-    (async () => {
-      let preferences: TripPreferenceInput | undefined;
-      try {
-        const p = await preferencesApi.getForTrip(tripId);
-        preferences = {
-          tripType: p.tripType,
-          budgetTier: p.budgetTier,
-          preferredWeather: p.preferredWeather,
-          notes: p.notes,
-        };
-      } catch {
-        preferences = undefined;
-      }
-      prefsRef.current = preferences;
-
-      try {
-        const res = await recommendationsApi.generate({
-          tripId,
-          destination,
-          days,
-          preferences,
-          existingItinerary: existingItinerary
-            .filter((d) => d.activities.length > 0 || Boolean(d.title?.trim()))
-            .map((d) => ({
-              dayNumber: d.dayNumber,
-              title: d.title,
-              activities: d.activities.map((a) => ({
-                time: a.time,
-                title: a.title,
-                estimatedCost: a.estimatedCost,
-              })),
-            })),
-        });
-        if (cancelled) return;
-        const grouped = groupRecommendations(res, destination);
-        // Ensure every day has cards even if the model skipped some.
-        for (let d = 1; d <= days; d++) {
-          if (!grouped[d]?.length) grouped[d] = buildDaySuggestions(d, destination);
-        }
-        setSuggestions(grouped);
-        setPhase("ready");
-      } catch {
-        if (cancelled) return;
-        setSuggestions(localFallback());
-        setPhase("ready");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Generation lives in the dashboard-level provider, so it keeps running while
+  // the user navigates away and is ready when they return to this trip.
+  const genState = states[tripId];
+  const phase: "loading" | "ready" = genState?.status === "ready" ? "ready" : "loading";
+  const suggestions = genState?.suggestions ?? {};
+  const chosen = genState?.chosen ?? {};
 
   async function regenerateDay() {
     setRegenning(true);
     try {
-      const res = await recommendationsApi.generate({
-        tripId,
-        destination,
-        days,
-        dayNumber: activeDay,
-        preferences: prefsRef.current,
-      });
-      const grouped = groupRecommendations(res, destination);
-      setSuggestions((prev) => ({
-        ...prev,
-        [activeDay]: grouped[activeDay]?.length
-          ? grouped[activeDay]
-          : buildDaySuggestions(activeDay, destination),
-      }));
-    } catch {
-      setSuggestions((prev) => ({ ...prev, [activeDay]: buildDaySuggestions(activeDay, destination) }));
+      await regenerate(tripId, activeDay);
     } finally {
-      setChosen((prev) => {
-        const next = { ...prev };
-        delete next[activeDay];
-        return next;
-      });
       setRegenning(false);
     }
   }
 
   function choose(s: AISuggestion) {
-    setChosen((prev) => ({ ...prev, [activeDay]: s.id }));
+    chooseInStore(tripId, activeDay, s.id);
     onApply(activeDay, s);
     addToast(`Added “${s.title}” to Day ${activeDay}`, "success");
   }
@@ -1322,7 +1140,7 @@ function AIItinerarySidebar({
     window.addEventListener("pointerup", up);
   }
 
-  const daySuggestions = suggestions[activeDay] ?? [];
+  const daySuggestions = suggestions[activeDay] ?? (phase === "ready" ? buildDaySuggestions(activeDay, destination) : []);
   const chosenCount = Object.keys(chosen).length;
   const city = destination.split(",")[0]?.trim() || "your destination";
   const loadingMessages = [
@@ -2388,6 +2206,7 @@ export default function TripDetailPage() {
   const [aiSession, setAiSession] = useState(0);
   const [panelWidth, setPanelWidth] = useState(AI_DEFAULT_W);
   const { setReserve, setDragging } = useRightRail();
+  const { ensureStarted: startAIGeneration, hydrate: hydrateAIGeneration } = useAIGeneration();
 
   // Release the reserved rail space when leaving the trip page.
   useEffect(() => () => setReserve(0), [setReserve]);
@@ -2397,6 +2216,26 @@ export default function TripDetailPage() {
     setAiMinimized(false);
     setAiSession((n) => n + 1);
     setReserve(panelWidth + AI_RAIL_GAP);
+    // Kick off (or reuse) a background generation for this trip. It keeps running
+    // in the dashboard-level provider even if the user collapses and navigates away.
+    if (trip) {
+      startAIGeneration({
+        tripId: trip.tripId,
+        destination: trip.destination,
+        days: numDays > 0 ? numDays : 5,
+        existingItinerary: itineraryDays
+          .filter((d) => d.activities.length > 0 || Boolean(d.title?.trim()))
+          .map((d) => ({
+            dayNumber: d.dayNumber,
+            title: d.title,
+            activities: d.activities.map((a) => ({
+              time: a.time,
+              title: a.title,
+              estimatedCost: a.estimatedCost,
+            })),
+          })),
+      });
+    }
   }
   function closeAI() {
     setAiPanelOpen(false);
@@ -2639,6 +2478,14 @@ export default function TripDetailPage() {
   }
 
   const numDays = getNumDays(trip?.startDate, trip?.endDate);
+
+  // Pull in any recommendations generated earlier (survives reloads / navigation)
+  // so reopening the AI panel shows them instantly instead of regenerating.
+  useEffect(() => {
+    if (trip?.tripId && trip.destination) {
+      hydrateAIGeneration(trip.tripId, trip.destination, numDays > 0 ? numDays : 5);
+    }
+  }, [trip?.tripId, trip?.destination, numDays, hydrateAIGeneration]);
 
   const members = (trip?.participants ?? []).filter(
     (p) => p.status === "ACCEPTED" || p.role === "OWNER"
@@ -3340,7 +3187,6 @@ export default function TripDetailPage() {
         destination={trip.destination}
         numDays={numDays > 0 ? numDays : 5}
         currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
-        existingItinerary={itineraryDays}
         onApply={applySuggestion}
       />
 

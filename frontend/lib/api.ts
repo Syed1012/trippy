@@ -588,6 +588,18 @@ export const recommendationsApi = {
     }
     return res.json() as Promise<RecommendationResponse>;
   },
+
+  /** Fetch the previously stored recommendations for a trip (empty days if none). */
+  async getStored(tripId: string): Promise<RecommendationResponse> {
+    const token = getAccessToken();
+    const res = await fetch(`/api/ai/recommendations/${tripId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) {
+      throw new Error(`Fetching recommendations failed (${res.status})`);
+    }
+    return res.json() as Promise<RecommendationResponse>;
+  },
 };
 
 /* ------------------------------------------------------------------ */
