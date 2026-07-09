@@ -1,28 +1,43 @@
 package pse.trippy.paymentservice.service;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import pse.trippy.paymentservice.dto.PaymentRequest;
+import pse.trippy.paymentservice.exception.InvalidPaymentException;
 import pse.trippy.paymentservice.exception.InvalidPaymentTokenException;
+import pse.trippy.paymentservice.model.entity.PaymentMethod;
+import pse.trippy.paymentservice.repository.PaymentMethodRepository;
 
-/**
- * Validates payment requests before they are processed.
- */
+import java.util.UUID;
+
 @Component
+@RequiredArgsConstructor
 public class PaymentValidator {
 
-    /**
-     * Validates the payment token within a payment request.
-     *
-     * @param request The payment request to validate.
-     * @throws InvalidPaymentTokenException if the payment token is invalid.
-     */
-    public void validatePayment(PaymentRequest request) {
-        String token = request.paymentMethodToken();
+    private final PaymentMethodRepository paymentMethodRepository;
 
-        // A real implementation would check the token format, length, and prefix.
-        // e.g., Stripe tokens start with "tok_", Braintree with "fake-valid-nonce"
-        if (token == null || token.isBlank() || !token.startsWith("tok_")) {
-            throw new InvalidPaymentTokenException("Invalid or missing payment method token.");
+    public void validateCheckoutPaymentMethod(String paymentMethodToken) {
+        if (paymentMethodToken == null || paymentMethodToken.isBlank()) {
+            throw new InvalidPaymentTokenException("Payment method token is required.");
+        }
+
+        String normalized = paymentMethodToken.trim();
+        if (!(normalized.startsWith("pm_") || normalized.startsWith("tok_"))) {
+            throw new InvalidPaymentTokenException("Invalid payment method token: " + paymentMethodToken);
+        }
+    }
+
+    public void validateStoredPaymentMethod(UUID userId, UUID paymentMethodId) {
+        if (paymentMethodId == null) {
+            throw new InvalidPaymentTokenException("Payment method ID is required.");
+        }
+
+        PaymentMethod paymentMethod = paymentMethodRepository.findById(paymentMethodId)
+                .filter(method -> method.getUserId().equals(userId))
+                .orElseThrow(() -> new InvalidPaymentException(
+                        "Payment method not found: " + paymentMethodId));
+
+        if (paymentMethod.getType() == null || paymentMethod.getType().isBlank()) {
+            throw new InvalidPaymentException("Stored payment method is invalid: " + paymentMethodId);
         }
     }
 }

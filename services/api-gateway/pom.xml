@@ -39,12 +39,6 @@
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
 
-        <!-- Resilience4j Circuit Breaker -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
-        </dependency>
-
         <!-- Redis for Rate Limiting -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

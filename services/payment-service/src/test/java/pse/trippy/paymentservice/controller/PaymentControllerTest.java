@@ -17,7 +17,6 @@ import pse.trippy.paymentservice.dto.request.PaymentConfirmationRequest;
 import pse.trippy.paymentservice.dto.response.CheckoutResponse;
 import pse.trippy.paymentservice.dto.response.PaymentConfirmationResponse;
 import pse.trippy.paymentservice.dto.response.PlanResponse;
-import pse.trippy.paymentservice.dto.response.FeatureResponse;
 import pse.trippy.paymentservice.service.PaymentMethodService;
 import pse.trippy.paymentservice.service.PaymentService;
 import pse.trippy.paymentservice.service.SubscriptionService;
@@ -60,32 +59,31 @@ class PaymentControllerTest {
     @Test
     @DisplayName("GET /payments/plans returns plan list (no auth required)")
     void getPlansReturnsOk() throws Exception {
-        // Mocking PlanResponse objects using their canonical constructor
         when(paymentService.getAvailablePlans()).thenReturn(List.of(
-                new PlanResponse(
-                        "premium", // id
-                        "Premium", // name
-                        "For power users and frequent travelers", // description
-                        List.of(new PlanResponse.Price("premium_monthly", "Monthly", new BigDecimal("9.99"), "EUR")), // prices
-                        List.of(new FeatureResponse("Unlimited trips", true)) // features
-                ),
-                new PlanResponse(
-                        "enterprise", // id
-                        "Enterprise", // name
-                        "For teams and travel agencies", // description
-                        List.of(new PlanResponse.Price("enterprise_monthly", "Monthly", new BigDecimal("29.99"), "EUR")), // prices
-                        List.of(new FeatureResponse("All Premium features", true)) // features
-                )
+                PlanResponse.builder()
+                        .planId("PREMIUM")
+                        .displayName("Premium Plan")
+                        .price(new BigDecimal("9.99"))
+                        .currency("EUR")
+                        .features(List.of("Up to 10 trips"))
+                        .build(),
+                PlanResponse.builder()
+                        .planId("ENTERPRISE")
+                        .displayName("Enterprise Plan")
+                        .price(new BigDecimal("29.99"))
+                        .currency("EUR")
+                        .features(List.of("Unlimited trips"))
+                        .build()
         ));
 
         mockMvc.perform(get("/payments/plans"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].id").value("premium")) // Use 'id' instead of 'planId'
-                .andExpect(jsonPath("$[0].prices[0].amount").value(9.99)) // Access price from the nested 'prices' list
-                .andExpect(jsonPath("$[1].id").value("enterprise")) // Use 'id' instead of 'planId'
-                .andExpect(jsonPath("$[1].prices[0].amount").value(29.99)); // Access price from the nested 'prices' list
+                .andExpect(jsonPath("$[0].planId").value("PREMIUM"))
+                .andExpect(jsonPath("$[0].price").value(9.99))
+                .andExpect(jsonPath("$[1].planId").value("ENTERPRISE"))
+                .andExpect(jsonPath("$[1].price").value(29.99));
     }
 
     @Test
@@ -120,8 +118,11 @@ class PaymentControllerTest {
 
     @Test
     @DisplayName("POST /payments/checkout without auth returns 403")
-    void checkoutWithoutAuthReturns401() throws Exception { // Changed to 401 as per Spring Security default for unauthenticated access
-        CheckoutRequest request = new CheckoutRequest("PREMIUM", UUID.randomUUID());
+    void checkoutWithoutAuthReturns401() throws Exception {
+        CheckoutRequest request = CheckoutRequest.builder()
+                .planId("PREMIUM")
+                .paymentMethodId("pm_test_123")
+                .build();
 
         mockMvc.perform(post("/payments/checkout")
                         .contentType(MediaType.APPLICATION_JSON)
