@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -1136,6 +1137,9 @@ function AIItinerarySidebar({
   const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>({});
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [regenning, setRegenning] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   const days = Math.max(1, numDays);
 
@@ -1179,13 +1183,15 @@ function AIItinerarySidebar({
     "Polishing your day-by-day plan…",
   ];
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop */}
+          {/* Light scrim — keeps the left view visible; only catches outside clicks */}
           <motion.div
-            className="fixed inset-0 z-[80] bg-[#08120f]/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] bg-[#08120f]/20"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1194,7 +1200,7 @@ function AIItinerarySidebar({
 
           {/* Panel */}
           <motion.aside
-            className="fixed right-0 top-0 z-[85] flex h-full w-full max-w-[30rem] flex-col overflow-hidden bg-gradient-to-b from-[#0e2137] via-[#0b1a2e] to-[#0a1424] text-white shadow-[0_0_120px_-20px_rgba(0,0,0,0.85)]"
+            className="fixed right-0 top-0 z-[110] flex h-full w-full max-w-[30rem] flex-col overflow-hidden bg-gradient-to-b from-[#0e2137] via-[#0b1a2e] to-[#0a1424] text-white shadow-[0_0_120px_-20px_rgba(0,0,0,0.85)]"
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
@@ -1425,7 +1431,8 @@ function AIItinerarySidebar({
           </motion.aside>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
