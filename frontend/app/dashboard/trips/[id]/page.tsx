@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, recommendationsApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type TripPreferenceInput, type RecommendationResponse } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -1106,6 +1106,37 @@ function buildDaySuggestions(day: number, destination: string): AISuggestion[] {
   ];
 }
 
+const VIBE_ORDER: AISuggestion["vibe"][] = ["Top Pick", "Adventurer", "Hidden Gem"];
+
+/* Map a backend recommendation response into per-day suggestion cards. */
+function groupRecommendations(
+  res: RecommendationResponse,
+  destination: string,
+): Record<number, AISuggestion[]> {
+  const map: Record<number, AISuggestion[]> = {};
+  for (const day of res.days ?? []) {
+    const options = (day.options ?? []).slice(0, 3).map((o, i) => {
+      const vibe = VIBE_ORDER.includes(o.vibe as AISuggestion["vibe"])
+        ? (o.vibe as AISuggestion["vibe"])
+        : VIBE_ORDER[i] ?? "Top Pick";
+      return {
+        id: o.id || `s-${day.dayNumber}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+        vibe,
+        title: o.title,
+        startTime: o.startTime ?? "",
+        endTime: o.endTime ?? "",
+        cost: typeof o.cost === "number" ? o.cost : 0,
+        mapsUrl:
+          o.mapsUrl ||
+          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.title} ${destination}`)}`,
+        notes: o.notes ?? "",
+      } satisfies AISuggestion;
+    });
+    map[day.dayNumber] = options.length ? options : buildDaySuggestions(day.dayNumber, destination);
+  }
+  return map;
+}
+
 /* Rotating status line for the AI loading state */
 function AILoadingMessages({ messages }: { messages: string[] }) {
   const [i, setI] = useState(0);
@@ -1141,9 +1172,12 @@ function AIItinerarySidebar({
   onExpand,
   onResize,
   onDragChange,
+  tripId,
   destination,
   numDays,
   currencySymbol,
+  existingItinerary,
+  onApply,
 }: {
   open: boolean;
   minimized: boolean;
@@ -1153,44 +1187,119 @@ function AIItinerarySidebar({
   onExpand: () => void;
   onResize: (px: number) => void;
   onDragChange: (value: boolean) => void;
+  tripId: string;
   destination: string;
   numDays: number;
   currencySymbol: string;
+  existingItinerary: DayPlan[];
+  onApply: (dayNumber: number, suggestion: AISuggestion) => void;
 }) {
   const { addToast } = useToast();
   const days = Math.max(1, numDays);
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [activeDay, setActiveDay] = useState(1);
-  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>(() => {
-    const map: Record<number, AISuggestion[]> = {};
-    for (let d = 1; d <= days; d++) map[d] = buildDaySuggestions(d, destination);
-    return map;
-  });
+  const [suggestions, setSuggestions] = useState<Record<number, AISuggestion[]>>({});
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [regenning, setRegenning] = useState(false);
+  const prefsRef = useRef<TripPreferenceInput | undefined>(undefined);
 
-  // A fresh mount (keyed per open by the parent) plays the crafting sequence once.
+  // A fresh mount (keyed per open by the parent) fetches real recommendations once.
   useEffect(() => {
-    const t = setTimeout(() => setPhase("ready"), 1500);
-    return () => clearTimeout(t);
+    let cancelled = false;
+
+    const localFallback = () => {
+      const map: Record<number, AISuggestion[]> = {};
+      for (let d = 1; d <= days; d++) map[d] = buildDaySuggestions(d, destination);
+      return map;
+    };
+
+    (async () => {
+      let preferences: TripPreferenceInput | undefined;
+      try {
+        const p = await preferencesApi.getForTrip(tripId);
+        preferences = {
+          tripType: p.tripType,
+          budgetTier: p.budgetTier,
+          preferredWeather: p.preferredWeather,
+          notes: p.notes,
+        };
+      } catch {
+        preferences = undefined;
+      }
+      prefsRef.current = preferences;
+
+      try {
+        const res = await recommendationsApi.generate({
+          tripId,
+          destination,
+          days,
+          preferences,
+          existingItinerary: existingItinerary
+            .filter((d) => d.activities.length > 0 || Boolean(d.title?.trim()))
+            .map((d) => ({
+              dayNumber: d.dayNumber,
+              title: d.title,
+              activities: d.activities.map((a) => ({
+                time: a.time,
+                title: a.title,
+                estimatedCost: a.estimatedCost,
+              })),
+            })),
+        });
+        if (cancelled) return;
+        const grouped = groupRecommendations(res, destination);
+        // Ensure every day has cards even if the model skipped some.
+        for (let d = 1; d <= days; d++) {
+          if (!grouped[d]?.length) grouped[d] = buildDaySuggestions(d, destination);
+        }
+        setSuggestions(grouped);
+        setPhase("ready");
+      } catch {
+        if (cancelled) return;
+        setSuggestions(localFallback());
+        setPhase("ready");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function regenerateDay() {
+  async function regenerateDay() {
     setRegenning(true);
-    setTimeout(() => {
+    try {
+      const res = await recommendationsApi.generate({
+        tripId,
+        destination,
+        days,
+        dayNumber: activeDay,
+        preferences: prefsRef.current,
+      });
+      const grouped = groupRecommendations(res, destination);
+      setSuggestions((prev) => ({
+        ...prev,
+        [activeDay]: grouped[activeDay]?.length
+          ? grouped[activeDay]
+          : buildDaySuggestions(activeDay, destination),
+      }));
+    } catch {
       setSuggestions((prev) => ({ ...prev, [activeDay]: buildDaySuggestions(activeDay, destination) }));
+    } finally {
       setChosen((prev) => {
         const next = { ...prev };
         delete next[activeDay];
         return next;
       });
       setRegenning(false);
-    }, 850);
+    }
   }
 
   function choose(s: AISuggestion) {
     setChosen((prev) => ({ ...prev, [activeDay]: s.id }));
-    addToast(`“${s.title}” set as Day ${activeDay} (preview)`, "success");
+    onApply(activeDay, s);
+    addToast(`Added “${s.title}” to Day ${activeDay}`, "success");
   }
 
   // Drag the left edge to resize the rail (content reflows live, Copilot-style).
@@ -2307,6 +2416,33 @@ export default function TripDetailPage() {
     setPanelWidth(clamped);
     setReserve(clamped + AI_RAIL_GAP);
   }
+  // Add an AI suggestion into the working itinerary (persisted on Save).
+  function applySuggestion(dayNumber: number, s: AISuggestion) {
+    setItineraryDays((prev) => {
+      const activity: Activity = {
+        activityId: `ai-rec-${dayNumber}-${Date.now()}`,
+        time: s.startTime || undefined,
+        title: s.title,
+        description: s.notes || undefined,
+        estimatedCost: s.cost ? String(Math.round(s.cost)) : undefined,
+        category: "sightseeing",
+      };
+      const exists = prev.some((d) => d.dayNumber === dayNumber);
+      if (exists) {
+        return prev.map((d) =>
+          d.dayNumber === dayNumber
+            ? { ...d, title: d.title?.trim() ? d.title : s.title, activities: [...d.activities, activity] }
+            : d,
+        );
+      }
+      return [
+        ...prev,
+        { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: s.title, activities: [activity] },
+      ].sort((a, b) => a.dayNumber - b.dayNumber);
+    });
+    setExpandedDays((prev) => new Set(prev).add(dayNumber));
+    setHasUnsavedChanges(true);
+  }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currency, setCurrency] = useState("USD");
   const [saving, setSaving] = useState(false);
@@ -3050,7 +3186,7 @@ export default function TripDetailPage() {
                 )}
               >
                 <Sparkles size={14} />
-                AI Generate
+                AI Suggestions
               </button>
             )}
           </div>
@@ -3119,7 +3255,7 @@ export default function TripDetailPage() {
                 onClick={openAI}
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
               >
-                <Sparkles size={14} /> Generate with AI
+                <Sparkles size={14} /> Suggest with AI
               </button>
             </div>
           </GlassCard>
@@ -3137,9 +3273,12 @@ export default function TripDetailPage() {
         onExpand={expandAI}
         onResize={resizeAI}
         onDragChange={setDragging}
+        tripId={tripId}
         destination={trip.destination}
         numDays={numDays > 0 ? numDays : 5}
         currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
+        existingItinerary={itineraryDays}
+        onApply={applySuggestion}
       />
 
       {/* Edit Trip Modal */}

@@ -529,6 +529,67 @@ export const preferencesApi = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  AI Itinerary Recommendations (local Ollama)                        */
+/* ------------------------------------------------------------------ */
+
+export interface RecommendationOption {
+  id: string;
+  vibe: string;
+  title: string;
+  startTime?: string;
+  endTime?: string;
+  cost?: number;
+  currency?: string;
+  mapsUrl?: string;
+  notes?: string;
+}
+
+export interface DayRecommendations {
+  dayNumber: number;
+  options: RecommendationOption[];
+}
+
+export interface RecommendationResponse {
+  tripId?: string;
+  model?: string;
+  source?: string;
+  generatedAt?: string;
+  days: DayRecommendations[];
+}
+
+export interface RecommendationInput {
+  tripId?: string;
+  destination: string;
+  days: number;
+  /** When set, regenerate suggestions for only this day. */
+  dayNumber?: number;
+  preferences?: TripPreferenceInput;
+  existingItinerary?: {
+    dayNumber: number;
+    title?: string;
+    activities: { time?: string; title: string; estimatedCost?: string }[];
+  }[];
+}
+
+export const recommendationsApi = {
+  /** Generate AI itinerary suggestions via the local Ollama proxy route. */
+  async generate(input: RecommendationInput): Promise<RecommendationResponse> {
+    const token = getAccessToken();
+    const res = await fetch("/api/ai/recommendations", {
+      method: "POST",
+      headers: token
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        : { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      throw new Error(`AI recommendations failed (${res.status})`);
+    }
+    return res.json() as Promise<RecommendationResponse>;
+  },
+};
+
+/* ------------------------------------------------------------------ */
 /*  Participants API                                                    */
 /* ------------------------------------------------------------------ */
 
