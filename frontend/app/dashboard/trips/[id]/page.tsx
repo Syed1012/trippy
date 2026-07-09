@@ -69,6 +69,7 @@ import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
 import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
+import { useRightRail } from "@/lib/right-rail";
 
 const statusVariant: Record<string, "default" | "success" | "warning" | "accent" | "danger"> = {
   DRAFT: "default",
@@ -999,6 +1000,14 @@ function DayCard({
 }
 
 /* ─── AI Itinerary Studio (immersive right sidebar — design preview) ─── */
+// Resizable rail sizing (px)
+const AI_MIN_W = 360;
+const AI_MAX_W = 760;
+const AI_DEFAULT_W = 460;
+const AI_RAIL_GAP = 32; // breathing room between content and the floating panel
+const AI_MIN_RESERVE = 64; // space kept for the collapsed tab
+const AI_RIGHT_GAP = 16; // panel distance from the right viewport edge (right-4)
+
 interface AISuggestion {
   id: string;
   vibe: "Top Pick" | "Adventurer" | "Hidden Gem";
@@ -1126,18 +1135,24 @@ function AILoadingMessages({ messages }: { messages: string[] }) {
 function AIItinerarySidebar({
   open,
   minimized,
+  width,
   onClose,
   onMinimize,
   onExpand,
+  onResize,
+  onDragChange,
   destination,
   numDays,
   currencySymbol,
 }: {
   open: boolean;
   minimized: boolean;
+  width: number;
   onClose: () => void;
   onMinimize: () => void;
   onExpand: () => void;
+  onResize: (px: number) => void;
+  onDragChange: (value: boolean) => void;
   destination: string;
   numDays: number;
   currencySymbol: string;
@@ -1178,6 +1193,26 @@ function AIItinerarySidebar({
     addToast(`“${s.title}” set as Day ${activeDay} (preview)`, "success");
   }
 
+  // Drag the left edge to resize the rail (content reflows live, Copilot-style).
+  function startDrag(e: React.PointerEvent) {
+    e.preventDefault();
+    onDragChange(true);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ew-resize";
+    const move = (ev: PointerEvent) => {
+      onResize(window.innerWidth - ev.clientX - AI_RIGHT_GAP);
+    };
+    const up = () => {
+      onDragChange(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   const daySuggestions = suggestions[activeDay] ?? [];
   const chosenCount = Object.keys(chosen).length;
   const city = destination.split(",")[0]?.trim() || "your destination";
@@ -1196,7 +1231,7 @@ function AIItinerarySidebar({
       {open && minimized && (
         <motion.div
           key="ai-tab"
-          className="fixed right-0 top-1/2 z-[110] -translate-y-1/2"
+          className="fixed right-0 top-1/2 z-40 -translate-y-1/2"
           initial={{ x: "110%" }}
           animate={{ x: 0 }}
           exit={{ x: "110%" }}
@@ -1204,14 +1239,14 @@ function AIItinerarySidebar({
         >
           <button
             onClick={onExpand}
-            title="Expand AI Itinerary Studio"
+            title="Expand AI suggestions"
             className="group flex flex-col items-center gap-3 rounded-l-2xl border border-r-0 border-border bg-surface/95 py-5 pl-3 pr-2.5 shadow-[-18px_0_50px_-30px_rgba(20,47,43,0.55)] backdrop-blur-xl transition-all hover:pr-4 cursor-pointer"
           >
             <span className="lux-ring flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]">
               <Wand2 size={16} />
             </span>
-            <span className="text-[11px] font-black uppercase tracking-[0.18em] text-foreground [writing-mode:vertical-rl]">
-              AI Studio
+            <span className="text-[11px] font-black uppercase tracking-[0.16em] text-foreground [writing-mode:vertical-rl]">
+              AI suggestions
             </span>
             {chosenCount > 0 && (
               <span className="rounded-full bg-accent-500 px-1.5 py-0.5 text-[9px] font-black text-white">
@@ -1230,12 +1265,22 @@ function AIItinerarySidebar({
       {open && !minimized && (
         <motion.aside
           key="ai-panel"
-          className="fixed right-0 top-0 z-[110] flex h-full w-full max-w-[30rem] flex-col overflow-hidden border-l border-border bg-surface/95 text-foreground shadow-[-30px_0_90px_-45px_rgba(20,47,43,0.6)] backdrop-blur-2xl"
-          initial={{ x: "100%" }}
-          animate={{ x: 0 }}
-          exit={{ x: "100%" }}
-          transition={{ type: "spring", stiffness: 320, damping: 34 }}
+          style={{ width }}
+          className="fixed right-4 top-[4.75rem] bottom-4 z-40 flex flex-col overflow-hidden rounded-[1.75rem] border border-border bg-surface/95 text-foreground shadow-[0_40px_90px_-42px_rgba(20,47,43,0.62)] backdrop-blur-2xl"
+          initial={{ x: "112%", opacity: 0.5 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: "112%", opacity: 0.4 }}
+          transition={{ type: "spring", stiffness: 320, damping: 36 }}
         >
+          {/* Drag-to-resize handle (left edge) */}
+          <div
+            onPointerDown={startDrag}
+            title="Drag to resize"
+            className="group/handle absolute inset-y-0 left-0 z-30 flex w-4 cursor-ew-resize items-center justify-center"
+          >
+            <span className="h-14 w-1.5 rounded-full bg-border transition-all group-hover/handle:h-20 group-hover/handle:bg-accent-400" />
+          </div>
+
           {/* Warm ambient accents */}
           <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent-400/15 blur-3xl" />
           <div className="pointer-events-none absolute top-1/3 -left-24 h-64 w-64 rounded-full bg-trippy-400/10 blur-3xl" />
@@ -2232,6 +2277,36 @@ export default function TripDetailPage() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiMinimized, setAiMinimized] = useState(false);
   const [aiSession, setAiSession] = useState(0);
+  const [panelWidth, setPanelWidth] = useState(AI_DEFAULT_W);
+  const { setReserve, setDragging } = useRightRail();
+
+  // Release the reserved rail space when leaving the trip page.
+  useEffect(() => () => setReserve(0), [setReserve]);
+
+  function openAI() {
+    setAiPanelOpen(true);
+    setAiMinimized(false);
+    setAiSession((n) => n + 1);
+    setReserve(panelWidth + AI_RAIL_GAP);
+  }
+  function closeAI() {
+    setAiPanelOpen(false);
+    setAiMinimized(false);
+    setReserve(0);
+  }
+  function minimizeAI() {
+    setAiMinimized(true);
+    setReserve(AI_MIN_RESERVE);
+  }
+  function expandAI() {
+    setAiMinimized(false);
+    setReserve(panelWidth + AI_RAIL_GAP);
+  }
+  function resizeAI(w: number) {
+    const clamped = Math.min(AI_MAX_W, Math.max(AI_MIN_W, w));
+    setPanelWidth(clamped);
+    setReserve(clamped + AI_RAIL_GAP);
+  }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currency, setCurrency] = useState("USD");
   const [saving, setSaving] = useState(false);
@@ -2537,13 +2612,7 @@ export default function TripDetailPage() {
   );
 
   return (
-    <div
-      className={cn(
-        "space-y-8 pb-12 transition-[margin] duration-500 ease-out",
-        aiPanelOpen && !aiMinimized && "xl:mr-[31rem]",
-        aiPanelOpen && aiMinimized && "xl:mr-[3.75rem]",
-      )}
-    >
+    <div className="space-y-8 pb-12">
       {/* Back link */}
       <Link
         href="/dashboard"
@@ -2973,7 +3042,7 @@ export default function TripDetailPage() {
             )}
             {isParticipant && (
               <button
-                onClick={() => { setAiPanelOpen(true); setAiMinimized(false); setAiSession((n) => n + 1); }}
+                onClick={openAI}
                 className={cn(
                   "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
                   "bg-gradient-to-r from-trippy-600 to-trippy-700 text-white shadow-md shadow-trippy-500/20",
@@ -3047,7 +3116,7 @@ export default function TripDetailPage() {
                 </Button>
               )}
               <button
-                onClick={() => { setAiPanelOpen(true); setAiMinimized(false); setAiSession((n) => n + 1); }}
+                onClick={openAI}
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
               >
                 <Sparkles size={14} /> Generate with AI
@@ -3062,12 +3131,12 @@ export default function TripDetailPage() {
         key={aiSession}
         open={aiPanelOpen}
         minimized={aiMinimized}
-        onClose={() => {
-          setAiPanelOpen(false);
-          setAiMinimized(false);
-        }}
-        onMinimize={() => setAiMinimized(true)}
-        onExpand={() => setAiMinimized(false)}
+        width={panelWidth}
+        onClose={closeAI}
+        onMinimize={minimizeAI}
+        onExpand={expandAI}
+        onResize={resizeAI}
+        onDragChange={setDragging}
         destination={trip.destination}
         numDays={numDays > 0 ? numDays : 5}
         currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
