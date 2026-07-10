@@ -1,574 +1,82 @@
 openapi: 3.0.3
 info:
-  title: Chat Service API Contract
+  title: Chat Service API
   description: |
-    ## Overview
-    Complete API contract for the Chat Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Real-time messaging via WebSocket (STOMP protocol)
-    - Message persistence and history retrieval
-    - Chat room management (per-trip rooms)
-    - System messages (auto-generated notifications)
-    - File/image attachment handling
-    - User presence tracking (online/offline status)
-    - Message read receipts
-
-    ## Architecture Pattern
-    **Layered Architecture**
-    - Simple CRUD operations with WebSocket integration
-    - No complex domain logic
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Protected** | JWT (User) | Message CRUD, History, Attachments |
-    | **WebSocket** | JWT (Auth on handshake) | Real-time messaging |
-    | **Internal S2S** | Service Token | System messages |
-
-    ## S2S Communication (Outbound)
-    | Target Service | Purpose | Endpoint Called |
-    |----------------|---------|-----------------|
-    | **Trip Service** | Verify user is participant | `GET /trips/{tripId}/is-participant/{userId}` |
-    | **Trip Service** | Get trip participants | `GET /trips/{tripId}/participants` |
-    | **User Service** | Get user profiles for display | `POST /users/batch` |
-
-    ## WebSocket Protocol
-    - **Protocol**: STOMP over WebSocket
-    - **Endpoint**: `ws://localhost:3000/ws/chat` or `wss://api.trippy.dev/ws/chat`
-    - **Auth**: JWT token passed as query param `?token=<jwt>` or in STOMP CONNECT headers
-    
-    ### Subscribe Destinations
-    | Destination | Description |
-    |-------------|-------------|
-    | `/topic/trips/{tripId}/messages` | New messages in trip chat |
-    | `/topic/trips/{tripId}/typing` | Typing indicators |
-    | `/topic/trips/{tripId}/presence` | User join/leave room |
-    | `/user/queue/errors` | Error messages for current user |
-    
-    ### Send Destinations
-    | Destination | Description |
-    |-------------|-------------|
-    | `/app/trips/{tripId}/send` | Send a message |
-    | `/app/trips/{tripId}/typing` | Send typing indicator |
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-User-Id` | Injected by Gateway | User UUID from JWT |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-
-    ## Database Schema
-    - **Schema Name**: `chat_schema`
-    - **Tables**: 
-      - `chat_rooms` - Room per trip (room_id, trip_id, created_at)
-      - `messages` - Chat messages (id, room_id, sender_id, content, type, sent_at)
-      - `message_attachments` - File attachments (id, message_id, file_url, file_type)
-      - `read_receipts` - Message read tracking (message_id, user_id, read_at)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **PostgreSQL** | Message persistence |
-    | **Redis** | Presence tracking, WebSocket session store |
-    | **Trip Service** | Participant authorization |
-    | **User Service** | User profile data |
-
-  version: 1.0.0
-  contact:
-    name: Chat Domain Team
-    email: chat-team@trippy.dev
-
+    Chat microservice for the Trippy platform. Provides per-trip real-time
+    messaging (REST + WebSocket/STOMP), file attachments, and admin moderation.
+  version: 2.0.0
 servers:
   - url: http://localhost:8083
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://chat-service.internal:8083
-    description: Internal Cluster URL (K8s/Docker)
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
   - name: Messages
-    description: Message CRUD and history
-  - name: Attachments
-    description: File upload and management
-  - name: Presence
-    description: User online status
+  - name: Files
+  - name: Rooms
+  - name: Participants
+  - name: Moderation
   - name: WebSocket
-    description: Real-time messaging documentation
-  - name: Internal
-    description: Service-to-service APIs
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    TripId:
-      name: tripId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    MessageId:
-      name: messageId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: string
-        message:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    # =====================================================
-    # MESSAGE SCHEMAS
-    # =====================================================
-    MessageType:
-      type: string
-      enum: ["TEXT", "IMAGE", "FILE", "SYSTEM"]
-      description: |
-        - **TEXT**: Standard user message
-        - **IMAGE**: Message with image attachment
-        - **FILE**: Message with file attachment
-        - **SYSTEM**: Auto-generated (e.g., "Alice joined the trip")
-
-    ChatMessage:
-      type: object
-      required:
-        - messageId
-        - tripId
-        - senderId
-        - type
-        - sentAt
-      properties:
-        messageId:
-          type: string
-          format: uuid
-        tripId:
-          type: string
-          format: uuid
-        senderId:
-          type: string
-          format: uuid
-          description: User ID or "SYSTEM" for system messages
-        senderName:
-          type: string
-          description: Cached display name
-        senderAvatarUrl:
-          type: string
-          format: uri
-        type:
-          $ref: '#/components/schemas/MessageType'
-        content:
-          type: string
-          description: Text content or file URL
-        attachments:
-          type: array
-          items:
-            $ref: '#/components/schemas/Attachment'
-        sentAt:
-          type: string
-          format: date-time
-        editedAt:
-          type: string
-          format: date-time
-        isEdited:
-          type: boolean
-          default: false
-        isDeleted:
-          type: boolean
-          default: false
-          description: True when message has been soft-deleted
-        readBy:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: User IDs who have read this message
-
-    Attachment:
-      type: object
-      properties:
-        attachmentId:
-          type: string
-          format: uuid
-        fileUrl:
-          type: string
-          format: uri
-        fileName:
-          type: string
-        fileType:
-          type: string
-          example: "image/jpeg"
-        fileSize:
-          type: integer
-          description: Size in bytes
-        thumbnailUrl:
-          type: string
-          format: uri
-          description: For images, a smaller preview
-
-    # =====================================================
-    # REQUEST SCHEMAS
-    # =====================================================
-    SendMessageRequest:
-      type: object
-      required:
-        - content
-      properties:
-        content:
-          type: string
-          maxLength: 4000
-          example: "Hey everyone, should we book the museum now?"
-        type:
-          $ref: '#/components/schemas/MessageType'
-        attachmentIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: IDs of pre-uploaded attachments
-
-    EditMessageRequest:
-      type: object
-      required:
-        - content
-      properties:
-        content:
-          type: string
-          maxLength: 4000
-
-    UploadAttachmentResponse:
-      type: object
-      properties:
-        attachmentId:
-          type: string
-          format: uuid
-        fileUrl:
-          type: string
-          format: uri
-        thumbnailUrl:
-          type: string
-          format: uri
-
-    # =====================================================
-    # PRESENCE SCHEMAS
-    # =====================================================
-    UserPresence:
-      type: object
-      properties:
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        avatarUrl:
-          type: string
-          format: uri
-        status:
-          type: string
-          enum: ["ONLINE", "OFFLINE", "TYPING"]
-        lastSeenAt:
-          type: string
-          format: date-time
-
-    RoomPresence:
-      type: object
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        onlineUsers:
-          type: array
-          items:
-            $ref: '#/components/schemas/UserPresence'
-        totalParticipants:
-          type: integer
-
-    # =====================================================
-    # WEBSOCKET MESSAGE SCHEMAS
-    # =====================================================
-    WebSocketMessage:
-      type: object
-      description: Message format for WebSocket communication
-      properties:
-        type:
-          type: string
-          enum: ["MESSAGE", "TYPING", "PRESENCE", "ERROR", "ACK"]
-        payload:
-          type: object
-        timestamp:
-          type: string
-          format: date-time
-
-    TypingIndicator:
-      type: object
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        isTyping:
-          type: boolean
-
-    # =====================================================
-    # INTERNAL SCHEMAS
-    # =====================================================
-    SystemMessageRequest:
-      type: object
-      required:
-        - tripId
-        - content
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        content:
-          type: string
-          maxLength: 4000                          # FIX 4: added maxLength (was unbounded)
-          example: "Alice joined the trip"
-        metadata:
-          type: object
-          additionalProperties: true
-
-    # =====================================================
-    # PAGINATION
-    # =====================================================
-    MessageHistoryResponse:
-      type: object
-      properties:
-        messages:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChatMessage'
-        hasMore:
-          type: boolean
-          description: More messages available before this batch
-        oldestTimestamp:
-          type: string
-          format: date-time
-          description: Use as 'before' param for next page
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # MESSAGE ENDPOINTS
-  # =====================================================
   /trips/{tripId}/chat/messages:
     get:
-      summary: Get Chat History
-      operationId: getChatHistory
       tags: [Messages]
-      security: [BearerAuth: []]
-      description: |
-        Fetches message history for a trip chat room.
-        Uses cursor-based pagination (load older messages on scroll).
-        
-        **Authorization**: User must be an ACCEPTED participant.
-        
-        **S2S Call**:
-        `GET http://localhost:8082/trips/{tripId}/is-participant/{userId}`
+      summary: Get message history (paginated)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
-        - name: limit
+        - name: page
           in: query
-          schema:
-            type: integer
-            default: 50
-            maximum: 100
-          description: Number of messages to return
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 50 }
         - name: before
           in: query
-          schema:
-            type: string
-            format: date-time
-          description: Fetch messages before this timestamp (for pagination)
-        - name: after
-          in: query
-          schema:
-            type: string
-            format: date-time
-          description: Fetch messages after this timestamp (for new messages)
+          description: Fetch messages before this timestamp
+          schema: { type: string, format: date-time }
       responses:
         '200':
-          description: Message history
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageHistoryResponse'
-        '403':
-          description: Not a participant
-        '404':
-          description: Trip not found
-
     post:
-      summary: Send Message (HTTP Fallback)
-      operationId: sendMessage
       tags: [Messages]
-      security: [BearerAuth: []]
-      description: |
-        Sends a message via HTTP. Prefer WebSocket for real-time.
-        Message is persisted and broadcast to WebSocket subscribers.
-        
-        **Authorization**: User must be an ACCEPTED participant.
+      summary: Send a text message
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - name: X-User-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-User-DisplayName
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendMessageRequest'
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 4000 }
+                type: { type: string, default: TEXT }
       responses:
         '201':
-          description: Message sent
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatMessage'
-        '403':
-          description: Not a participant
-        '404':
-          description: Trip not found
+                $ref: '#/components/schemas/ChatMessageResponse'
 
-  /trips/{tripId}/chat/messages/{messageId}:
-    patch:
-      summary: Edit Message
-      operationId: editMessage
-      tags: [Messages]
-      security: [BearerAuth: []]
-      description: |
-        Edit a previously sent message.
-        Only the sender can edit their own messages.
-        Edited messages are marked with `isEdited: true`.
-        Cannot edit a message that has been deleted.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/MessageId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EditMessageRequest'
-      responses:
-        '200':
-          description: Message edited
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatMessage'
-        '403':
-          description: Can only edit own messages
-        '404':
-          description: Message not found
-        '409':                                     # FIX 8: added conflict guard for deleted messages
-          description: Cannot edit a deleted message
-
-    delete:
-      summary: Delete Message
-      operationId: deleteMessage
-      tags: [Messages]
-      security: [BearerAuth: []]
-      description: |
-        Soft-delete a message. Only the sender can delete.
-        Message content is replaced with "[Message deleted]" and
-        `isDeleted` is set to `true`. The full updated message object
-        is returned so clients can update state immediately.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/MessageId'
-      responses:
-        '200':                                     # FIX 3: changed from 204 to 200 with body
-          description: Message soft-deleted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatMessage'
-        '403':
-          description: Can only delete own messages
-        '404':
-          description: Message not found
-
-  /trips/{tripId}/chat/messages/{messageId}/read:
+  /trips/{tripId}/chat/messages/file:
     post:
-      summary: Mark Message as Read
-      operationId: markAsRead
-      tags: [Messages]
-      security: [BearerAuth: []]
-      description: Marks a message (and all before it) as read by the current user.
+      tags: [Files]
+      summary: Upload a file message (multipart)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/MessageId'
-      responses:
-        '200':
-          description: Marked as read
-        '403':                                     # FIX 6: added missing participant check
-          description: Not a participant
-        '404':
-          description: Message not found
-
-  # =====================================================
-  # ATTACHMENT ENDPOINTS
-  # =====================================================
-  /trips/{tripId}/chat/attachments:
-    post:
-      summary: Upload Attachment
-      operationId: uploadAttachment
-      tags: [Attachments]
-      security: [BearerAuth: []]
-      description: |
-        Uploads a file for chat. Returns an attachment ID to include in message.
-        
-        **Accepted formats**: JPEG, PNG, GIF, PDF, DOC, DOCX
-        **Max size**: 10MB
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
       requestBody:
         required: true
@@ -576,178 +84,224 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required:
-                - file
               properties:
-                file:
-                  type: string
-                  format: binary
+                file: { type: string, format: binary }
+                senderId: { type: string, format: uuid }
+                senderDisplayName: { type: string }
       responses:
         '201':
-          description: File uploaded
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadAttachmentResponse'
-        '400':
-          description: Invalid file type
-        '403':
-          description: Not a participant
-        '413':                                     # FIX 5: added proper oversized-file response
-          description: File exceeds 10MB size limit
+                $ref: '#/components/schemas/ChatMessageResponse'
 
-  # =====================================================
-  # PRESENCE ENDPOINTS
-  # =====================================================
-  /trips/{tripId}/chat/presence:
+  /chats/{tripId}/attachments:
     get:
-      summary: Get Room Presence
-      operationId: getRoomPresence
-      tags: [Presence]
-      security: [BearerAuth: []]
-      description: Returns currently online users in the chat room.
+      tags: [Files]
+      summary: List all attachments for a trip
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
       responses:
         '200':
-          description: Room presence
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RoomPresence'
-        '403':
-          description: Not a participant
-        '404':                                     # FIX 7: added missing trip-not-found response
-          description: Trip not found
+                type: array
+                items:
+                  $ref: '#/components/schemas/MessageAttachmentResponse'
 
-  # =====================================================
-  # INTERNAL S2S ENDPOINTS
-  # =====================================================
-  /trips/{tripId}/chat/system-messages:                # FIX 1a: pluralized (was system-message)
-    post:
-      summary: "[Internal] Send System Message"
-      operationId: internalSendSystemMessage
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service, Notification Service
-        
-        Sends a system-generated message to the chat room.
-        Used for events like "Alice joined the trip", "Trip dates changed", etc.
+  /chats/files/{tripId}/{filename}:
+    get:
+      tags: [Files]
+      summary: Download a file
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SystemMessageRequest'
+        - name: filename
+          in: path
+          required: true
+          schema: { type: string }
       responses:
-        '201':
-          description: System message sent
+        '200':
           content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatMessage'
-        '404':
-          description: Trip not found
+            application/octet-stream:
+              schema: { type: string, format: binary }
 
-  /trips/{tripId}/chat/rooms:                          # FIX 1b: pluralized (was room)
-    post:
-      summary: "[Internal] Create Chat Room"
-      operationId: internalCreateChatRoom
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-        
-        Creates a chat room for a new trip.
-        Called automatically when a trip is created.
+  /chats/files/{tripId}/thumbs/{filename}:
+    get:
+      tags: [Files]
+      summary: Download thumbnail
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/TripId'
+        - name: filename
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+
+  /trips/{tripId}/chat/rooms:
+    post:
+      tags: [Rooms]
+      summary: Create a chat room for a trip
+      parameters:
         - $ref: '#/components/parameters/TripId'
       responses:
         '201':
-          description: Room created
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  roomId:
-                    type: string
-                    format: uuid
-                  tripId:
-                    type: string
-                    format: uuid
-                  createdAt:
-                    type: string
-                    format: date-time
-        '409':
-          description: Room already exists
+                $ref: '#/components/schemas/ChatRoomResponse'
 
-    delete:
-      summary: "[Internal] Delete Chat Room"
-      operationId: internalDeleteChatRoom
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-        
-        Deletes chat room and all messages when a trip is deleted.
+  /chats/{tripId}/participants:
+    get:
+      tags: [Participants]
+      summary: Get connected WebSocket participants
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string, format: uuid }
+
+  /admin/chat/users/{userId}/ban:
+    post:
+      tags: [Moderation]
+      summary: Ban a user from chat
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: durationMinutes
+          in: query
+          schema: { type: integer, default: 0, description: "0 = permanent" }
       responses:
         '204':
-          description: Room deleted
-        '404':
-          description: Room not found
+          description: Banned
+    delete:
+      tags: [Moderation]
+      summary: Unban a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Unbanned
 
-# =========================================================
-# WEBSOCKET DOCUMENTATION
-# =========================================================
-x-websocket-api:
-  endpoint: /ws/chat
-  protocol: STOMP over WebSocket
-  authentication: |
-    JWT token must be provided either:
-    1. As query parameter: `ws://host/ws/chat?token=<jwt>`
-    2. In STOMP CONNECT frame headers: `Authorization: Bearer <jwt>`
+  /admin/chat/users/{userId}/mute:
+    post:
+      tags: [Moderation]
+      summary: Mute a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: durationMinutes
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '204':
+          description: Muted
+    delete:
+      tags: [Moderation]
+      summary: Unmute a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Unmuted
 
-  subscribe-destinations:
-    - destination: /topic/trips/{tripId}/messages
-      description: Receive new messages in the trip chat
-      payload:
-        $ref: '#/components/schemas/ChatMessage'
+  /admin/chat/messages/{messageId}:
+    delete:
+      tags: [Moderation]
+      summary: Admin soft-delete a message
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
 
-    - destination: /topic/trips/{tripId}/typing
-      description: Receive typing indicators
-      payload:
-        $ref: '#/components/schemas/TypingIndicator'
+components:
+  parameters:
+    TripId:
+      name: tripId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
 
-    - destination: /topic/trips/{tripId}/presence
-      description: User join/leave notifications
-      payload:
-        $ref: '#/components/schemas/UserPresence'
+  schemas:
+    ChatMessageResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        senderDisplayName: { type: string }
+        content: { type: string }
+        type: { type: string }
+        createdAt: { type: string, format: date-time }
+        edited: { type: boolean }
+        attachment:
+          $ref: '#/components/schemas/MessageAttachmentResponse'
 
-    - destination: /user/queue/errors
-      description: Receive error messages for current session
-      payload:
-        $ref: '#/components/schemas/ErrorResponse'
+    MessageHistoryResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessageResponse'
+        page: { type: integer }
+        size: { type: integer }
+        totalMessages: { type: integer }
+        hasMore: { type: boolean }
 
-  send-destinations:
-    - destination: /app/trips/{tripId}/send
-      description: Send a chat message
-      payload:
-        $ref: '#/components/schemas/SendMessageRequest'
+    ChatRoomResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        tripId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
 
-    - destination: /app/trips/{tripId}/typing
-      description: Send typing indicator
-      payload:
-        type: object
-        properties:
-          isTyping:
-            type: boolean
+    MessageAttachmentResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        fileUrl: { type: string }
+        fileSize: { type: integer }
+        contentType: { type: string }
+        thumbnailUrl: { type: string }
+
+  x-websocket:
+    stomp-endpoint: /ws
+    destinations:
+      send-message:
+        destination: /app/trips/{tripId}/send
+        payload:
+          type: object
+          properties:
+            content: { type: string }
+            type: { type: string }
+        broadcasts-to: /topic/trips/{tripId}/messages
+      typing-indicator:
+        destination: /app/trips/{tripId}/typing
+        payload:
+          type: object
+          properties:
+            typing: { type: boolean }
+        broadcasts-to: /topic/trips/{tripId}/typing

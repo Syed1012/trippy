@@ -1,789 +1,134 @@
 openapi: 3.0.3
 info:
-  title: Notification Service API Contract
+  title: Notification Service API
   description: |
-    ## Overview
-    Complete API contract for the Notification Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Email notifications (transactional emails)
-    - Push notifications (web/mobile)
-    - In-app notification feed
-    - Notification preferences management
-    - Email template management
-    - Delivery tracking and retry
-
-    ## Architecture Pattern
-    **Layered Architecture**
-    - Simple notification dispatch
-    - Template-based email generation
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Protected** | JWT (User) | Notification preferences, history |
-    | **Internal S2S** | Service Token | Send notifications from other services |
-
-    ## Notification Types
-    | Type | Channel | Trigger |
-    |------|---------|---------|
-    | `TRIP_INVITATION` | Email, Push, In-App | User invited to trip |
-    | `INVITATION_ACCEPTED` | Push, In-App | Invitee accepted invitation |
-    | `TRIP_UPDATED` | Push, In-App | Trip details changed |
-    | `NEW_MESSAGE` | Push | New chat message (when offline) |
-    | `PAYMENT_SUCCESS` | Email | Subscription payment successful |
-    | `PAYMENT_FAILED` | Email, Push | Payment failed |
-    | `PASSWORD_RESET` | Email | Password reset requested |
-    | `EMAIL_VERIFICATION` | Email | Email verification code |
-    | `WELCOME` | Email | New user registration |
-
-    ## S2S Communication (Inbound - Other services call this)
-    | Source Service | Purpose | Endpoint |
-    |----------------|---------|----------|
-    | **User Service** | Send verification email | `POST /notifications/email/verification` |
-    | **User Service** | Send password reset | `POST /notifications/email/password-reset` |
-    | **User Service** | Send welcome email | `POST /notifications/email/welcome` |
-    | **Trip Service** | Send invitation | `POST /notifications/trip-invitation` |
-    | **Payment Service** | Payment receipt | `POST /notifications/email/payment-receipt` |
-    | **Chat Service** | New message alert | `POST /notifications/push/new-message` |
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-User-Id` | Injected by Gateway | User UUID from JWT |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-
-    ## Database Schema
-    - **Schema Name**: `notification_schema`
-    - **Tables**: 
-      - `notifications` - In-app notifications (id, user_id, type, title, body, read, created_at)
-      - `notification_preferences` - User preferences (user_id, type, email_enabled, push_enabled)
-      - `email_logs` - Email send history (id, recipient, subject, template_name, status, sent_at)
-      - `push_subscriptions` - FCM/APNs tokens (user_id, device_token, platform)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **PostgreSQL** | Notification persistence |
-    | **SMTP Server** | Email sending (SendGrid, SES, etc.) |
-    | **Firebase Cloud Messaging** | Push notifications |
-    | **Redis** | Rate limiting, deduplication |
-
-  version: 1.0.0
-  contact:
-    name: Notification Domain Team
-    email: notification-team@trippy.dev
-
+    Notification microservice for the Trippy platform. In-app notifications,
+    transactional email sending, and dev-only template preview.
+  version: 2.0.0
 servers:
   - url: http://localhost:8085
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://notification-service.internal:8085
-    description: Internal Cluster URL (K8s/Docker)
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
   - name: Notifications
-    description: In-app notification management
-  - name: Preferences
-    description: Notification preferences
-  - name: Devices
-    description: Push notification device management
-  - name: Internal
-    description: Service-to-service APIs
+  - name: Email
+  - name: Templates
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    NotificationId:
-      name: notificationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-  schemas:
-    # =====================================================
-    # ENUMS
-    # =====================================================
-    NotificationType:
-      type: string
-      enum:
-        - "TRIP_INVITE"
-        - "TRIP_JOINED"
-        - "ITINERARY_READY"
-        - "TRIP_INVITATION"
-        - "INVITATION_ACCEPTED"
-        - "INVITATION_DECLINED"
-        - "TRIP_UPDATED"
-        - "TRIP_CANCELLED"
-        - "NEW_MESSAGE"
-        - "PAYMENT_SUCCESS"
-        - "PAYMENT_FAILED"
-        - "SUBSCRIPTION_EXPIRING"
-        - "SYSTEM"
-
-    NotificationChannel:
-      type: string
-      enum: ["EMAIL", "PUSH", "IN_APP"]
-
-    DeliveryStatus:
-      type: string
-      enum: ["PENDING", "SENT", "DELIVERED", "FAILED", "BOUNCED"]
-
-    # =====================================================
-    # NOTIFICATION SCHEMAS
-    # =====================================================
-    Notification:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        notificationId:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        type:
-          $ref: '#/components/schemas/NotificationType'
-        title:
-          type: string
-          example: "New trip invitation"
-        message:
-          type: string
-          example: "Alice invited you to join 'Summer in Paris'"
-        body:
-          type: string
-          example: "Alice invited you to join 'Summer in Paris'"
-        imageUrl:
-          type: string
-          format: uri
-        actionUrl:
-          type: string
-          description: Deep link or URL for action
-          example: "/trips/abc123/join"
-        metadata:
-          type: object
-          additionalProperties: true
-          description: Additional context (tripId, senderId, etc.)
-        read:
-          type: boolean
-          default: false
-        createdAt:
-          type: string
-          format: date-time
-        readAt:
-          type: string
-          format: date-time
-
-    NotificationPreferences:
-      type: object
-      properties:
-        userId:
-          type: string
-          format: uuid
-        preferences:
-          type: array
-          items:
-            type: object
-            properties:
-              type:
-                $ref: '#/components/schemas/NotificationType'
-              emailEnabled:
-                type: boolean
-              pushEnabled:
-                type: boolean
-              inAppEnabled:
-                type: boolean
-        globalEmailEnabled:
-          type: boolean
-          default: true
-        globalPushEnabled:
-          type: boolean
-          default: true
-        quietHoursEnabled:
-          type: boolean
-          default: false
-        quietHoursStart:
-          type: string
-          example: "22:00"
-        quietHoursEnd:
-          type: string
-          example: "08:00"
-        timezone:
-          type: string
-          example: "Europe/Berlin"
-
-    PushDevice:
-      type: object
-      properties:
-        deviceId:
-          type: string
-          format: uuid
-        deviceToken:
-          type: string
-          description: FCM or APNs token
-        platform:
-          type: string
-          enum: ["WEB", "IOS", "ANDROID"]
-        deviceName:
-          type: string
-          example: "Chrome on MacOS"
-        lastActiveAt:
-          type: string
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-
-    # =====================================================
-    # REQUEST SCHEMAS
-    # =====================================================
-    UpdatePreferencesRequest:
-      type: object
-      properties:
-        preferences:
-          type: array
-          items:
-            type: object
-            properties:
-              type:
-                $ref: '#/components/schemas/NotificationType'
-              emailEnabled:
-                type: boolean
-              pushEnabled:
-                type: boolean
-        globalEmailEnabled:
-          type: boolean
-        globalPushEnabled:
-          type: boolean
-        quietHoursEnabled:
-          type: boolean
-        quietHoursStart:
-          type: string
-        quietHoursEnd:
-          type: string
-
-    RegisterDeviceRequest:
-      type: object
-      required:
-        - deviceToken
-        - platform
-      properties:
-        deviceToken:
-          type: string
-        platform:
-          type: string
-          enum: ["WEB", "IOS", "ANDROID"]
-        deviceName:
-          type: string
-
-    # =====================================================
-    # INTERNAL NOTIFICATION REQUESTS
-    # =====================================================
-    SendEmailRequest:
-      type: object
-      required:
-        - to
-        - subject
-        - templateName
-        - templateVariables
-      properties:
-        to:
-          type: string
-          format: email
-        subject:
-          type: string
-          maxLength: 500
-        templateName:
-          type: string
-          pattern: "^[a-z0-9-]+$"
-          example: "trip-invite"
-        templateVariables:
-          type: object
-          additionalProperties: true
-          description: Variables for email template
-
-    SendPushRequest:
-      type: object
-      required:
-        - userId
-        - title
-        - body
-      properties:
-        userId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        body:
-          type: string
-        imageUrl:
-          type: string
-          format: uri
-        actionUrl:
-          type: string
-        data:
-          type: object
-          additionalProperties: true
-
-    SendInAppRequest:
-      type: object
-      required:
-        - userId
-        - type
-        - title
-        - body
-      properties:
-        userId:
-          type: string
-          format: uuid
-        type:
-          $ref: '#/components/schemas/NotificationType'
-        title:
-          type: string
-        body:
-          type: string
-        actionUrl:
-          type: string
-        metadata:
-          type: object
-          additionalProperties: true
-
-    TripInvitationNotificationRequest:
-      type: object
-      required:
-        - inviteeUserId
-        - tripId
-        - tripTitle
-        - inviterName
-      properties:
-        inviteeUserId:
-          type: string
-          format: uuid
-        inviteeEmail:
-          type: string
-          format: email
-          description: For email notification
-        tripId:
-          type: string
-          format: uuid
-        tripTitle:
-          type: string
-          example: "Summer in Paris"
-        tripDestination:
-          type: string
-          example: "Paris, France"
-        inviterName:
-          type: string
-          example: "Alice"
-        inviterAvatarUrl:
-          type: string
-          format: uri
-        role:
-          type: string
-          enum: ["EDITOR", "VIEWER"]
-        message:
-          type: string
-          description: Optional personal message from inviter
-
-    EmailVerificationRequest:
-      type: object
-      required:
-        - to
-        - userName
-        - verificationCode
-      properties:
-        to:
-          type: string
-          format: email
-        userName:
-          type: string
-        verificationCode:
-          type: string
-          example: "123456"
-
-    PasswordResetRequest:
-      type: object
-      required:
-        - to
-        - userName
-        - resetLink
-      properties:
-        to:
-          type: string
-          format: email
-        userName:
-          type: string
-        resetLink:
-          type: string
-          format: uri
-
-    EmailSentResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-        message:
-          type: string
-
-    PaymentReceiptRequest:
-      type: object
-      required:
-        - userId
-        - transactionId
-        - amount
-        - planName
-      properties:
-        userId:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-        transactionId:
-          type: string
-          format: uuid
-        amount:
-          type: number
-          format: float
-        currency:
-          type: string
-          default: "EUR"
-        planName:
-          type: string
-          example: "Premium Monthly"
-        invoiceUrl:
-          type: string
-          format: uri
-
-    # =====================================================
-    # PAGINATION
-    # =====================================================
-    PaginationMeta:
-      type: object
-      properties:
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-        totalPages:
-          type: integer
-
-    NotificationListResponse:
-      type: object
-      properties:
-        content:
-          type: array
-          items:
-            $ref: '#/components/schemas/Notification'
-        totalElements:
-          type: integer
-          format: int64
-        totalPages:
-          type: integer
-        size:
-          type: integer
-        number:
-          type: integer
-          description: Zero-based page number
-        numberOfElements:
-          type: integer
-        first:
-          type: boolean
-        last:
-          type: boolean
-        empty:
-          type: boolean
-        sort:
-          type: object
-          additionalProperties: true
-        pageable:
-          type: object
-          additionalProperties: true
-        notifications:
-          type: array
-          deprecated: true
-          description: Deprecated legacy wrapper field; use `content`.
-          items:
-            $ref: '#/components/schemas/Notification'
-        unreadCount:
-          type: integer
-          deprecated: true
-          description: Deprecated legacy wrapper field; use `/notifications/unread-count`.
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # NOTIFICATIONS (User-facing)
-  # =====================================================
   /notifications:
     get:
-      summary: Get My Notifications
-      operationId: getMyNotifications
       tags: [Notifications]
-      security: [BearerAuth: []]
-      description: Returns paginated in-app notifications for the current user.
+      summary: List notifications (paginated)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
         - name: page
           in: query
           schema: { type: integer, default: 0 }
         - name: size
           in: query
-          schema: { type: integer, default: 20, maximum: 50 }
+          schema: { type: integer, default: 20 }
         - name: unreadOnly
           in: query
           schema: { type: boolean, default: false }
         - name: type
           in: query
-          schema:
-            $ref: '#/components/schemas/NotificationType'
+          schema: { type: string }
       responses:
         '200':
-          description: Notifications
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NotificationListResponse'
-
-  /notifications/unread-count:
-    get:
-      summary: Get Unread Count
-      operationId: getUnreadCount
-      tags: [Notifications]
-      security: [BearerAuth: []]
-      description: Returns count of unread notifications (for badge).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Unread count
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  count:
-                    type: integer
-                    format: int64
-                  unreadCount:
-                    type: integer
-                    format: int64
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationResponse'
+                  totalElements: { type: integer }
+                  totalPages: { type: integer }
+                  number: { type: integer }
+                  size: { type: integer }
 
-  /notifications/{notificationId}/read:
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Get unread count
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  unreadCount: { type: integer }
+
+  /notifications/{id}/read:
     patch:
-      summary: Mark as Read
-      operationId: markAsRead
       tags: [Notifications]
-      security: [BearerAuth: []]
+      summary: Mark notification as read
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Marked as read
-        '404':
-          description: Notification not found
-
+          description: Marked read
     post:
-      summary: Mark as Read (Legacy)
-      operationId: markAsReadPost
       tags: [Notifications]
-      security: [BearerAuth: []]
-      description: Backward-compatible alias for `PATCH /notifications/{notificationId}/read`.
+      summary: Mark notification as read (alias)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Marked as read
-        '404':
-          description: Notification not found
+          description: Marked read
 
   /notifications/read-all:
     patch:
-      summary: Mark All as Read
-      operationId: markAllAsRead
       tags: [Notifications]
-      security: [BearerAuth: []]
+      summary: Mark all as read
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: All marked as read
-
+          description: All marked read
     post:
-      summary: Mark All as Read (Legacy)
-      operationId: markAllAsReadPost
       tags: [Notifications]
-      security: [BearerAuth: []]
-      description: Backward-compatible alias for `PATCH /notifications/read-all`.
+      summary: Mark all as read (alias)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: All marked as read
+          description: All marked read
 
-  /notifications/{notificationId}:
+  /notifications/{id}:
     delete:
-      summary: Delete Notification
-      operationId: deleteNotification
       tags: [Notifications]
-      security: [BearerAuth: []]
+      summary: Delete a notification
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '204':
           description: Deleted
-        '404':
-          description: Not found
 
-  # =====================================================
-  # PREFERENCES
-  # =====================================================
-  /notifications/preferences:
-    get:
-      summary: Get My Preferences
-      operationId: getMyPreferences
-      tags: [Preferences]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Preferences
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NotificationPreferences'
-
-    patch:
-      summary: Update Preferences
-      operationId: updatePreferences
-      tags: [Preferences]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePreferencesRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NotificationPreferences'
-
-  # =====================================================
-  # PUSH DEVICES
-  # =====================================================
-  /notifications/devices:
-    get:
-      summary: List My Devices
-      operationId: listMyDevices
-      tags: [Devices]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Devices
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PushDevice'
-
-    post:
-      summary: Register Device
-      operationId: registerDevice
-      tags: [Devices]
-      security: [BearerAuth: []]
-      description: Registers a device for push notifications.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterDeviceRequest'
-      responses:
-        '201':
-          description: Device registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PushDevice'
-
-  /notifications/devices/{deviceId}:
-    delete:
-      summary: Unregister Device
-      operationId: unregisterDevice
-      tags: [Devices]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: deviceId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '204':
-          description: Device unregistered
-
-  # =====================================================
-  # INTERNAL S2S - EMAIL
-  # =====================================================
   /notifications/email/send:
     post:
-      summary: "[Internal] Send Email"
-      operationId: internalSendEmail
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Any Service
-        
-        Generic email sending endpoint.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Email]
+      summary: Send a templated email (S2S)
       requestBody:
         required: true
         content:
@@ -792,7 +137,6 @@ paths:
               $ref: '#/components/schemas/SendEmailRequest'
       responses:
         '200':
-          description: Email queued for sending
           content:
             application/json:
               schema:
@@ -800,45 +144,21 @@ paths:
 
   /notifications/email/verification:
     post:
-      summary: "[Internal] Send Verification Email"
-      operationId: internalSendVerificationEmail
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: User Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Email]
+      summary: Send verification email (S2S)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailVerificationRequest'
+              type: object
+              required: [to, userName, verificationCode]
+              properties:
+                to: { type: string, format: email }
+                userName: { type: string }
+                verificationCode: { type: string }
       responses:
         '200':
-          description: Email queued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EmailSentResponse'
-
-  /notifications/email/password-reset:
-    post:
-      summary: "[Internal] Send Password Reset Email"
-      operationId: internalSendPasswordResetEmail
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: User Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PasswordResetRequest'
-      responses:
-        '200':
-          description: Email queued
           content:
             application/json:
               schema:
@@ -846,167 +166,99 @@ paths:
 
   /notifications/email/welcome:
     post:
-      summary: "[Internal] Send Welcome Email"
-      operationId: internalSendWelcomeEmail
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: User Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Email]
+      summary: Send welcome email (S2S)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - to
-                - userName
+              required: [to, userName]
               properties:
-                to:
-                  type: string
-                  format: email
-                userName:
-                  type: string
-                dashboardUrl:
-                  type: string
+                to: { type: string, format: email }
+                userName: { type: string }
+                dashboardUrl: { type: string }
       responses:
         '200':
-          description: Email queued
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmailSentResponse'
 
-  /notifications/email/payment-receipt:
+  /notifications/email/password-reset:
     post:
-      summary: "[Internal] Send Payment Receipt"
-      operationId: internalSendPaymentReceipt
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Payment Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PaymentReceiptRequest'
-      responses:
-        '202':
-          description: Email queued
-
-  # =====================================================
-  # INTERNAL S2S - PUSH
-  # =====================================================
-  /notifications/push/send:
-    post:
-      summary: "[Internal] Send Push Notification"
-      operationId: internalSendPush
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Any Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SendPushRequest'
-      responses:
-        '202':
-          description: Push queued
-
-  /notifications/push/new-message:
-    post:
-      summary: "[Internal] New Message Push"
-      operationId: internalSendNewMessagePush
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Chat Service
-        
-        Sends push notification for new chat messages (to offline users only).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Email]
+      summary: Send password reset email (S2S)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - recipientUserId
-                - tripId
-                - senderName
-                - messagePreview
+              required: [to, userName, resetLink]
               properties:
-                recipientUserId:
-                  type: string
-                  format: uuid
-                tripId:
-                  type: string
-                  format: uuid
-                tripTitle:
-                  type: string
-                senderName:
-                  type: string
-                senderAvatarUrl:
-                  type: string
-                  format: uri
-                messagePreview:
-                  type: string
-                  maxLength: 100
+                to: { type: string, format: email }
+                userName: { type: string }
+                resetLink: { type: string }
       responses:
-        '202':
-          description: Push queued
-
-  # =====================================================
-  # INTERNAL S2S - IN-APP
-  # =====================================================
-  /notifications/in-app/send:
-    post:
-      summary: "[Internal] Create In-App Notification"
-      operationId: internalSendInApp
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Any Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SendInAppRequest'
-      responses:
-        '201':
-          description: Notification created
+        '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/EmailSentResponse'
 
-  /notifications/trip-invitation:
-    post:
-      summary: "[Internal] Send Trip Invitation Notification"
-      operationId: internalSendTripInvitation
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-        
-        Sends trip invitation via all enabled channels (email, push, in-app).
+  /notifications/templates/{name}/preview:
+    get:
+      tags: [Templates]
+      summary: Preview email template HTML (dev profile only)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TripInvitationNotificationRequest'
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
       responses:
-        '202':
-          description: Notifications queued
+        '200':
+          content:
+            text/html:
+              schema: { type: string }
+
+components:
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    NotificationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        notificationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        type: { type: string }
+        title: { type: string }
+        message: { type: string }
+        body: { type: string }
+        actionUrl: { type: string }
+        metadata: { type: object }
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: string, format: date-time }
+
+    SendEmailRequest:
+      type: object
+      required: [to, subject, templateName, templateVariables]
+      properties:
+        to: { type: string, format: email }
+        subject: { type: string, maxLength: 500 }
+        templateName: { type: string, pattern: '^[a-z0-9-]+$' }
+        templateVariables: { type: object }
+
+    EmailSentResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }

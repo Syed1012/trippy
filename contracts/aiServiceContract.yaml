@@ -1,629 +1,31 @@
 openapi: 3.0.3
 info:
-  title: AI Service API Contract
+  title: AI Service API
   description: |
-    ## Overview
-    Complete API contract for the AI Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Destination Discovery (natural language search)
-    - Itinerary Generation (day-by-day trip plans)
-    - Travel Advice (Q&A about destinations)
-    - Group Preference Consolidation (merge preferences for group trips)
-    - Response Caching (reduce LLM costs)
-
-    ## Architecture Pattern
-    **Hexagonal Architecture (Ports & Adapters)**
-    - Ports: LLM Provider interface (OpenAI, Ollama, etc.)
-    - Adapters: HTTP REST, LLM client implementations
-    - Domain: Prompt engineering, response parsing
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Protected** | JWT (User) | Destination suggestions (via Gateway) |
-    | **Internal S2S** | Service Token | Itinerary generation (from Trip Service) |
-
-    ## LLM Provider Configuration
-    - **Primary**: OpenAI GPT-4 (or configured provider)
-    - **Fallback**: Ollama (local) for development
-    - **Caching**: Redis with TTL based on query similarity
-
-    ## Rate Limiting
-    AI endpoints have stricter rate limits due to LLM costs:
-    - Discovery: 20 requests/minute per user
-    - Itinerary Generation: 10 requests/hour per user
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-User-Id` | Injected by Gateway | User UUID from JWT |
-    | `X-User-Plan` | Injected by Gateway | Subscription tier (affects limits) |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-
-    ## Database Schema
-    - **Schema Name**: `ai_schema`
-    - **Tables**: 
-      - `generation_logs` - Request/response logging (user_id, prompt, response, tokens_used, created_at)
-      - `cached_responses` - Response cache (query_hash, response, expires_at)
-      - `usage_quotas` - Per-user AI usage tracking (user_id, daily_count, monthly_count)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **OpenAI API** | LLM provider for generation |
-    | **Redis** | Response caching |
-    | **PostgreSQL** | Logging and quota tracking |
-
-  version: 1.0.0
-  contact:
-    name: AI Domain Team
-    email: ai-team@trippy.dev
-
+    AI microservice for the Trippy platform. Provides destination discovery,
+    itinerary generation, travel advice, group preference consolidation,
+    local-Ollama itinerary recommendations (AI sidebar), and trip cover image generation.
+  version: 2.0.0
 servers:
   - url: http://localhost:8084
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://ai-service.internal:8084
-    description: Internal Cluster URL (K8s/Docker)
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
   - name: Discovery
-    description: Destination suggestions and discovery
-  - name: Itinerary
-    description: AI itinerary generation
   - name: Advice
-    description: Travel advice and Q&A
-  - name: Internal
-    description: Service-to-service APIs
+  - name: Chat
+  - name: Itinerary
+  - name: Preferences
+  - name: Recommendations
+  - name: Images
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: string
-          enum: ["VALIDATION_ERROR", "RATE_LIMIT_EXCEEDED", "AI_SERVICE_ERROR", "TIMEOUT"]
-        message:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-        retryAfter:
-          type: integer
-          description: Seconds to wait before retry (for rate limit)
-
-    # =====================================================
-    # DISCOVERY SCHEMAS
-    # =====================================================
-    DestinationSuggestionRequest:
-      type: object
-      required:
-        - prompt
-      properties:
-        prompt:
-          type: string
-          maxLength: 500
-          example: "Cheap beach destinations in Europe for August"
-        city:
-          type: string
-          description: Optional city/destination to focus the suggestions on
-          example: "Lisbon"
-        budget:
-          type: string
-          enum: ["LOW", "MEDIUM", "HIGH"]
-        durationDays:
-          type: integer
-          minimum: 1
-          maximum: 30
-          example: 7
-        travelMonth:
-          type: string
-          example: "August"
-        interests:
-          type: array
-          items:
-            type: string
-          example: ["beaches", "nightlife", "culture"]
-        people:
-          type: integer
-          minimum: 1
-          example: 2
-        diet:
-          type: string
-          example: "vegetarian"
-        preferences:
-          type: string
-          description: Free-form frontend preference text
-        customNotes:
-          type: string
-          description: Additional user notes
-        excludeCountries:
-          type: array
-          items:
-            type: string
-          description: Countries to exclude from suggestions
-
-    DestinationSuggestion:
-      type: object
-      properties:
-        city:
-          type: string
-          example: "Lisbon"
-        country:
-          type: string
-          example: "Portugal"
-        estimatedDailyCost:
-          type: string
-          example: "€80-120"
-        bestTimeToVisit:
-          type: string
-          example: "May to September"
-        highlights:
-          type: array
-          items:
-            type: string
-          example: ["Historic trams", "Belem Tower", "Pastéis de Nata"]
-        reason:
-          type: string
-          description: Why AI recommends this destination
-          example: "Great weather in August, affordable, vibrant nightlife"
-        matchScore:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-          description: How well this matches the user's criteria
-        imageUrl:
-          type: string
-          format: uri
-          description: Representative image (from static CDN)
-
-    DestinationSuggestionResponse:
-      type: object
-      properties:
-        suggestions:
-          type: array
-          items:
-            $ref: '#/components/schemas/DestinationSuggestion'
-        generatedAt:
-          type: string
-          format: date-time
-        cached:
-          type: boolean
-          description: Whether this response was from cache
-
-    # =====================================================
-    # ITINERARY GENERATION SCHEMAS
-    # =====================================================
-    TripConstraints:
-      type: object
-      required:
-        - destination
-        - startDate
-        - endDate
-      properties:
-        destination:
-          type: string
-          example: "Kyoto, Japan"
-        startDate:
-          type: string
-          format: date
-        endDate:
-          type: string
-          format: date
-        budgetLevel:
-          type: string
-          enum: ["ECONOMY", "MODERATE", "LUXURY"]
-        travelers:
-          type: object
-          properties:
-            adults:
-              type: integer
-              minimum: 1
-              default: 1
-            children:
-              type: integer
-              minimum: 0
-              default: 0
-        accommodationType:
-          type: string
-          enum: ["HOTEL", "HOSTEL", "AIRBNB", "ANY"]
-
-    GenerateItineraryRequest:
-      type: object
-      required:
-        - constraints
-      properties:
-        tripId:
-          type: string
-          format: uuid
-          description: Trip ID for logging/tracking
-        constraints:
-          $ref: '#/components/schemas/TripConstraints'
-        userPrompt:
-          type: string
-          maxLength: 1000
-          example: "I want to see historical temples but avoid tourist crowds."
-        tone:
-          type: string
-          enum: ["RELAXED", "ADVENTUROUS", "FAMILY", "ROMANTIC", "CULTURAL", "BALANCED"]
-          default: "BALANCED"
-        preferences:
-          type: object
-          properties:
-            includeTransport:
-              type: boolean
-              default: true
-            includeMeals:
-              type: boolean
-              default: true
-            includeAccommodation:
-              type: boolean
-              default: false
-            pacePreference:
-              type: string
-              enum: ["SLOW", "MODERATE", "PACKED"]
-              default: "MODERATE"
-            mustSeeAttractions:
-              type: array
-              items:
-                type: string
-            avoidAttractions:
-              type: array
-              items:
-                type: string
-
-    DayPlan:
-      type: object
-      properties:
-        dayNumber:
-          type: integer
-        date:
-          type: string
-          format: date
-        title:
-          type: string
-          example: "Temple Tour & Traditional Cuisine"
-        weather:
-          type: object
-          properties:
-            condition:
-              type: string
-              example: "Clear"
-            temperatureCelsius:
-              type: number
-              example: 22.5
-            advice:
-              type: string
-              example: "Bring sunscreen and water for outdoor stops."
-        transportRecommendations:
-          type: array
-          items:
-            type: object
-            properties:
-              from:
-                type: string
-              to:
-                type: string
-              mode:
-                type: string
-                example: "walk / public transport"
-              estimatedDuration:
-                type: string
-                example: "10-30 min"
-              notes:
-                type: string
-        activities:
-          type: array
-          items:
-            $ref: '#/components/schemas/GeneratedActivity'
-
-    GeneratedActivity:
-      type: object
-      properties:
-        time:
-          type: string
-          example: "09:00"
-        duration:
-          type: integer
-          description: Duration in minutes
-        title:
-          type: string
-          example: "Visit Kinkaku-ji Temple"
-        description:
-          type: string
-          example: "Golden Pavilion, one of Kyoto's most iconic landmarks"
-        location:
-          type: string
-          example: "Kinkaku-ji, Kita Ward, Kyoto"
-        coordinates:
-          type: object
-          properties:
-            lat:
-              type: number
-            lng:
-              type: number
-        category:
-          type: string
-          enum: ["SIGHTSEEING", "FOOD", "TRANSPORT", "ACCOMMODATION", "ACTIVITY", "FREE_TIME", "SHOPPING", "CULTURE", "NIGHTLIFE", "NATURE", "WELLNESS"]
-        estimatedCost:
-          type: string
-          example: "¥500"
-        tips:
-          type: string
-          example: "Arrive early to avoid crowds"
-        bookingRequired:
-          type: boolean
-
-    ItineraryResponse:
-      type: object
-      required:
-        - tripTitle
-        - dailyPlan
-      properties:
-        generationId:
-          type: string
-          format: uuid
-          description: Unique identifier for this itinerary generation.
-        tripTitle:
-          type: string
-          example: "5 Days of Culture in Kyoto"
-        summary:
-          type: string
-          example: "A balanced itinerary exploring Kyoto's temples, gardens, and cuisine"
-        totalEstimatedCost:
-          type: string
-          example: "¥150,000"
-        dailyPlan:
-          type: array
-          items:
-            $ref: '#/components/schemas/DayPlan'
-        packingTips:
-          type: array
-          items:
-            type: string
-        travelTips:
-          type: array
-          items:
-            type: string
-        generatedAt:
-          type: string
-          format: date-time
-        tokensUsed:
-          type: integer
-          description: LLM tokens consumed (for internal tracking)
-        fallbackUsed:
-          type: boolean
-          description: True when a template fallback was returned because AI generation failed.
-        fallbackReason:
-          type: string
-          description: Why fallback content was used.
-
-    # =====================================================
-    # TRAVEL ADVICE SCHEMAS
-    # =====================================================
-    TravelAdviceRequest:
-      type: object
-      required:
-        - question
-        - destination
-      properties:
-        question:
-          type: string
-          maxLength: 500
-          example: "What's the best way to get from Tokyo to Kyoto?"
-        destination:
-          type: string
-          example: "Japan"
-        context:
-          type: string
-          maxLength: 1000
-          description: Additional context about the trip
-
-    TravelAdviceResponse:
-      type: object
-      properties:
-        answer:
-          type: string
-        sources:
-          type: array
-          items:
-            type: string
-          description: Reference sources if available
-        relatedQuestions:
-          type: array
-          items:
-            type: string
-          description: Suggested follow-up questions
-        generatedAt:
-          type: string
-          format: date-time
-
-    # =====================================================
-    # AI CHAT SCHEMAS
-    # =====================================================
-    AiChatMessage:
-      type: object
-      required:
-        - role
-        - content
-      properties:
-        role:
-          type: string
-          enum: ["user", "assistant"]
-        content:
-          type: string
-          maxLength: 2000
-
-    AiChatRequest:
-      type: object
-      required:
-        - messages
-      properties:
-        messages:
-          type: array
-          items:
-            $ref: '#/components/schemas/AiChatMessage'
-        tripContext:
-          type: string
-          maxLength: 2000
-        currentItinerary:
-          type: array
-          items:
-            $ref: '#/components/schemas/DayPlan'
-        destination:
-          type: string
-
-    AiChatChange:
-      type: object
-      properties:
-        type:
-          type: string
-          enum: ["swap", "add", "remove", "info"]
-        dayNumber:
-          type: integer
-        removed:
-          type: string
-        added:
-          type: string
-        summary:
-          type: string
-
-    AiChatResponse:
-      type: object
-      properties:
-        reply:
-          type: string
-        updatedItinerary:
-          type: array
-          items:
-            $ref: '#/components/schemas/DayPlan'
-        changes:
-          type: array
-          items:
-            $ref: '#/components/schemas/AiChatChange'
-        hasModification:
-          type: boolean
-
-    # =====================================================
-    # GROUP CONSOLIDATION SCHEMAS
-    # =====================================================
-    GroupPreferenceRequest:
-      type: object
-      required:
-        - tripId
-        - preferences
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        preferences:
-          type: array
-          items:
-            type: object
-            properties:
-              userId:
-                type: string
-                format: uuid
-              interests:
-                type: array
-                items:
-                  type: string
-              budgetPreference:
-                type: string
-                enum: ["ECONOMY", "MODERATE", "LUXURY"]
-              pacePreference:
-                type: string
-                enum: ["SLOW", "MODERATE", "PACKED"]
-              mustSee:
-                type: array
-                items:
-                  type: string
-              avoid:
-                type: array
-                items:
-                  type: string
-
-    ConsolidatedPreferences:
-      type: object
-      properties:
-        recommendedBudget:
-          type: string
-          enum: ["ECONOMY", "MODERATE", "LUXURY"]
-        recommendedPace:
-          type: string
-          enum: ["SLOW", "MODERATE", "PACKED"]
-        sharedInterests:
-          type: array
-          items:
-            type: string
-        mustSeeConsensus:
-          type: array
-          items:
-            type: string
-        conflicts:
-          type: array
-          items:
-            type: object
-            properties:
-              topic:
-                type: string
-              description:
-                type: string
-        suggestedPrompt:
-          type: string
-          description: Generated prompt for itinerary generation
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # DISCOVERY (Public via Gateway)
-  # =====================================================
   /ai/destination-suggestions:
     post:
-      summary: Get Destination Suggestions
-      operationId: getDestinationSuggestions
       tags: [Discovery]
-      security: [BearerAuth: []]
-      description: |
-        Returns destination suggestions based on natural language prompt.
-        Used by the homepage search bar.
-        
-        **Rate Limit**: 20 requests/minute per user
-        **Caching**: Responses cached for similar queries
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      summary: Suggest destinations
       requestBody:
         required: true
         content:
@@ -632,33 +34,15 @@ paths:
               $ref: '#/components/schemas/DestinationSuggestionRequest'
       responses:
         '200':
-          description: Suggestions found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DestinationSuggestionResponse'
-        '429':
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
-  # =====================================================
-  # TRAVEL ADVICE (Public via Gateway)
-  # =====================================================
   /ai/travel-advice:
     post:
-      summary: Get Travel Advice
-      operationId: getTravelAdvice
       tags: [Advice]
-      security: [BearerAuth: []]
-      description: |
-        Answer travel-related questions about destinations.
-        
-        **Rate Limit**: 30 requests/minute per user
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      summary: Travel Q&A
       requestBody:
         required: true
         content:
@@ -667,25 +51,15 @@ paths:
               $ref: '#/components/schemas/TravelAdviceRequest'
       responses:
         '200':
-          description: Advice provided
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TravelAdviceResponse'
-        '429':
-          description: Rate limit exceeded
 
   /ai/chat:
     post:
-      summary: Chat With Trip AI
-      operationId: chatWithTripAi
-      tags: [Advice]
-      security: [BearerAuth: []]
-      description: |
-        Conversational trip assistant endpoint used by the frontend.
-        When `currentItinerary` is supplied, the service may return an updated itinerary.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Chat]
+      summary: Conversational trip assistant
       requestBody:
         required: true
         content:
@@ -694,35 +68,15 @@ paths:
               $ref: '#/components/schemas/AiChatRequest'
       responses:
         '200':
-          description: Chat response generated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AiChatResponse'
-        '429':
-          description: Rate limit exceeded
 
-  # =====================================================
-  # INTERNAL S2S ENDPOINTS
-  # =====================================================
   /ai/itineraries:
     post:
-      summary: "[Internal] Generate Itinerary"
-      operationId: internalGenerateItinerary
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-        
-        Generates a complete day-by-day itinerary for a trip.
-        This is a potentially long-running operation (5-30 seconds).
-        
-        **Rate Limit**: Based on user's subscription plan
-        - FREE: 3 generations/month
-        - PREMIUM: 20 generations/month
-        - ENTERPRISE: Unlimited
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Itinerary]
+      summary: Generate full itinerary (S2S)
       requestBody:
         required: true
         content:
@@ -731,67 +85,15 @@ paths:
               $ref: '#/components/schemas/GenerateItineraryRequest'
       responses:
         '200':
-          description: Itinerary generated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ItineraryResponse'
-        '504':
-          description: Gateway timeout (AI took too long)
-        '429':
-          description: User quota exceeded
-        '500':
-          description: AI service error
-        '503':
-          description: AI provider unavailable
-
-  /ai/itinerary/generate:
-    post:
-      summary: "[Internal] Generate Itinerary Alias"
-      operationId: internalGenerateItineraryAlias
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-
-        Long-term alias for `/ai/itineraries` used by existing frontend and service integrations.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GenerateItineraryRequest'
-      responses:
-        '200':
-          description: Itinerary generated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ItineraryResponse'
-        '504':
-          description: Gateway timeout (AI took too long)
-        '429':
-          description: User quota exceeded
-        '500':
-          description: AI service error
-        '503':
-          description: AI provider unavailable
+                $ref: '#/components/schemas/ItineraryGenerationResponse'
 
   /ai/preferences/consolidate:
     post:
-      summary: "[Internal] Consolidate Group Preferences"
-      operationId: internalConsolidatePreferences
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: Trip Service
-        
-        Analyzes multiple users' preferences and finds common ground
-        for group trip planning.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Preferences]
+      summary: Consolidate group preferences (S2S)
       requestBody:
         required: true
         content:
@@ -800,55 +102,304 @@ paths:
               $ref: '#/components/schemas/GroupPreferenceRequest'
       responses:
         '200':
-          description: Preferences consolidated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConsolidatedPreferences'
+                $ref: '#/components/schemas/ConsolidatedPreferencesResponse'
 
-  /ai/usage/{userId}:
-    get:
-      summary: "[Internal] Get User AI Usage"
-      operationId: internalGetUserUsage
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: User Service, Trip Service
-        
-        Returns AI usage stats for a user (for quota display).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+  /ai/recommendations:
+    post:
+      tags: [Recommendations]
+      summary: Generate itinerary suggestions via local Ollama
+      description: 3 options per day. Set dayNumber to regenerate a single day only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationRequest'
       responses:
         '200':
-          description: Usage stats
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  userId:
-                    type: string
-                    format: uuid
-                  currentMonth:
-                    type: object
-                    properties:
-                      itineraryGenerations:
-                        type: integer
-                      discoveryRequests:
-                        type: integer
-                      adviceRequests:
-                        type: integer
-                  limits:
-                    type: object
-                    properties:
-                      itineraryGenerations:
-                        type: integer
-                        description: -1 for unlimited
-                      discoveryRequestsPerMinute:
-                        type: integer
+                $ref: '#/components/schemas/RecommendationResponse'
+
+  /ai/recommendations/{tripId}:
+    get:
+      tags: [Recommendations]
+      summary: Get stored recommendations
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+
+  /ai/trip-images:
+    post:
+      tags: [Images]
+      summary: Generate trip cover image URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TripImageRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripImageResponse'
+
+components:
+  schemas:
+    DestinationSuggestionRequest:
+      type: object
+      properties:
+        prompt: { type: string }
+        city: { type: string }
+        interests: { type: array, items: { type: string } }
+        budget: { type: string }
+        travelStyle: { type: string }
+        duration: { type: integer, minimum: 1, maximum: 30 }
+        region: { type: string }
+        month: { type: string }
+        people: { type: integer }
+        diet: { type: string }
+        preferences: { type: string }
+        customNotes: { type: string }
+
+    DestinationSuggestionResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              destination: { type: string }
+              country: { type: string }
+              description: { type: string }
+              highlights: { type: array, items: { type: string } }
+              estimatedDailyCost: { type: number }
+              bestTimeToVisit: { type: string }
+              googleMapsUrl: { type: string }
+              matchScore: { type: number }
+        generatedAt: { type: string, format: date-time }
+        cached: { type: boolean }
+
+    TravelAdviceRequest:
+      type: object
+      required: [question, destination]
+      properties:
+        question: { type: string, maxLength: 500 }
+        destination: { type: string }
+        context: { type: string, maxLength: 1000 }
+
+    TravelAdviceResponse:
+      type: object
+      properties:
+        answer: { type: string }
+        relatedQuestions: { type: array, items: { type: string } }
+        generatedAt: { type: string, format: date-time }
+
+    AiChatRequest:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              content: { type: string, maxLength: 2000 }
+        tripContext: { type: string, maxLength: 2000 }
+        currentItinerary: { type: array, items: { type: object } }
+        destination: { type: string }
+
+    AiChatResponse:
+      type: object
+      properties:
+        reply: { type: string }
+        updatedItinerary: { type: array, items: { type: object } }
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              dayNumber: { type: integer }
+              removed: { type: string }
+              added: { type: string }
+              summary: { type: string }
+        hasModification: { type: boolean }
+
+    GenerateItineraryRequest:
+      type: object
+      required: [constraints]
+      properties:
+        tripId: { type: string, format: uuid }
+        constraints:
+          type: object
+          required: [destination, startDate, endDate]
+          properties:
+            destination: { type: string }
+            startDate: { type: string, format: date }
+            endDate: { type: string, format: date }
+            budgetLevel: { type: string }
+            travelers:
+              type: object
+              properties:
+                adults: { type: integer, minimum: 1 }
+                children: { type: integer, minimum: 0 }
+            accommodationType: { type: string }
+        userPrompt: { type: string, maxLength: 1000 }
+        tone: { type: string }
+        preferences:
+          type: object
+          properties:
+            includeTransport: { type: boolean }
+            includeMeals: { type: boolean }
+            includeAccommodation: { type: boolean }
+            pacePreference: { type: string }
+            mustSeeAttractions: { type: array, items: { type: string } }
+            avoidAttractions: { type: array, items: { type: string } }
+
+    ItineraryGenerationResponse:
+      type: object
+      properties:
+        generationId: { type: string, format: uuid }
+        tripTitle: { type: string }
+        summary: { type: string }
+        totalEstimatedCost: { type: string }
+        dailyPlan: { type: array, items: { type: object } }
+        packingTips: { type: array, items: { type: string } }
+        travelTips: { type: array, items: { type: string } }
+        generatedAt: { type: string, format: date-time }
+        tokensUsed: { type: integer }
+        fallbackUsed: { type: boolean }
+        fallbackReason: { type: string }
+
+    GroupPreferenceRequest:
+      type: object
+      required: [tripId, preferences]
+      properties:
+        tripId: { type: string, format: uuid }
+        preferences:
+          type: array
+          items:
+            type: object
+            properties:
+              userId: { type: string, format: uuid }
+              interests: { type: array, items: { type: string } }
+              budgetPreference: { type: string }
+              pacePreference: { type: string }
+              mustSee: { type: array, items: { type: string } }
+              avoid: { type: array, items: { type: string } }
+
+    ConsolidatedPreferencesResponse:
+      type: object
+      properties:
+        recommendedBudget: { type: string }
+        recommendedPace: { type: string }
+        sharedInterests: { type: array, items: { type: string } }
+        mustSeeConsensus: { type: array, items: { type: string } }
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              topic: { type: string }
+              description: { type: string }
+        suggestedPrompt: { type: string }
+
+    RecommendationRequest:
+      type: object
+      required: [destination, days]
+      properties:
+        tripId: { type: string, format: uuid }
+        destination: { type: string }
+        days: { type: integer, minimum: 1, maximum: 60 }
+        dayNumber: { type: integer }
+        preferences:
+          type: object
+          properties:
+            tripType: { type: string }
+            budgetTier: { type: string, enum: [ECONOMY, MODERATE, LUXURY] }
+            preferredWeather: { type: string }
+            notes: { type: string }
+        existingItinerary:
+          type: array
+          items:
+            type: object
+            properties:
+              dayNumber: { type: integer }
+              title: { type: string }
+              activities:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    time: { type: string }
+                    title: { type: string }
+                    estimatedCost: { type: string }
+
+    RecommendationResponse:
+      type: object
+      properties:
+        tripId: { type: string, format: uuid }
+        model: { type: string }
+        source: { type: string, enum: [AI, FALLBACK] }
+        generatedAt: { type: string, format: date-time }
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              dayNumber: { type: integer }
+              options:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    vibe: { type: string, enum: [Top Pick, Adventurer, Hidden Gem] }
+                    title: { type: string }
+                    startTime: { type: string }
+                    endTime: { type: string }
+                    cost: { type: number }
+                    currency: { type: string }
+                    mapsUrl: { type: string }
+                    notes: { type: string }
+
+    TripImageRequest:
+      type: object
+      required: [destination]
+      properties:
+        tripId: { type: string, format: uuid }
+        destination: { type: string }
+        preferences:
+          type: object
+          properties:
+            tripType: { type: string }
+            budgetTier: { type: string }
+            preferredWeather: { type: string }
+            notes: { type: string }
+
+    TripImageResponse:
+      type: object
+      properties:
+        tripId: { type: string, format: uuid }
+        imageUrl: { type: string, nullable: true }
+        prompt: { type: string }
+        model: { type: string }
+        source: { type: string, enum: [AI, FALLBACK, DISABLED] }
+        status: { type: string, enum: [READY, DISABLED] }
