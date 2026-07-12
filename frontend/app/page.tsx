@@ -341,6 +341,22 @@ export default function LandingPage() {
     setEndDate(value);
   };
 
+  const sortedPublicTrips = [...publicTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
+  const sortedMyTrips = [...myTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f]">
       <AmbientBackground />
@@ -535,6 +551,62 @@ export default function LandingPage() {
             <div className="mx-auto max-w-7xl px-4 lg:px-8">
               {isAuthenticated ? (
                 <div className="space-y-16">
+                  {/* Your trips */}
+                  <div>
+                    <div className="mb-8 flex items-center gap-3 border-b border-[#e2d6c1] pb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_14px_28px_-16px_rgba(231,111,81,0.9)]">
+                        <MapPin size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-extrabold tracking-tight text-[#17211f]">Your trips</h2>
+                        <p className="text-xs text-[#5f6f69]">
+                          {myTrips.length} trip{myTrips.length !== 1 ? "s" : ""} in your collection
+                        </p>
+                      </div>
+                    </div>
+
+                    {myLoading ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {[...Array(3)].map((_, idx) => (
+                          <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                        ))}
+                      </div>
+                    ) : sortedMyTrips.length > 0 ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {sortedMyTrips.map((trip) => (
+                          <div
+                            key={trip.tripId}
+                            onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                            className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                          >
+                            <TripCard
+                              title={trip.title}
+                              destination={trip.destination}
+                              startDate={trip.startDate ?? "TBD"}
+                              endDate={trip.endDate ?? "TBD"}
+                              status={
+                                trip.status === "ONGOING"
+                                  ? "ACTIVE"
+                                  : (trip.status as
+                                      | "DRAFT"
+                                      | "PLANNED"
+                                      | "ACTIVE"
+                                      | "COMPLETED"
+                                      | "CANCELLED")
+                              }
+                              participantCount={trip.participantCount}
+                              coverImageUrl={trip.coverImageUrl}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                        <p className="text-sm text-[#5f6f69]">You haven't created any trips yet.</p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Explore public trips */}
                   <div>
                     <div className="mb-8 flex items-center gap-3 border-b border-[#e2d6c1] pb-4">
@@ -553,9 +625,9 @@ export default function LandingPage() {
                           <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
                         ))}
                       </div>
-                    ) : publicTrips.length > 0 ? (
+                    ) : sortedPublicTrips.length > 0 ? (
                       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {publicTrips.map((trip) => (
+                        {sortedPublicTrips.map((trip) => (
                           <div
                             key={trip.tripId}
                             onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
@@ -591,62 +663,6 @@ export default function LandingPage() {
                       </div>
                     )}
                   </div>
-
-                  {/* Your trips */}
-                  <div>
-                    <div className="mb-8 flex items-center gap-3 border-b border-[#e2d6c1] pb-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_14px_28px_-16px_rgba(231,111,81,0.9)]">
-                        <MapPin size={18} />
-                      </div>
-                      <div>
-                        <h2 className="text-xl font-extrabold tracking-tight text-[#17211f]">Your trips</h2>
-                        <p className="text-xs text-[#5f6f69]">
-                          {myTrips.length} trip{myTrips.length !== 1 ? "s" : ""} in your collection
-                        </p>
-                      </div>
-                    </div>
-
-                    {myLoading ? (
-                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {[...Array(3)].map((_, idx) => (
-                          <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
-                        ))}
-                      </div>
-                    ) : myTrips.length > 0 ? (
-                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {myTrips.map((trip) => (
-                          <div
-                            key={trip.tripId}
-                            onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
-                            className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
-                          >
-                            <TripCard
-                              title={trip.title}
-                              destination={trip.destination}
-                              startDate={trip.startDate ?? "TBD"}
-                              endDate={trip.endDate ?? "TBD"}
-                              status={
-                                trip.status === "ONGOING"
-                                  ? "ACTIVE"
-                                  : (trip.status as
-                                      | "DRAFT"
-                                      | "PLANNED"
-                                      | "ACTIVE"
-                                      | "COMPLETED"
-                                      | "CANCELLED")
-                              }
-                              participantCount={trip.participantCount}
-                              coverImageUrl={trip.coverImageUrl}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
-                        <p className="text-sm text-[#5f6f69]">You haven't created any trips yet.</p>
-                      </div>
-                    )}
-                  </div>
                 </div>
               ) : (
                 /* Unauthenticated view (only Explore Public Trips) */
@@ -666,9 +682,9 @@ export default function LandingPage() {
                         <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
                       ))}
                     </div>
-                  ) : publicTrips.length > 0 ? (
+                  ) : sortedPublicTrips.length > 0 ? (
                     <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                      {publicTrips.map((trip) => (
+                      {sortedPublicTrips.map((trip) => (
                         <div
                           key={trip.tripId}
                           onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
