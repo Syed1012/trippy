@@ -47,6 +47,8 @@ import {
   Check,
   MessageCircle,
   Send,
+  Search,
+  User,
   Eye,
   EyeOff,
   TreePalm,
@@ -2454,17 +2456,50 @@ function InviteModal({
   currentUserName: string;
 }) {
   const { addToast } = useToast();
+  const [activeTab, setActiveTab] = useState<"email" | "search">("email");
   const [email, setEmail] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sentEmails, setSentEmails] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Search states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserPublicProfile[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
+
   const trimmedEmail = email.trim();
   const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
 
+  // Debounced search query observer
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearching(true);
+    const timer = setTimeout(() => {
+      usersApi
+        .search(searchQuery.trim(), 5)
+        .then((res) => {
+          setSearchResults(res);
+        })
+        .catch(() => {
+          setSearchResults([]);
+        })
+        .finally(() => {
+          setSearching(false);
+        });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   async function handleSend() {
-    if (!isValidEmail) {
+    const targetEmail = selectedUser ? selectedUser.email : trimmedEmail;
+    if (!targetEmail || !EMAIL_PATTERN.test(targetEmail)) {
       setError("Enter a valid email address");
       return;
     }
@@ -2473,13 +2508,15 @@ function InviteModal({
     try {
       await participantsApi.inviteByEmail(
         tripId,
-        trimmedEmail,
+        targetEmail,
         inviteMessage.trim() || undefined,
         currentUserName || undefined,
       );
-      setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+      setSentEmails((prev) => [targetEmail, ...prev.filter((e) => e !== targetEmail)]);
       setEmail("");
-      addToast("Invitation email sent!", "success");
+      setSelectedUser(null);
+      setSearchQuery("");
+      addToast("Invitation sent successfully!", "success");
       onInvited();
     } catch {
       addToast("Failed to send invitation", "error");
@@ -2487,6 +2524,8 @@ function InviteModal({
       setSending(false);
     }
   }
+
+  const isButtonEnabled = selectedUser ? true : isValidEmail;
 
   return (
     <motion.div
@@ -2513,32 +2552,149 @@ function InviteModal({
           </button>
         </div>
 
-        {/* Email form */}
+        {/* Tab Selector */}
+        <div className="flex border-b border-border text-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("email");
+              setSelectedUser(null);
+              setEmail("");
+            }}
+            className={cn(
+              "flex-1 py-3 text-center font-semibold cursor-pointer border-b-2 transition-all",
+              activeTab === "email"
+                ? "border-accent-500 text-accent-600"
+                : "border-transparent text-muted hover:text-foreground"
+            )}
+          >
+            Invite via Email
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("search");
+              setSelectedUser(null);
+              setSearchQuery("");
+              setEmail("");
+            }}
+            className={cn(
+              "flex-1 py-3 text-center font-semibold cursor-pointer border-b-2 transition-all",
+              activeTab === "search"
+                ? "border-accent-500 text-accent-600"
+                : "border-transparent text-muted hover:text-foreground"
+            )}
+          >
+            Search Platform Users
+          </button>
+        </div>
+
+        {/* Form Body */}
         <div className="px-6 py-4 space-y-3">
-          <p className="text-xs text-muted">
-            We&apos;ll email them a summary of this trip with a link to open it.
-          </p>
-          <div className="relative">
-            <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (error) setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="friend@example.com"
-              autoFocus
-              className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
-            />
-          </div>
+          {activeTab === "email" ? (
+            <>
+              <p className="text-xs text-muted">
+                We&apos;ll email them a summary of this trip with a link to open it.
+              </p>
+              <div className="relative">
+                <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="friend@example.com"
+                  autoFocus
+                  className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              {selectedUser ? (
+                <div className="flex items-center gap-3 rounded-2xl border border-accent-100 bg-accent-50/40 p-3">
+                  <div className="h-8 w-8 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-sm overflow-hidden shrink-0">
+                    {selectedUser.avatarUrl ? (
+                      <img src={selectedUser.avatarUrl} alt={selectedUser.displayName} className="h-full w-full object-cover" />
+                    ) : (
+                      selectedUser.displayName.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-foreground truncate">{selectedUser.displayName}</p>
+                    <p className="text-xs text-muted truncate">{selectedUser.email}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUser(null)}
+                    className="text-muted hover:text-foreground cursor-pointer p-1 rounded-full hover:bg-black/5"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search by name or email..."
+                      className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
+                    />
+                    {searching && (
+                      <Loader2 size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+                    )}
+                  </div>
+
+                  {/* Search Results list */}
+                  {searchResults.length > 0 && (
+                    <div className="border border-border rounded-2xl overflow-hidden max-h-40 overflow-y-auto bg-white divide-y divide-border shadow-sm">
+                      {searchResults.map((user) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedUser(user);
+                            setSearchQuery("");
+                            setSearchResults([]);
+                          }}
+                          className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
+                        >
+                          <div className="h-7 w-7 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-xs overflow-hidden shrink-0">
+                            {user.avatarUrl ? (
+                              <img src={user.avatarUrl} alt={user.displayName} className="h-full w-full object-cover" />
+                            ) : (
+                              user.displayName.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-foreground truncate">{user.displayName}</p>
+                            <p className="text-[10px] text-muted truncate">{user.email}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+                    <p className="text-xs text-muted text-center py-2">No users found matching &quot;{searchQuery}&quot;</p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
           {error && <p className="text-xs text-red-500">{error}</p>}
+          
           <textarea
             value={inviteMessage}
             onChange={(e) => setInviteMessage(e.target.value)}
@@ -2547,13 +2703,14 @@ function InviteModal({
             maxLength={300}
             className="w-full rounded-xl border border-border bg-shore-50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors resize-none"
           />
+          
           <button
             onClick={handleSend}
-            disabled={!isValidEmail || sending}
+            disabled={!isButtonEnabled || sending}
             className={cn(
               "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
               "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-              (!isValidEmail || sending) && "opacity-60 cursor-not-allowed",
+              (!isButtonEnabled || sending) && "opacity-60 cursor-not-allowed",
             )}
           >
             {sending ? (
