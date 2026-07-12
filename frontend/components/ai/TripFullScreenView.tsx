@@ -657,7 +657,8 @@ export default function TripFullScreenView({
               <div className="flex gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
                 {draftTrip.aiItinerary.map(day => {
                   const isExp = expandedDays.has(day.dayNumber);
-                  const hasWeather = day.weather?.condition && !day.weather.condition.includes("unavailable");
+                  const isFarAway = day.date ? (new Date(day.date).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000 > 10 : false;
+                  const hasWeather = !isFarAway && day.weather?.condition && !day.weather.condition.includes("unavailable");
                   return (
                     <button
                       key={day.dayNumber}
@@ -691,7 +692,8 @@ export default function TripFullScreenView({
                   ? new Date(day.date).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" })
                   : "";
                 const weatherCondition = day.weather?.condition;
-                const hasWeather = weatherCondition && !weatherCondition.includes("unavailable");
+                const isFarAway = day.date ? (new Date(day.date).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000 > 10 : false;
+                const hasWeather = !isFarAway && weatherCondition && !weatherCondition.includes("unavailable");
                 const weatherTemp = formatTemperature(day.weather?.temperatureCelsius);
                 const weatherIcon = getWeatherIcon(weatherCondition);
 

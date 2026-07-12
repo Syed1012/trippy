@@ -13,7 +13,6 @@ import {
   Route,
   SlidersHorizontal,
   Stamp,
-  Globe,
   Utensils,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,7 +24,6 @@ interface TripTicketProps {
   endDate: string;
   filters: string[];
   budget: string;
-  visibility: string;
   diet: string;
   pace: string;
   /** Destination + valid dates present — the ticket can be redeemed. */
@@ -111,7 +109,6 @@ export default function TripTicket({
   endDate,
   filters,
   budget,
-  visibility,
   diet,
   pace,
   ready,
@@ -119,9 +116,9 @@ export default function TripTicket({
 }: TripTicketProps) {
   const dateLabel = formatTicketDates(startDate, endDate);
   const nights = tripNights(startDate, endDate);
-  const filled = [destination, dateLabel, visibility, budget, pace, diet, filters.length > 0 ? "y" : ""]
+  const filled = [destination, dateLabel, budget, pace, diet, filters.length > 0 ? "y" : ""]
     .filter(Boolean).length;
-  const progress = Math.round((filled / 7) * 100);
+  const progress = Math.round((filled / 6) * 100);
 
   return (
     <motion.div
@@ -164,8 +161,7 @@ export default function TripTicket({
             />
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-            <TicketField icon={<Globe size={11} />} label="Visibility" value={visibility} placeholder="—" />
+          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
             <TicketField icon={<DollarSign size={11} />} label="Budget" value={budget} placeholder="—" />
             <TicketField icon={<Route size={11} />} label="Pace" value={pace} placeholder="—" />
             <TicketField icon={<Utensils size={11} />} label="Diet" value={diet} placeholder="—" />

@@ -11,7 +11,6 @@ export interface PendingTrip {
   endDate: string;
   filters: string[];
   budget?: string;
-  visibility?: string;
   diet?: string;
   pace?: string;
   savedAt: number;
@@ -88,12 +87,6 @@ const BUDGET_TO_TIER: Record<string, BudgetTier> = {
   Luxury: "LUXURY",
 };
 
-/** Landing visibility labels → trip visibility. */
-const VISIBILITY_MAP: Record<string, "PUBLIC" | "PRIVATE"> = {
-  Public: "PUBLIC",
-  Private: "PRIVATE",
-};
-
 const NOTES_MAX_LENGTH = 500;
 
 export function pendingTripToInitialValues(pending: PendingTrip): CreateTripInitialValues {
@@ -104,7 +97,6 @@ export function pendingTripToInitialValues(pending: PendingTrip): CreateTripInit
   const extraInterests = pending.filters.filter((filter) => filter !== mappedFilter);
 
   const budgetTier = pending.budget ? BUDGET_TO_TIER[pending.budget] : undefined;
-  const visibility = pending.visibility ? VISIBILITY_MAP[pending.visibility] : undefined;
 
   // Diet and pace have no dedicated columns yet, so they ride along in notes.
   const noteParts: string[] = [];
@@ -119,7 +111,6 @@ export function pendingTripToInitialValues(pending: PendingTrip): CreateTripInit
     endDate: pending.endDate || pending.startDate,
     tripType,
     budgetTier,
-    visibility,
     preferenceNotes: noteParts.join(" · ").slice(0, NOTES_MAX_LENGTH) || undefined,
   };
 }
