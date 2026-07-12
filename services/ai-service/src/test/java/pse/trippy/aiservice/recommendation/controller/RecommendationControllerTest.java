@@ -43,7 +43,8 @@ class RecommendationControllerTest {
         return new RecommendationResponse(tripId, "llama3.2:3b", "AI", Instant.now(), List.of(
                 new DayRecommendations(1, List.of(new RecommendationOption(
                         UUID.randomUUID(), "Top Pick", "Louvre & Seine", "09:00", "17:00",
-                        BigDecimal.valueOf(80), "EUR", "https://maps.example/louvre", "Art and river.")))));
+                        BigDecimal.valueOf(80), "EUR", "https://maps.example/louvre", "Art and river.",
+                        "Louvre Museum, Paris")))));
     }
 
     @Test

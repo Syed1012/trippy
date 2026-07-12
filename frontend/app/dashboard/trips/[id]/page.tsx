@@ -1606,6 +1606,8 @@ function AIItinerarySidebar({
   numDays,
   currencySymbol,
   onApply,
+  onRemove,
+  addedKeys,
 }: {
   open: boolean;
   minimized: boolean;
@@ -1620,9 +1622,11 @@ function AIItinerarySidebar({
   numDays: number;
   currencySymbol: string;
   onApply: (dayNumber: number, suggestion: AISuggestion) => void;
+  onRemove: (dayNumber: number, suggestion: AISuggestion) => void;
+  addedKeys: Set<string>;
 }) {
   const { addToast } = useToast();
-  const { states, regenerateDay: regenerate, setChosen: chooseInStore } = useAIGeneration();
+  const { states, regenerateDay: regenerate } = useAIGeneration();
   const days = Math.max(1, numDays);
   const [activeDay, setActiveDay] = useState(1);
   const [regenning, setRegenning] = useState(false);
@@ -1632,7 +1636,11 @@ function AIItinerarySidebar({
   const genState = states[tripId];
   const phase: "loading" | "ready" = genState?.status === "ready" ? "ready" : "loading";
   const suggestions = genState?.suggestions ?? {};
-  const chosen = genState?.chosen ?? {};
+
+  // A suggestion is "added" when the day already has an activity with that title
+  // (matched by title so it survives the itinerary save round-trip).
+  const isAdded = (dayNumber: number, title: string) =>
+    addedKeys.has(`${dayNumber}::${title.trim().toLowerCase()}`);
 
   async function regenerateDay() {
     setRegenning(true);
@@ -1644,9 +1652,13 @@ function AIItinerarySidebar({
   }
 
   function choose(s: AISuggestion) {
-    chooseInStore(tripId, activeDay, s.id);
-    onApply(activeDay, s);
-    addToast(`Added “${s.title}” to Day ${activeDay}`, "success");
+    if (isAdded(activeDay, s.title)) {
+      onRemove(activeDay, s);
+      addToast(`Removed “${s.title}” from Day ${activeDay}`, "info");
+    } else {
+      onApply(activeDay, s);
+      addToast(`Added “${s.title}” to Day ${activeDay}`, "success");
+    }
   }
 
   // Drag the left edge to resize the rail (content reflows live, Copilot-style).
@@ -1670,7 +1682,10 @@ function AIItinerarySidebar({
   }
 
   const daySuggestions = suggestions[activeDay] ?? (phase === "ready" ? buildDaySuggestions(activeDay, destination) : []);
-  const chosenCount = Object.keys(chosen).length;
+  // Days that have at least one added suggestion (drives the tab checks + progress).
+  const chosenCount = Array.from({ length: days }, (_, i) => i + 1).filter((d) =>
+    (suggestions[d] ?? []).some((sg) => isAdded(d, sg.title)),
+  ).length;
   const city = destination.split(",")[0]?.trim() || "your destination";
   const loadingMessages = [
     `Scanning the best of ${city}…`,
@@ -1802,7 +1817,7 @@ function AIItinerarySidebar({
                 <div className="no-scrollbar flex gap-2 overflow-x-auto">
                   {Array.from({ length: days }, (_, i) => i + 1).map((d) => {
                     const active = d === activeDay;
-                    const done = Boolean(chosen[d]);
+                    const done = (suggestions[d] ?? []).some((sg) => isAdded(d, sg.title));
                     return (
                       <button
                         key={d}
@@ -1860,7 +1875,7 @@ function AIItinerarySidebar({
                     {daySuggestions.map((s, idx) => {
                       const vibe = AI_VIBES[s.vibe];
                       const VibeIcon = vibe.icon;
-                      const isChosen = chosen[activeDay] === s.id;
+                      const isChosen = isAdded(activeDay, s.title);
                       return (
                         <motion.div
                           key={s.id}
@@ -1921,16 +1936,25 @@ function AIItinerarySidebar({
                             </a>
                           </div>
 
+                          {/* specific place / location */}
+                          {s.location && (
+                            <p className="relative mt-2 flex items-start gap-1.5 text-[11px] font-medium text-foreground/70">
+                              <MapPin size={12} className="mt-0.5 shrink-0 text-accent-500" />
+                              <span className="min-w-0">{s.location}</span>
+                            </p>
+                          )}
+
                           {/* notes */}
                           <p className="relative mt-3 text-xs leading-relaxed text-muted">{s.notes}</p>
 
                           {/* CTA */}
                           <button
                             onClick={() => choose(s)}
+                            title={isChosen ? "Tap to remove from this day" : undefined}
                             className={cn(
-                              "relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
+                              "group/cta relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
                               isChosen
-                                ? "border border-emerald-400/50 bg-emerald-50 text-emerald-700"
+                                ? "border border-emerald-400/50 bg-emerald-50 text-emerald-700 hover:border-red-300 hover:bg-red-50 hover:text-red-600"
                                 : cn(
                                     "bg-gradient-to-r text-white shadow-[0_14px_28px_-16px_rgba(20,47,43,0.6)] hover:-translate-y-0.5",
                                     vibe.gradient,
@@ -1939,7 +1963,10 @@ function AIItinerarySidebar({
                           >
                             {isChosen ? (
                               <>
-                                <Check size={14} /> Added to Day {activeDay}
+                                <Check size={14} className="group-hover/cta:hidden" />
+                                <X size={14} className="hidden group-hover/cta:inline" />
+                                <span className="group-hover/cta:hidden">Added to Day {activeDay}</span>
+                                <span className="hidden group-hover/cta:inline">Remove from Day {activeDay}</span>
                               </>
                             ) : (
                               <>
@@ -2787,32 +2814,51 @@ export default function TripDetailPage() {
     setReserve(clamped + AI_RAIL_GAP);
   }
   // Add an AI suggestion into the working itinerary and persist it immediately,
-  // so generated plans survive a logout without needing a manual Save.
+  // so generated plans survive a logout without needing a manual Save. The full
+  // set of fields (time range, location, cost) is carried over from the suggestion.
   function applySuggestion(dayNumber: number, s: AISuggestion) {
+    const time = s.startTime && s.endTime ? `${s.startTime} - ${s.endTime}` : (s.startTime || "");
     const activity: Activity = {
       activityId: `ai-rec-${dayNumber}-${Date.now()}`,
-      time: s.startTime || undefined,
+      time,
       title: s.title,
       description: s.notes || undefined,
+      location: s.location || undefined,
       estimatedCost: s.cost ? String(Math.round(s.cost)) : undefined,
       category: "sightseeing",
     };
     const exists = itineraryDays.some((d) => d.dayNumber === dayNumber);
+    // Day title is intentionally left untouched — "Day N" is enough; the day
+    // title is optional and no longer derived from the first suggestion.
     const nextDays = exists
       ? itineraryDays.map((d) =>
           d.dayNumber === dayNumber
-            ? { ...d, title: d.title?.trim() ? d.title : s.title, activities: [...d.activities, activity] }
+            ? { ...d, activities: [...d.activities, activity] }
             : d,
         )
       : [
           ...itineraryDays,
-          { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: s.title, activities: [activity] },
+          { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: "", activities: [activity] },
         ].sort((a, b) => a.dayNumber - b.dayNumber);
 
     setItineraryDays(nextDays);
     setExpandedDays((prev) => new Set(prev).add(dayNumber));
     setHasUnsavedChanges(true);
     // Auto-save in the background so the AI-generated plan is stored right away.
+    void persistItinerary(nextDays, { silent: true });
+  }
+
+  // Remove a previously-added AI suggestion from a day (matched by title), so the
+  // AI Studio shows "Add" again. Kept in sync with the itinerary via title match.
+  function removeSuggestion(dayNumber: number, s: AISuggestion) {
+    const key = s.title.trim().toLowerCase();
+    const nextDays = itineraryDays.map((d) =>
+      d.dayNumber === dayNumber
+        ? { ...d, activities: d.activities.filter((a) => (a.title ?? "").trim().toLowerCase() !== key) }
+        : d,
+    );
+    setItineraryDays(nextDays);
+    setHasUnsavedChanges(true);
     void persistItinerary(nextDays, { silent: true });
   }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -3012,6 +3058,15 @@ export default function TripDetailPage() {
   }
 
   const numDays = getNumDays(trip?.startDate, trip?.endDate);
+
+  // Keys of AI suggestions already present in the itinerary ("day::title"), so the
+  // AI Studio can mark them Added and revert to Add when removed from the itinerary.
+  const addedSuggestionKeys = new Set<string>();
+  for (const d of itineraryDays) {
+    for (const a of d.activities) {
+      if (a.title?.trim()) addedSuggestionKeys.add(`${d.dayNumber}::${a.title.trim().toLowerCase()}`);
+    }
+  }
 
   // Pull in any recommendations generated earlier (survives reloads / navigation)
   // so reopening the AI panel shows them instantly instead of regenerating.
@@ -3731,6 +3786,8 @@ export default function TripDetailPage() {
           numDays={numDays > 0 ? numDays : 5}
           currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
           onApply={applySuggestion}
+          onRemove={removeSuggestion}
+          addedKeys={addedSuggestionKeys}
         />
       )}
 

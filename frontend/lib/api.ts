@@ -543,6 +543,7 @@ export interface RecommendationOption {
   currency?: string;
   mapsUrl?: string;
   notes?: string;
+  location?: string;
 }
 
 export interface DayRecommendations {

@@ -37,7 +37,8 @@ public record RecommendationResponse(
             BigDecimal cost,
             String currency,
             String mapsUrl,
-            String notes
+            String notes,
+            String location
     ) {
     }
 }

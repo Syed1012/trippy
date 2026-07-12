@@ -5,6 +5,7 @@ export interface AISuggestion {
   id: string;
   vibe: "Top Pick" | "Adventurer" | "Hidden Gem";
   title: string;
+  location: string;
   startTime: string;
   endTime: string;
   cost: number;
@@ -46,6 +47,7 @@ export function buildDaySuggestions(day: number, destination: string): AISuggest
       id: `s-top-${stamp}`,
       vibe: "Top Pick",
       title: top,
+      location: city,
       startTime: "09:00",
       endTime: "18:30",
       cost: 85,
@@ -56,6 +58,7 @@ export function buildDaySuggestions(day: number, destination: string): AISuggest
       id: `s-adv-${stamp}`,
       vibe: "Adventurer",
       title: adv,
+      location: city,
       startTime: "07:30",
       endTime: "17:00",
       cost: 120,
@@ -66,6 +69,7 @@ export function buildDaySuggestions(day: number, destination: string): AISuggest
       id: `s-gem-${stamp}`,
       vibe: "Hidden Gem",
       title: gem,
+      location: city,
       startTime: "10:30",
       endTime: "20:00",
       cost: 55,
@@ -90,6 +94,7 @@ export function groupRecommendations(
         id: o.id || `s-${day.dayNumber}-${i}-${Math.random().toString(36).slice(2, 7)}`,
         vibe,
         title: o.title,
+        location: o.location ?? "",
         startTime: o.startTime ?? "",
         endTime: o.endTime ?? "",
         cost: typeof o.cost === "number" ? o.cost : 0,

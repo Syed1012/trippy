@@ -117,7 +117,9 @@ public class ItineraryRecommendationService {
                     .add(new RecommendationOption(
                             row.getId(), row.getVibe(), row.getTitle(), row.getStartTime(),
                             row.getEndTime(), row.getEstimatedCost(), row.getCurrency(),
-                            row.getMapsUrl(), row.getNotes()));
+                            row.getMapsUrl(), row.getNotes(),
+                            // location isn't persisted; the title is a specific place name.
+                            row.getTitle()));
         }
 
         List<DayRecommendations> days = byDay.entrySet().stream()
@@ -143,9 +145,11 @@ public class ItineraryRecommendationService {
 
     private String buildSystemPrompt() {
         return """
-                You are Trippy's expert travel-itinerary planner.
-                For every requested day, propose exactly 3 distinct full-day plan options that a traveller could realistically follow.
-                Each option must be concrete and specific to the destination (name real neighbourhoods, landmarks or experiences).
+                You are Trippy's expert local travel planner.
+                For every requested day, propose exactly 3 distinct, SPECIFIC options a traveller can actually do.
+                Each option must centre on ONE real, named place at the destination — a specific cafe, restaurant,
+                museum, trail, mountain, beach, market, viewpoint or landmark. Use its real name; never a generic
+                theme like "Highlights of X" or "Local flavours of X".
                 Respond with STRICT JSON only, no prose, matching exactly this shape:
                 {
                   "days": [
@@ -153,19 +157,22 @@ public class ItineraryRecommendationService {
                       "dayNumber": 1,
                       "options": [
                         {
-                          "title": "short punchy plan name (max 8 words)",
+                          "title": "the real place or experience name (max 8 words, e.g. 'Griffith Observatory sunset')",
+                          "location": "the specific place and area, searchable on a map (e.g. 'Griffith Observatory, Los Angeles')",
                           "startTime": "HH:MM",
                           "endTime": "HH:MM",
-                          "estimatedCost": 120,
+                          "estimatedCost": 25,
                           "currency": "USD",
-                          "notes": "1-2 sentence description of the plan and why it fits",
-                          "mapsQuery": "a specific place to search on Google Maps"
+                          "notes": "1-2 sentences: what to do there and why it fits",
+                          "mapsQuery": "the exact place to search on Google Maps"
                         }
                       ]
                     }
                   ]
                 }
-                Rules: every day has exactly 3 options; estimatedCost is a number (per person, whole units); times use 24h HH:MM; keep notes concise; never include markdown or comments.
+                Rules: every day has exactly 3 options; title and location must both name a real, specific place (never
+                generic); estimatedCost is a number (per person, whole units); times use 24h HH:MM; keep notes concise;
+                never include markdown or comments.
                 """;
     }
 
@@ -264,7 +271,8 @@ public class ItineraryRecommendationService {
         String end = textOrDefault(node.path("endTime"), "18:00");
         String currency = textOrDefault(node.path("currency"), DEFAULT_CURRENCY);
         String notes = textOrDefault(node.path("notes"), "");
-        String mapsQuery = textOrDefault(node.path("mapsQuery"), title);
+        String location = textOrDefault(node.path("location"), request.destination().trim());
+        String mapsQuery = textOrDefault(node.path("mapsQuery"), location);
 
         BigDecimal cost;
         JsonNode costNode = node.path("estimatedCost");
@@ -285,7 +293,8 @@ public class ItineraryRecommendationService {
                 cost,
                 currency,
                 mapsUrl(mapsQuery, request.destination()),
-                notes
+                notes,
+                location
         );
     }
 
@@ -332,7 +341,8 @@ public class ItineraryRecommendationService {
                     costs[i],
                     DEFAULT_CURRENCY,
                     mapsUrl(titles[i], destination),
-                    notes[i]
+                    notes[i],
+                    destination
             ));
         }
         return options;
