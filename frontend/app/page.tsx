@@ -301,10 +301,7 @@ export default function LandingPage() {
                 Where are you going next?
               </motion.h1>
 
-              <motion.p variants={revealItem} className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#5f6f69] sm:text-lg">
-                Build the trip your way and let AI suggest as you go — or hand it over
-                and let AI plan the whole thing.
-              </motion.p>
+
 
               <motion.form
                 variants={revealItem}
