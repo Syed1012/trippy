@@ -73,6 +73,7 @@ import { useRightRail } from "@/lib/right-rail";
 import { useAIGeneration } from "@/lib/ai-generation";
 import { type AISuggestion, buildDaySuggestions } from "@/lib/ai-suggestions";
 import { type DayWeather, fetchDayWeather } from "@/lib/weather";
+import DayMap from "@/components/trips/DayMap";
 
 const statusVariant: Record<string, "default" | "success" | "warning" | "accent" | "danger"> = {
   DRAFT: "default",
@@ -1234,6 +1235,12 @@ function DayCard({
       ? isoDatePlus(tripStartDate, day.dayNumber - 1)
       : null;
 
+  // Day-map: lazy-loaded, only the activities that carry a location, in planned order.
+  const [mapOpen, setMapOpen] = useState(false);
+  const mapStops = day.activities
+    .filter((a) => a.location?.trim())
+    .map((a) => ({ title: a.title?.trim() || "Untitled activity", location: a.location!.trim(), time: activityTimes(a).start }));
+
   // Add a blank activity, pre-seeding a sensible start time so the user only types a title.
   function addActivity() {
     onUpdateDay({
@@ -1477,6 +1484,43 @@ function DayCard({
                 >
                   <Plus size={14} /> Add a blank activity
                 </button>
+              )}
+
+              {/* Day map — pins + road route, lazily mounted on open */}
+              {mapStops.length > 0 && (
+                <div className="pt-1">
+                  <button
+                    onClick={() => setMapOpen((o) => !o)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
+                      mapOpen
+                        ? "border-accent-300 bg-accent-50 text-accent-700"
+                        : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
+                    )}
+                  >
+                    <Map size={15} className="text-accent-500" />
+                    {mapOpen ? "Hide day map" : "Show day map"}
+                    <span className="text-[11px] font-medium text-muted">
+                      · {mapStops.length} location{mapStops.length !== 1 ? "s" : ""} routed
+                    </span>
+                    <span className="ml-auto">
+                      {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+                    </span>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {mapOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.2 }}
+                        className="pt-3"
+                      >
+                        <DayMap destination={destination ?? ""} stops={mapStops} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
             </div>
           </motion.div>
