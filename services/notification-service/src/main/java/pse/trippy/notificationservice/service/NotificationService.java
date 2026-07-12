@@ -189,6 +189,12 @@ public class NotificationService {
             URI baseUri = URI.create(effectiveBaseUrl);
             String appHost = baseUri.getHost();
             String expectedScheme = baseUri.getScheme();
+
+            if (appHost == null || expectedScheme == null) {
+                log.warn("Invalid app.base-url configuration appBaseUrl={}", LogSanitizer.safeDetail(effectiveBaseUrl));
+                return null;
+            }
+
             if (uri.isAbsolute()) {
                 if (!expectedScheme.equalsIgnoreCase(uri.getScheme())
                         || !appHost.equalsIgnoreCase(uri.getHost())) {
