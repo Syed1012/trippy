@@ -1,17 +1,19 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MapPin, Calendar, Users, Sparkles, Loader2, Check,
   DollarSign, Send, ArrowRightLeft, Plus, Trash2,
   Lightbulb, Undo2, ChevronDown, ChevronUp, Pencil,
-  Bus, Clock, ArrowLeft,
+  Bus, Clock, ArrowLeft, Lock, Globe,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
 import Button from "@/components/ui/Button";
 import { getAccessToken } from "@/lib/api";
+import { ROUTES } from "@/lib/routes";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface AiItineraryDay {
@@ -88,8 +90,12 @@ interface TripFullScreenViewProps {
   userPrompt?: string;
   userDates?: { start: string; end?: string };
   onClose: () => void;
-  onSave: () => void;
+  onSave: (trip: GeneratedTrip) => void;
   saved: boolean;
+  isSaving?: boolean;
+  saveError?: string;
+  visibility?: "PRIVATE" | "PUBLIC";
+  onVisibilityChange?: (visibility: "PRIVATE" | "PUBLIC") => void;
 }
 
 const CAT_COLORS: Record<string, string> = {
@@ -111,6 +117,7 @@ const CAT_ICONS: Record<string, string> = {
 /* ── Main Component ────────────────────────────────────────────────── */
 export default function TripFullScreenView({
   trip, userPrompt, userDates, onClose, onSave, saved,
+  isSaving = false, saveError = "", visibility = "PRIVATE", onVisibilityChange,
 }: TripFullScreenViewProps) {
   const [draftTrip, setDraftTrip] = useState<GeneratedTrip>(trip);
   const [itineraryVersion, setItineraryVersion] = useState(0);
@@ -371,9 +378,9 @@ export default function TripFullScreenView({
             >
               <ArrowLeft size={15} />
             </button>
-            <button onClick={onClose} className="cursor-pointer">
+            <Link href={ROUTES.home} className="cursor-pointer" aria-label="Trippy home">
               <Logo size="sm" className="min-w-0 [&>span]:text-xl" />
-            </button>
+            </Link>
           </div>
           {prevItinerary && (
             <button
@@ -960,9 +967,50 @@ export default function TripFullScreenView({
           ) : null}
 
           {/* Save bar */}
-          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6">
-            <Button className="w-full text-sm py-3.5 shadow-lg shadow-trippy-500/20" onClick={onSave} disabled={saved}>
-              {saved ? <><Check size={16} /> Trip Saved to Dashboard</> : <><Sparkles size={16} /> Save This Trip</>}
+          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
+            {onVisibilityChange && (
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onVisibilityChange("PRIVATE")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer ${
+                    visibility === "PRIVATE"
+                      ? "bg-trippy-500 text-white shadow-sm"
+                      : "bg-white border border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Lock size={11} /> Private
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onVisibilityChange("PUBLIC")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer ${
+                    visibility === "PUBLIC"
+                      ? "bg-trippy-500 text-white shadow-sm"
+                      : "bg-white border border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Globe size={11} /> Public
+                </button>
+              </div>
+            )}
+            {saveError && (
+              <p className="text-center text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {saveError}
+              </p>
+            )}
+            <Button
+              className="w-full text-sm py-3.5 shadow-lg shadow-trippy-500/20"
+              onClick={() => onSave(draftTrip)}
+              disabled={saved || isSaving}
+            >
+              {isSaving ? (
+                <><Loader2 size={16} className="animate-spin" /> Saving…</>
+              ) : saved ? (
+                <><Check size={16} /> Trip Saved to Dashboard</>
+              ) : (
+                <><Sparkles size={16} /> Save This Trip</>
+              )}
             </Button>
           </div>
         </div>
