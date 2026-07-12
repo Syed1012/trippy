@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -51,11 +51,64 @@ const NO_PREFERENCE_LABEL = "No preference";
 
 const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "Luxury"];
 
-const VISIBILITY_OPTIONS = ["Public", "Private"];
-
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
+
+/* ── Showcase trips (hardcoded) — always visible on the homepage ──── */
+const SHOWCASE_TRIPS: Trip[] = [
+  {
+    tripId: "showcase-santorini-001",
+    title: "Santorini, Greece — 5-Day Trip",
+    description: "Island-hopping across the Cyclades with sunset dinners in Oia.",
+    destination: "Santorini, Greece",
+    coverImageUrl: "https://images.unsplash.com/photo-1613395877344-13d4a8e0d49e?w=800&q=80",
+    startDate: "2026-08-14",
+    endDate: "2026-08-18",
+    organizerId: "showcase-user-elena",
+    status: "PLANNED",
+    visibility: "PUBLIC",
+    participantCount: 4,
+    currentUserStatus: null,
+    hasItinerary: true,
+    createdAt: "2026-07-01T10:00:00Z",
+    updatedAt: "2026-07-10T14:30:00Z",
+  },
+  {
+    tripId: "showcase-barcelona-002",
+    title: "Barcelona, Spain — 4-Day Trip",
+    description: "Gaudí architecture tour, tapas crawl & beach vibes.",
+    destination: "Barcelona, Spain",
+    coverImageUrl: "https://images.unsplash.com/photo-1583422409516-2895a77efded?w=800&q=80",
+    startDate: "2026-10-03",
+    endDate: "2026-10-06",
+    organizerId: "showcase-user-marco",
+    status: "PLANNED",
+    visibility: "PUBLIC",
+    participantCount: 3,
+    currentUserStatus: null,
+    hasItinerary: true,
+    createdAt: "2026-06-20T08:00:00Z",
+    updatedAt: "2026-07-08T11:15:00Z",
+  },
+  {
+    tripId: "showcase-swiss-alps-003",
+    title: "Swiss Alps — 7-Day Trip",
+    description: "Winter wonderland: skiing in Zermatt, fondue nights & the Glacier Express.",
+    destination: "Zermatt, Switzerland",
+    coverImageUrl: "https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=800&q=80",
+    startDate: "2026-12-20",
+    endDate: "2026-12-26",
+    organizerId: "showcase-user-anna",
+    status: "PLANNED",
+    visibility: "PUBLIC",
+    participantCount: 6,
+    currentUserStatus: null,
+    hasItinerary: true,
+    createdAt: "2026-06-15T12:00:00Z",
+    updatedAt: "2026-07-05T09:45:00Z",
+  },
+];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -117,7 +170,6 @@ export default function LandingPage() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [tripVisibility, setTripVisibility] = useState("");
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
@@ -139,6 +191,13 @@ export default function LandingPage() {
 
   const [myTrips, setMyTrips] = useState<Trip[]>([]);
   const [myLoading, setMyLoading] = useState(true);
+
+  // Always show showcase trips alongside any real public trips
+  const displayPublicTrips = useMemo(() => {
+    const realIds = new Set(publicTrips.map((t) => t.tripId));
+    const showcaseToAdd = SHOWCASE_TRIPS.filter((s) => !realIds.has(s.tripId));
+    return [...publicTrips, ...showcaseToAdd];
+  }, [publicTrips]);
 
   useEffect(() => {
     setMounted(true);
@@ -214,7 +273,6 @@ export default function LandingPage() {
       startDate ||
       activeFilters.length > 0 ||
       heroBudget ||
-      tripVisibility ||
       dietPreference ||
       pacePreference,
   );
@@ -233,7 +291,6 @@ export default function LandingPage() {
       endDate: endDate || startDate,
       filters: activeFilters,
       budget: heroBudget || undefined,
-      visibility: tripVisibility || undefined,
       diet: dietPreference || undefined,
       pace: pacePreference || undefined,
     });
@@ -496,14 +553,6 @@ export default function LandingPage() {
                   onChange={setHeroBudget}
                 />
                 <PlannerChoiceGroup
-                  icon={<Globe size={12} />}
-                  label="Visibility"
-                  value={tripVisibility}
-                  selected={Boolean(tripVisibility)}
-                  options={[NO_PREFERENCE_LABEL, ...VISIBILITY_OPTIONS]}
-                  onChange={setTripVisibility}
-                />
-                <PlannerChoiceGroup
                   icon={<Utensils size={12} />}
                   label="Diet"
                   value={dietPreference}
@@ -530,7 +579,6 @@ export default function LandingPage() {
                     endDate={endDate || startDate}
                     filters={activeFilters}
                     budget={heroBudget}
-                    visibility={tripVisibility}
                     diet={dietPreference}
                     pace={pacePreference}
                     ready={ticketReady}
@@ -567,12 +615,14 @@ export default function LandingPage() {
                           <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
                         ))}
                       </div>
-                    ) : publicTrips.length > 0 ? (
+                    ) : displayPublicTrips.length > 0 ? (
                       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {publicTrips.map((trip) => (
+                        {displayPublicTrips.map((trip) => {
+                          const isShowcase = trip.tripId.startsWith("showcase-");
+                          return (
                           <div
                             key={trip.tripId}
-                            onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                            onClick={() => !isShowcase && router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
                             className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
                           >
                             <TripCard
@@ -592,12 +642,13 @@ export default function LandingPage() {
                               }
                               participantCount={trip.participantCount}
                               coverImageUrl={trip.coverImageUrl}
-                              onJoin={() => setJoinModalTripId(trip.tripId)}
-                              joinLoading={joiningTripId === trip.tripId}
-                              joinRequested={requestedTripIds.has(trip.tripId)}
+                              onJoin={isShowcase ? undefined : () => setJoinModalTripId(trip.tripId)}
+                              joinLoading={!isShowcase && joiningTripId === trip.tripId}
+                              joinRequested={!isShowcase && requestedTripIds.has(trip.tripId)}
                             />
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
@@ -680,12 +731,12 @@ export default function LandingPage() {
                         <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
                       ))}
                     </div>
-                  ) : publicTrips.length > 0 ? (
+                  ) : displayPublicTrips.length > 0 ? (
                     <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                      {publicTrips.map((trip) => (
+                      {displayPublicTrips.map((trip) => (
                         <div
                           key={trip.tripId}
-                          onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                          onClick={() => !trip.tripId.startsWith("showcase-") && router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
                           className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
                         >
                           <TripCard
