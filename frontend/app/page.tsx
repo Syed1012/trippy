@@ -31,9 +31,10 @@ import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
-import { tripsApi, type Trip } from "@/lib/api";
+import { tripsApi, participantsApi, type Trip } from "@/lib/api";
 import { tripSlug } from "@/lib/utils";
 import TripCard from "@/components/trips/TripCard";
+import { useToast } from "@/lib/toast";
 
 const HERO_IDEAS = [
   "a 7-day food trip through Kyoto",
@@ -107,7 +108,8 @@ function useTypingEffect(words: string[], typingSpeed = 62, pause = 1500) {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const { addToast } = useToast();
   const requestIdRef = useRef(0);
   const typedIdea = useTypingEffect(HERO_IDEAS);
   const [searchQuery, setSearchQuery] = useState("");
@@ -124,14 +126,33 @@ export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [aiBuilderRequest, setAiBuilderRequest] = useState<AIBuilderRequest | undefined>(undefined);
 
+  const [mounted, setMounted] = useState(false);
   const [publicTrips, setPublicTrips] = useState<Trip[]>([]);
   const [publicLoading, setPublicLoading] = useState(true);
 
+  // Join modal & request states
+  const [joinModalTripId, setJoinModalTripId] = useState<string | null>(null);
+  const [joinMessage, setJoinMessage] = useState("");
+  const [joiningTripId, setJoiningTripId] = useState<string | null>(null);
+  const [requestedTripIds, setRequestedTripIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    setPublicLoading(true);
     tripsApi
       .listPublic(0, 6)
       .then((data) => {
         setPublicTrips(data.content || []);
+        const requested = (data.content || [])
+          .filter((trip) => trip.currentUserStatus === "PENDING_APPROVAL")
+          .map((trip) => trip.tripId);
+        if (requested.length > 0) {
+          setRequestedTripIds(new Set(requested));
+        }
       })
       .catch(() => {
         setPublicTrips([]);
@@ -139,7 +160,32 @@ export default function LandingPage() {
       .finally(() => {
         setPublicLoading(false);
       });
-  }, []);
+  }, [mounted]);
+
+  async function handleJoinTrip(tripId: string) {
+    if (!isAuthenticated) {
+      setJoinModalTripId(null);
+      setShowAuthModal(true);
+      return;
+    }
+    setJoiningTripId(tripId);
+    try {
+      const res = await participantsApi.requestJoin(
+        tripId,
+        user?.displayName || undefined,
+        joinMessage.trim() || undefined,
+      );
+      addToast(res.message || "Join request sent! Awaiting owner approval.", "success");
+      setRequestedTripIds((prev) => new Set(prev).add(tripId));
+      setJoinModalTripId(null);
+      setJoinMessage("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to send join request";
+      addToast(msg, "error");
+    } finally {
+      setJoiningTripId(null);
+    }
+  }
 
   const hasTicketData = Boolean(
     searchQuery.trim() ||
@@ -476,59 +522,70 @@ export default function LandingPage() {
         </section>
 
         {/* Explore Public Trips Section */}
-        <section className="relative py-20 lg:py-28">
-          <div className="mx-auto max-w-7xl px-4 lg:px-8">
-            <div className="max-w-2xl">
-              <h2 className="font-display text-3xl font-black tracking-tight text-[#17211f] sm:text-4xl">
-                Explore Public Trips
-              </h2>
-              <p className="mt-3 text-sm text-[#5f6f69] sm:text-base">
-                Discover incredible journeys planned by fellow travelers on our platform.
-              </p>
-            </div>
+        {mounted && (
+          <section className="relative py-20 lg:py-28">
+            <div className="mx-auto max-w-7xl px-4 lg:px-8">
+              <div className="max-w-2xl">
+                <h2 className="font-display text-3xl font-black tracking-tight text-[#17211f] sm:text-4xl">
+                  Explore Public Trips
+                </h2>
+                <p className="mt-3 text-sm text-[#5f6f69] sm:text-base">
+                  Discover incredible journeys planned by fellow travelers on our platform.
+                </p>
+              </div>
 
-            {publicLoading ? (
-              <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {[...Array(3)].map((_, idx) => (
-                  <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
-                ))}
-              </div>
-            ) : publicTrips.length > 0 ? (
-              <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {publicTrips.map((trip) => (
-                  <div
-                    key={trip.tripId}
-                    onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
-                    className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
-                  >
-                    <TripCard
-                      title={trip.title}
-                      destination={trip.destination}
-                      startDate={trip.startDate ?? "TBD"}
-                      endDate={trip.endDate ?? "TBD"}
-                      status={
-                        trip.status === "ONGOING"
-                          ? "ACTIVE"
-                          : (trip.status as
-                              | "DRAFT"
-                              | "PLANNED"
-                              | "ACTIVE"
-                              | "COMPLETED"
-                              | "CANCELLED")
-                      }
-                      participantCount={trip.participantCount}
-                      coverImageUrl={trip.coverImageUrl}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-12 text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
-                <p className="text-sm text-[#5f6f69]">No public trips available to explore yet.</p>
-              </div>
-            )}
-          </div>
-        </section>
+              {publicLoading ? (
+                <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {[...Array(3)].map((_, idx) => (
+                    <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                  ))}
+                </div>
+              ) : publicTrips.length > 0 ? (
+                <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {publicTrips.map((trip) => (
+                    <div
+                      key={trip.tripId}
+                      onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                      className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                    >
+                      <TripCard
+                        title={trip.title}
+                        destination={trip.destination}
+                        startDate={trip.startDate ?? "TBD"}
+                        endDate={trip.endDate ?? "TBD"}
+                        status={
+                          trip.status === "ONGOING"
+                            ? "ACTIVE"
+                            : (trip.status as
+                                | "DRAFT"
+                                | "PLANNED"
+                                | "ACTIVE"
+                                | "COMPLETED"
+                                | "CANCELLED")
+                        }
+                        participantCount={trip.participantCount}
+                        coverImageUrl={trip.coverImageUrl}
+                        onJoin={() => {
+                          if (!isAuthenticated) {
+                            setShowAuthModal(true);
+                          } else {
+                            setJoinModalTripId(trip.tripId);
+                          }
+                        }}
+                        joinLoading={joiningTripId === trip.tripId}
+                        joinRequested={requestedTripIds.has(trip.tripId)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-12 text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                  <p className="text-sm text-[#5f6f69]">No public trips available to explore yet.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
       </main>
       <AITripBuilderModal
@@ -542,6 +599,64 @@ export default function LandingPage() {
         onSuccess={handleAuthSuccess}
         destination={searchQuery.trim() || undefined}
       />
+
+      {/* Join Request Modal */}
+      <AnimatePresence>
+        {joinModalTripId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setJoinModalTripId(null); setJoinMessage(""); }}
+              className="absolute inset-0 bg-[#121c1a]/60 backdrop-blur-sm"
+            />
+
+            {/* Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white bg-white/95 p-6 shadow-2xl backdrop-blur-xl"
+            >
+              <h3 className="font-display text-xl font-black text-[#17211f]">
+                Join Public Trip
+              </h3>
+              <p className="mt-2 text-sm text-[#5f6f69]">
+                Introduce yourself to the organizer. Let them know why you'd like to join their trip!
+              </p>
+
+              <textarea
+                value={joinMessage}
+                onChange={(e) => setJoinMessage(e.target.value)}
+                placeholder="Hi, I'd love to join your trip! I'm interested in exploring..."
+                className="mt-4 h-28 w-full rounded-2xl border border-[#cbd7cb] bg-[#fbf9f6] p-3.5 text-sm text-[#2a2018] outline-none transition-all focus:border-[#d5653e] focus:bg-white focus:ring-2 focus:ring-[#d5653e]/10 placeholder:text-muted/65"
+              />
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setJoinModalTripId(null); setJoinMessage(""); }}
+                  className="rounded-xl border border-transparent bg-transparent hover:bg-black/5"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleJoinTrip(joinModalTripId)}
+                  disabled={joiningTripId === joinModalTripId}
+                  className="rounded-xl bg-[#2a2018] text-white hover:bg-[#3a2b1e]"
+                >
+                  {joiningTripId === joinModalTripId ? "Sending..." : "Send Request"}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
