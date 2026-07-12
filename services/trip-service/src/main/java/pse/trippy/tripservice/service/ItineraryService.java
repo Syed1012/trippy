@@ -19,6 +19,7 @@ import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.ActivityCategory;
 import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
+import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.model.enums.VoteType;
 import pse.trippy.tripservice.repository.ActivityRepository;
@@ -50,8 +51,9 @@ public class ItineraryService {
     public ItineraryResponse getItinerary(UUID tripId, UUID userId) {
         Trip trip = findTripOrThrow(tripId);
 
-        // Allow read access for public trips, otherwise require participation
-        if (trip.getVisibility() != TripVisibility.PUBLIC) {
+        // Public read access only for published (non-DRAFT) public trips;
+        // everything else requires participation. DRAFT trips stay private to members.
+        if (!isPubliclyViewable(trip)) {
             ensureParticipant(tripId, userId);
         }
 
@@ -118,10 +120,58 @@ public class ItineraryService {
         // Touch itinerary to update updatedAt
         itinerary = itineraryRepository.save(itinerary);
 
+        // A trip stays DRAFT until its itinerary is substantial enough to publish.
+        reevaluateTripStatus(trip, request);
+
         return toItineraryResponse(itinerary, userId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * A trip is "publish-worthy" (moves from DRAFT to PLANNED) once its
+     * itinerary has real substance: at least two days each with an activity,
+     * or a single day with more than one activity. Anything less keeps it a
+     * DRAFT, which stays hidden from other platform users.
+     */
+    private static boolean qualifiesForActive(UpdateItineraryRequest request) {
+        int daysWithActivities = 0;
+        boolean anyDayHasMultiple = false;
+        for (DayPlanRequest day : request.dayPlans()) {
+            long activityCount = day.activities() == null ? 0 : day.activities().stream()
+                    .filter(a -> a.title() != null && !a.title().isBlank())
+                    .count();
+            if (activityCount >= 1) {
+                daysWithActivities++;
+            }
+            if (activityCount >= 2) {
+                anyDayHasMultiple = true;
+            }
+        }
+        return daysWithActivities >= 2 || anyDayHasMultiple;
+    }
+
+    /**
+     * Auto-manages only the DRAFT ⇄ PLANNED transition based on the itinerary.
+     * Deliberate later states (ONGOING / COMPLETED / CANCELLED) are left untouched.
+     */
+    private void reevaluateTripStatus(Trip trip, UpdateItineraryRequest request) {
+        TripStatus current = trip.getStatus();
+        if (current != TripStatus.DRAFT && current != TripStatus.PLANNED) {
+            return;
+        }
+        TripStatus target = qualifiesForActive(request) ? TripStatus.PLANNED : TripStatus.DRAFT;
+        if (current != target) {
+            trip.setStatus(target);
+            tripRepository.save(trip);
+        }
+    }
+
+    /** Published public trips are readable by anyone; DRAFT trips never are. */
+    private boolean isPubliclyViewable(Trip trip) {
+        return trip.getVisibility() == TripVisibility.PUBLIC
+                && trip.getStatus() != TripStatus.DRAFT;
+    }
 
     private Trip findTripOrThrow(UUID tripId) {
         return tripRepository.findById(tripId)

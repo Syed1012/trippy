@@ -180,8 +180,9 @@ public class TripService {
         log.debug("Fetching trip detail: tripId={}, requestedBy={}", tripId, userId);
         Trip trip = findTripOrThrow(tripId);
 
-        // Allow access if public trip or if user is a participant
-        if (trip.getVisibility() != TripVisibility.PUBLIC) {
+        // Allow open access only to published (non-DRAFT) public trips; DRAFT
+        // trips are never visible to non-participants, even by direct link.
+        if (!isPubliclyViewable(trip)) {
             ensureParticipant(tripId, userId);
         }
 
@@ -286,6 +287,15 @@ public class TripService {
                 .filter(p -> p.getRole() == ParticipantRole.OWNER)
                 .orElseThrow(() -> new ForbiddenException(
                         "Only the trip owner can perform this action"));
+    }
+
+    /**
+     * Published public trips are readable by anyone; DRAFT trips are hidden
+     * from non-participants (they are not yet shared with the platform).
+     */
+    private boolean isPubliclyViewable(Trip trip) {
+        return trip.getVisibility() == TripVisibility.PUBLIC
+                && trip.getStatus() != TripStatus.DRAFT;
     }
 
     private void validateDates(java.time.LocalDate startDate, java.time.LocalDate endDate) {

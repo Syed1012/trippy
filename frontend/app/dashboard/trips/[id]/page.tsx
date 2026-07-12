@@ -3097,6 +3097,9 @@ export default function TripDetailPage() {
       const result = await itineraryApi.update(tripId, buildItineraryPayload(days));
       setItineraryDays(result.days);
       setHasUnsavedChanges(false);
+      // The backend may auto-promote DRAFT → PLANNED (or back) based on the
+      // itinerary; refresh so the status badge reflects it without a reload.
+      void refreshTrip();
       if (!opts?.silent) addToast("Itinerary saved successfully", "success");
       return true;
     } catch {

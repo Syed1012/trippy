@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.TripStatus;
@@ -155,6 +157,38 @@ class TripRepositoryTest {
         void returnsEmptyForNonMatchingStatus() {
             List<Trip> results = tripRepository.findByCreatedByAndStatus(CREATOR_A, TripStatus.COMPLETED);
             assertThat(results).isEmpty();
+        }
+    }
+
+    // =========================================================================
+    // findPublicTripsExcludingUser (discovery feed)
+    // =========================================================================
+
+    @Nested
+    @DisplayName("findPublicTripsExcludingUser")
+    class FindPublicTripsExcludingUser {
+
+        @Test
+        @DisplayName("returns published (non-DRAFT) public trips")
+        void returnsPublishedPublicTrips() {
+            Page<Trip> results = tripRepository.findPublicTripsExcludingUser(
+                    UUID.randomUUID(), PageRequest.of(0, 10));
+            assertThat(results.getContent()).extracting(Trip::getTitle)
+                    .containsExactly("Creator A Public");
+        }
+
+        @Test
+        @DisplayName("excludes DRAFT trips from the discovery feed even when PUBLIC")
+        void excludesDraftPublicTrips() {
+            tripRepository.save(
+                    buildTrip("Draft Public", CREATOR_B, TripStatus.DRAFT, TripVisibility.PUBLIC));
+
+            Page<Trip> results = tripRepository.findPublicTripsExcludingUser(
+                    UUID.randomUUID(), PageRequest.of(0, 10));
+
+            assertThat(results.getContent()).extracting(Trip::getTitle)
+                    .contains("Creator A Public")
+                    .doesNotContain("Draft Public");
         }
     }
 }
