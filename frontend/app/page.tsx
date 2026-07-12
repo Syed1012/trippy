@@ -309,7 +309,7 @@ export default function LandingPage() {
                   event.preventDefault();
                   startCreateTripFlow();
                 }}
-                className="relative z-30 mx-auto mt-8 w-full max-w-5xl rounded-[1.35rem] border border-white/80 bg-white/78 p-2.5 shadow-[0_34px_96px_-58px_rgba(20,47,43,0.82)] backdrop-blur-xl"
+                className="relative z-30 mx-auto mt-16 w-full max-w-5xl rounded-[1.35rem] border border-white/80 bg-white/78 p-2.5 shadow-[0_34px_96px_-58px_rgba(20,47,43,0.82)] backdrop-blur-xl"
               >
                 <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_250px]">
                   <label
