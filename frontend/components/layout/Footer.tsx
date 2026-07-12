@@ -4,7 +4,7 @@ import { LANDING_ANCHORS, ROUTES } from "@/lib/routes";
 
 export default function Footer() {
   return (
-    <footer className="border-t border-border mt-auto">
+    <footer className="relative z-10 border-t border-border mt-auto">
       <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
@@ -30,8 +30,10 @@ export default function Footer() {
               <h6 className="font-semibold">Company</h6>
               <ul className="space-y-1 text-muted">
                 <li><Link href={ROUTES.about} className="hover:text-foreground transition-colors">About</Link></li>
-                <li><Link href={ROUTES.privacy} className="hover:text-foreground transition-colors">Privacy</Link></li>
+                <li><Link href={ROUTES.impressum} className="hover:text-foreground transition-colors">Impressum</Link></li>
+                <li><Link href={ROUTES.datenschutz} className="hover:text-foreground transition-colors">Datenschutz</Link></li>
                 <li><Link href={ROUTES.terms} className="hover:text-foreground transition-colors">Terms</Link></li>
+                <li><Link href={ROUTES.privacy} className="hover:text-foreground transition-colors">Privacy Policy</Link></li>
               </ul>
             </div>
           </div>
