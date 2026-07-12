@@ -316,6 +316,7 @@ function AiTripPageContent() {
       saveError={saveError}
       visibility={saveVisibility}
       onVisibilityChange={setSaveVisibility}
+      sid={sid}
     />
   );
 }

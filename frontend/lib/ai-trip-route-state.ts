@@ -56,3 +56,30 @@ export function loadAiTripRouteState<T>(id: string): T | null {
     return null;
   }
 }
+
+export function updateAiTripRouteState<T>(id: string, state: T): void {
+  if ((!canUseSessionStorage() && !canUseLocalStorage()) || !id) {
+    return;
+  }
+  const key = `${KEY_PREFIX}${id}`;
+  const sessionRaw = canUseSessionStorage() ? window.sessionStorage.getItem(key) : null;
+  const localRaw = canUseLocalStorage() ? window.localStorage.getItem(key) : null;
+  const raw = sessionRaw ?? localRaw;
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as StoredState<any>;
+    parsed.state = {
+      ...parsed.state,
+      trip: state,
+    };
+    if (canUseLocalStorage()) {
+      window.localStorage.setItem(key, JSON.stringify(parsed));
+    }
+    if (canUseSessionStorage()) {
+      window.sessionStorage.setItem(key, JSON.stringify(parsed));
+    }
+  } catch (e) {
+    console.error("Failed to update AI trip route state", e);
+  }
+}
+
