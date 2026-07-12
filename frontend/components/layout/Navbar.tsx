@@ -19,15 +19,16 @@ import { Avatar } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import { ROUTES } from "@/lib/routes";
 
 const navLinks = [
-  { href: "/dashboard", label: "My Trips", icon: Map },
-  { href: "/dashboard/chat", label: "Chat", icon: MessageSquare },
-  { href: "/dashboard/payments", label: "Billing", icon: CreditCard },
+  { href: ROUTES.dashboard, label: "My Trips", icon: Map },
+  { href: ROUTES.dashboardChat, label: "Chat", icon: MessageSquare },
+  { href: ROUTES.dashboardPayments, label: "Billing", icon: CreditCard },
 ];
 
 const adminLinks = [
-  { href: "/dashboard/admin/moderation", label: "Moderation", icon: Shield },
+  { href: ROUTES.dashboardAdminModeration, label: "Moderation", icon: Shield },
 ];
 
 export default function Navbar() {
@@ -40,7 +41,7 @@ export default function Navbar() {
 
   async function handleLogout() {
     await logout();
-    router.push("/login");
+    router.push(ROUTES.login);
   }
 
   // Close profile dropdown on outside click
@@ -58,7 +59,7 @@ export default function Navbar() {
     <nav className="glass-strong sticky top-0 z-50 px-4 lg:px-8">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
         {/* Logo */}
-        <Link href="/dashboard">
+        <Link href={ROUTES.home}>
           <Logo size="sm" />
         </Link>
 
@@ -106,7 +107,7 @@ export default function Navbar() {
             {profileOpen && (
               <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border bg-white shadow-xl z-50 py-1 overflow-hidden">
                 <Link
-                  href="/dashboard/profile"
+                  href={ROUTES.dashboardProfile}
                   onClick={() => setProfileOpen(false)}
                   className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-foreground hover:bg-shore-50 transition-colors"
                 >
@@ -114,7 +115,7 @@ export default function Navbar() {
                   Profile
                 </Link>
                 <Link
-                  href="/dashboard/settings"
+                  href={ROUTES.dashboardSettings}
                   onClick={() => setProfileOpen(false)}
                   className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-foreground hover:bg-shore-50 transition-colors"
                 >
@@ -167,7 +168,7 @@ export default function Navbar() {
             );
           })}
           <Link
-            href="/dashboard/profile"
+            href={ROUTES.dashboardProfile}
             onClick={() => setMobileOpen(false)}
             className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-muted hover:text-foreground hover:bg-surface transition-all"
           >
@@ -175,7 +176,7 @@ export default function Navbar() {
             Profile
           </Link>
           <Link
-            href="/dashboard/settings"
+            href={ROUTES.dashboardSettings}
             onClick={() => setMobileOpen(false)}
             className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-muted hover:text-foreground hover:bg-surface transition-all"
           >

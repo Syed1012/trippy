@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
@@ -16,6 +17,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
 
 interface TripTicketProps {
   destination: string;
@@ -134,12 +136,12 @@ export default function TripTicket({
         {/* ── Main section ─────────────────────────────────────── */}
         <div className="relative flex-1 p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#dfe0d2] pb-3">
-            <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#2a2018]">
+            <Link href={ROUTES.home} className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#2a2018]" aria-label="Trippy home">
               <span className="grid h-6 w-6 place-items-center rounded-full bg-[#2a2018] text-[#f0b091]">
                 <Compass size={12} />
               </span>
               Trippy
-            </span>
+            </Link>
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8c978f]">
               Trip pass
             </span>

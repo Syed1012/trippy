@@ -73,6 +73,14 @@ public class TripController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/shared/{tripId}")
+    public ResponseEntity<TripDetailResponse> getSharedTripDetail(
+            @PathVariable UUID tripId) {
+        log.debug("GET /trips/shared/{}", tripId);
+        TripDetailResponse response = tripService.getSharedTripDetail(tripId);
+        return ResponseEntity.ok(response);
+    }
+
     @PatchMapping("/{tripId}")
     public ResponseEntity<TripResponse> updateTrip(
             @PathVariable UUID tripId,

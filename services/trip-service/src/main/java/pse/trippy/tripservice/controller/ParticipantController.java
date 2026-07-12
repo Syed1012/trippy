@@ -1,8 +1,8 @@
 package pse.trippy.tripservice.controller;
 
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.List;
+import java.util.UUID;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -13,13 +13,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import pse.trippy.tripservice.dto.request.InviteByEmailRequest;
 import pse.trippy.tripservice.dto.request.InviteParticipantRequest;
 import pse.trippy.tripservice.dto.response.ParticipantActionResponse;
 import pse.trippy.tripservice.dto.response.ParticipantResponse;
 import pse.trippy.tripservice.service.ParticipantService;
-
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/trips/{tripId}/participants")
@@ -36,6 +38,16 @@ public class ParticipantController {
             @RequestHeader("X-User-Id") UUID userId) {
         log.info("POST /trips/{}/participants/invite — Invite user={}, by={}", tripId, request.userId(), userId);
         ParticipantActionResponse response = participantService.inviteParticipant(tripId, request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/invite-by-email")
+    public ResponseEntity<ParticipantActionResponse> inviteByEmail(
+            @PathVariable UUID tripId,
+            @Valid @RequestBody InviteByEmailRequest request,
+            @RequestHeader("X-User-Id") UUID userId) {
+        log.info("POST /trips/{}/participants/invite-by-email — by={}", tripId, userId);
+        ParticipantActionResponse response = participantService.inviteByEmail(tripId, request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

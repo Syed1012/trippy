@@ -10,6 +10,7 @@ import { GlassCard, Button, Input } from "@/components/ui";
 import { register, ApiError, type ApiErrorBody } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
+import { ROUTES } from "@/lib/routes";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -29,7 +30,7 @@ export default function RegisterPage() {
   // Redirect authenticated users away from register
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(ROUTES.dashboard);
     }
   }, [authLoading, isAuthenticated, router]);
 
@@ -72,7 +73,7 @@ export default function RegisterPage() {
       const displayName = `${firstName.trim()} ${lastName.trim()}`;
       await register(email.trim(), password, displayName);
       addToast("Account created. You can sign in now.", "success");
-      router.push(`/login?registered=true&email=${encodeURIComponent(email.trim())}`);
+      router.push(`${ROUTES.login}?registered=true&email=${encodeURIComponent(email.trim())}`);
     } catch (err) {
       if (err instanceof ApiError) {
         const body = err.body as ApiErrorBody;
@@ -127,7 +128,7 @@ export default function RegisterPage() {
         transition={{ duration: 0.6 }}
       >
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-block">
+          <Link href={ROUTES.home} className="inline-block">
             <Logo size="lg" className="justify-center" />
           </Link>
           <p className="mt-3 text-muted">Start your journey</p>
@@ -272,7 +273,7 @@ export default function RegisterPage() {
           <p className="text-center text-sm text-muted">
             Already have an account?{" "}
             <Link
-              href="/login"
+              href={ROUTES.login}
               className="font-medium text-trippy-400 hover:text-trippy-300 transition-colors"
             >
               Sign in

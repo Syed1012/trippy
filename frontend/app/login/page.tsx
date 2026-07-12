@@ -10,6 +10,7 @@ import { GlassCard, Button, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
 import { ApiError } from "@/lib/api";
+import { ROUTES } from "@/lib/routes";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function LoginPage() {
   // Redirect authenticated users away from login
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(ROUTES.dashboard);
     }
   }, [authLoading, isAuthenticated, router]);
 
@@ -67,7 +68,7 @@ export default function LoginPage() {
     try {
       await login(email, password, rememberMe);
       addToast("Welcome back!", "success");
-      router.push("/dashboard");
+      router.push(ROUTES.dashboard);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
@@ -112,7 +113,7 @@ export default function LoginPage() {
         transition={{ duration: 0.6 }}
       >
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-block">
+          <Link href={ROUTES.home} className="inline-block">
             <Logo size="lg" className="justify-center" />
           </Link>
           <p className="mt-3 text-muted">Welcome back, traveler</p>
@@ -183,7 +184,7 @@ export default function LoginPage() {
                 Remember me
               </label>
               <Link
-                href="/forgot-password"
+                href={ROUTES.forgotPassword}
                 className="text-trippy-400 hover:text-trippy-300 transition-colors"
               >
                 Forgot password?
@@ -213,7 +214,7 @@ export default function LoginPage() {
           <p className="text-center text-sm text-muted">
             Don&apos;t have an account?{" "}
             <Link
-              href="/register"
+              href={ROUTES.register}
               className="font-medium text-trippy-400 hover:text-trippy-300 transition-colors"
             >
               Sign up

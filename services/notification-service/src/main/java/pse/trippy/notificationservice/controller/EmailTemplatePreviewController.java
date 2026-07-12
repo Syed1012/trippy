@@ -1,6 +1,8 @@
 package pse.trippy.notificationservice.controller;
 
-import lombok.RequiredArgsConstructor;
+import java.util.Map;
+import java.util.Set;
+
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -9,10 +11,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import pse.trippy.notificationservice.service.EmailService;
 
-import java.util.Map;
-import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import pse.trippy.notificationservice.service.EmailService;
 
 @RestController
 @RequestMapping("/notifications/templates")
@@ -50,6 +51,9 @@ public class EmailTemplatePreviewController {
                     "inviteeName", "Sam",
                     "inviterName", "Mira",
                     "tripTitle", "Berlin Weekend",
+                    "tripSummary", "Berlin, Germany • Aug 4, 2026 – Aug 7, 2026",
+                    "tripDescription", "A long weekend exploring museums, street food and the Berlin Wall.",
+                    "inviteMessage", "Can't wait for this one, let's plan it together!",
                     "dashboardUrl", "https://trippy.app/dashboard");
             case "trip-joined", "invitation-accepted" -> Map.of(
                     "inviterName", "Mira",

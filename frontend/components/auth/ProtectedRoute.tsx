@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 export default function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const allowGuestTripView = /^\/dashboard\/trips\/[^/]+$/.test(pathname ?? "");
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (!isLoading && !isAuthenticated && !allowGuestTripView) {
       router.replace("/login");
     }
-  }, [isLoading, isAuthenticated, router]);
+  }, [allowGuestTripView, isLoading, isAuthenticated, router]);
 
   if (isLoading) {
     return (
@@ -22,6 +24,6 @@ export default function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated && !allowGuestTripView) return null;
   return <>{children}</>;
 }

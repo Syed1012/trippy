@@ -1,31 +1,42 @@
 package pse.trippy.notificationservice.listener;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import pse.trippy.notificationservice.logging.CorrelationIds;
 import pse.trippy.notificationservice.logging.LogSanitizer;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.EmailService;
 import pse.trippy.notificationservice.service.NotificationService;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class NotificationEventListener {
 
-    private static final String APP_BASE_URL = "https://trippy.app";
     private static final String DASHBOARD_PATH = "/dashboard";
-    private static final String DASHBOARD_URL = APP_BASE_URL + DASHBOARD_PATH;
+
+    @Value("${app.base-url:https://trippy.app}")
+    private String appBaseUrl;
+
+    private String dashboardUrl() {
+        return appBaseUrl + DASHBOARD_PATH;
+    }
 
     private final EmailService emailService;
     private final NotificationService notificationService;
@@ -128,7 +139,7 @@ public class NotificationEventListener {
                     LogSanitizer.maskEmail(email));
             sendTemplate(email, "Welcome to Trippy!", "welcome",
                     variables("userName", resolvedDisplayName,
-                            "dashboardUrl", DASHBOARD_URL));
+                            "dashboardUrl", dashboardUrl()));
 
             createNotification(userId, NotificationType.WELCOME,
                     "Welcome to Trippy!",
@@ -143,7 +154,7 @@ public class NotificationEventListener {
             String email = text(map, "email");
             String userName = fallback(text(map, "userName", "displayName", "name"), "Traveler");
             String userId = validUuidText(map, "userId", "recipientUserId");
-            String resetLink = fallback(text(map, "resetLink", "passwordResetUrl", "link"), DASHBOARD_URL);
+            String resetLink = fallback(text(map, "resetLink", "passwordResetUrl", "link"), dashboardUrl());
 
             log.info("Processing notification event type=user.password.reset recipient={}",
                     LogSanitizer.maskEmail(email));
@@ -168,26 +179,47 @@ public class NotificationEventListener {
                         "Traveler");
                 String inviterName = fallback(text(map, "inviterName", "actorName"), "Someone");
                 String tripTitle = fallback(text(map, "tripTitle", "tripName", "title"), "a trip");
+                String destination = text(map, "destination");
+                String startDate = text(map, "startDate");
+                String endDate = text(map, "endDate");
+                String tripDescription = text(map, "tripDescription", "description");
                 String inviteeId = validUuidText(map, "inviteeId", "inviteeUserId", "participantId", "userId");
                 String tripId = text(map, "tripId");
                 String inviteMessage = text(map, "inviteMessage", "message");
                 String actionUrl = fallback(text(map, "actionUrl", "inviteLink", "link"), tripUrl(tripId));
 
-                log.info("Processing trip invitation: inviteeId={} tripId={} tripTitle={} inviterName={}",
-                        inviteeId, tripId, tripTitle, inviterName);
+                String dateRange = formatDateRange(startDate, endDate);
+                String tripSummary = fallback(destination, "") +
+                        (destination != null && !destination.isBlank() && !dateRange.isBlank() ? " • " : "") +
+                        dateRange;
+
+                String subject = destination != null && !destination.isBlank()
+                        ? inviterName + " invited you on the " + tripTitle + " trip to " + destination + "!"
+                        : inviterName + " invited you to " + tripTitle + "!";
 
                 String body = inviterName + " invited you to " + tripTitle;
+                if (!tripSummary.isBlank()) {
+                    body = body + " (" + tripSummary + ")";
+                }
                 if (inviteMessage != null && !inviteMessage.isBlank()) {
                     body = body + ": \"" + inviteMessage + "\"";
                 }
 
-                sendTemplate(inviteeEmail, inviterName + " invited you to " + tripTitle,
+                log.info("Processing trip invitation: inviteeId={} tripId={} tripTitle={} inviterName={}",
+                        inviteeId, tripId, tripTitle, inviterName);
+
+                sendTemplate(inviteeEmail, subject,
                         "trip-invite",
                         variables("inviteeName", inviteeName,
                                 "userName", inviteeName,
                                 "inviterName", inviterName,
                                 "tripTitle", tripTitle,
                                 "tripName", tripTitle,
+                                "destination", fallback(destination, ""),
+                                "dateRange", dateRange,
+                                "tripSummary", tripSummary,
+                                "tripDescription", fallback(tripDescription, ""),
+                                "inviteMessage", fallback(inviteMessage, ""),
                                 "dashboardUrl", emailUrl(actionUrl),
                                 "link", emailUrl(actionUrl)));
 
@@ -448,23 +480,23 @@ public class NotificationEventListener {
 
     private String emailUrl(String actionUrl) {
         if (actionUrl == null || actionUrl.isBlank()) {
-            return DASHBOARD_URL;
+            return dashboardUrl();
         }
 
         String trimmed = actionUrl.trim();
-        if (trimmed.equals(APP_BASE_URL) || trimmed.equals(APP_BASE_URL + "/")) {
-            return DASHBOARD_URL;
-        } else if (trimmed.startsWith(APP_BASE_URL + "/")) {
+        if (trimmed.equals(appBaseUrl) || trimmed.equals(appBaseUrl + "/")) {
+            return dashboardUrl();
+        } else if (trimmed.startsWith(appBaseUrl + "/")) {
             return trimmed;
         } else if (trimmed.startsWith("https://") || trimmed.startsWith("http://")
                 || trimmed.startsWith("//")) {
             log.warn("Falling back to dashboard email URL because action URL is not internal");
-            return DASHBOARD_URL;
+            return dashboardUrl();
         }
         if (trimmed.startsWith("/")) {
-            return APP_BASE_URL + trimmed;
+            return appBaseUrl + trimmed;
         }
-        return APP_BASE_URL + "/" + trimmed;
+        return appBaseUrl + "/" + trimmed;
     }
 
     private String inAppActionUrl(String actionUrl) {
@@ -473,17 +505,44 @@ public class NotificationEventListener {
         }
 
         String trimmed = actionUrl.trim();
-        if (trimmed.equals(APP_BASE_URL) || trimmed.equals(APP_BASE_URL + "/")) {
+        if (trimmed.equals(appBaseUrl) || trimmed.equals(appBaseUrl + "/")) {
             return DASHBOARD_PATH;
         }
-        if (trimmed.startsWith(APP_BASE_URL + "/")) {
-            return trimmed.substring(APP_BASE_URL.length());
+        if (trimmed.startsWith(appBaseUrl + "/")) {
+            return trimmed.substring(appBaseUrl.length());
         }
         return trimmed;
     }
 
     private String fallback(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String formatDateRange(String startDate, String endDate) {
+        LocalDate start = parseDate(startDate);
+        LocalDate end = parseDate(endDate);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM d, yyyy");
+        if (start != null && end != null) {
+            return start.format(formatter) + " – " + end.format(formatter);
+        }
+        if (start != null) {
+            return start.format(formatter);
+        }
+        if (end != null) {
+            return end.format(formatter);
+        }
+        return "";
+    }
+
+    private LocalDate parseDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     private String text(Map<?, ?> map, String... keys) {
