@@ -1567,15 +1567,10 @@ function DayCard({
           >
             {isAiTrip ? (
               <div
-                className={cn(
-                  "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
-                  expanded
-                    ? "bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[0_12px_24px_-10px_rgba(99,102,241,0.5)]"
-                    : "bg-gradient-to-br from-purple-50 to-indigo-50/50 text-purple-600 border border-purple-100",
-                )}
+                className="w-11 h-11 rounded-xl bg-gradient-to-br from-trippy-500 to-trippy-600 text-white flex flex-col items-center justify-center font-black shadow-md shadow-trippy-500/25 shrink-0"
               >
-                <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
-                <span className="text-lg">{day.dayNumber}</span>
+                <span className="text-[9px] font-bold opacity-80 leading-none">DAY</span>
+                <span className="text-base leading-none">{day.dayNumber}</span>
               </div>
             ) : (
               <div
