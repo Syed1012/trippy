@@ -59,6 +59,11 @@ paths:
     get:
       tags: [Trips]
       summary: List public trips
+      description: >
+        Discovery feed of PUBLIC trips the caller does not already participate in.
+        DRAFT trips are excluded — a trip is only shared with the platform once its
+        itinerary is substantial enough to leave DRAFT (see PUT /trips/{tripId}/itinerary).
+        CANCELLED trips are also excluded.
       parameters:
         - $ref: '#/components/parameters/XUserId'
         - name: page
@@ -78,6 +83,11 @@ paths:
     get:
       tags: [Trips]
       summary: Get trip details
+      description: >
+        Open access only for a published (non-DRAFT) PUBLIC trip. DRAFT trips — and
+        all PRIVATE/UNLISTED trips — require the caller to be an accepted participant,
+        otherwise 403. This keeps unpublished DRAFT trips hidden from other users even
+        via a direct link.
       parameters:
         - $ref: '#/components/parameters/TripId'
         - $ref: '#/components/parameters/XUserId'
@@ -87,6 +97,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TripDetailResponse'
+        '403':
+          description: Not a participant of a non-public or DRAFT trip
     patch:
       tags: [Trips]
       summary: Update trip
@@ -154,6 +166,12 @@ paths:
     put:
       tags: [Itinerary]
       summary: Replace itinerary (full update)
+      description: >
+        Full replace of the itinerary. Side effect: the trip status is auto-managed
+        between DRAFT and PLANNED based on the saved plan. A trip becomes PLANNED
+        (published) once at least two days each have an activity, or a single day has
+        more than one activity; otherwise it stays/returns to DRAFT. Deliberate later
+        states (ONGOING, COMPLETED, CANCELLED) are never changed by this endpoint.
       parameters:
         - $ref: '#/components/parameters/TripId'
         - $ref: '#/components/parameters/XUserId'
@@ -573,7 +591,14 @@ components:
         description: { type: string }
         startDate: { type: string, format: date }
         endDate: { type: string, format: date }
-        status: { type: string, enum: [DRAFT, PLANNED, ONGOING, COMPLETED, CANCELLED] }
+        status:
+          type: string
+          enum: [DRAFT, PLANNED, ONGOING, COMPLETED, CANCELLED]
+          description: >
+            DRAFT ⇄ PLANNED is auto-managed from the itinerary (a trip stays DRAFT and
+            hidden from other users until 2+ days each have an activity, or one day has
+            more than one). ONGOING/COMPLETED/CANCELLED are set deliberately via
+            PATCH /trips/{tripId}/status and are never overridden by itinerary edits.
         visibility: { type: string, enum: [PRIVATE, PUBLIC, UNLISTED] }
         maxParticipants: { type: integer }
         coverImageUrl: { type: string }

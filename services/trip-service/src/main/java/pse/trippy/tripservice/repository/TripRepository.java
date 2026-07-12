@@ -47,6 +47,7 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
             SELECT t FROM Trip t
             WHERE t.visibility = pse.trippy.tripservice.model.enums.TripVisibility.PUBLIC
             AND t.status <> pse.trippy.tripservice.model.enums.TripStatus.CANCELLED
+            AND t.status <> pse.trippy.tripservice.model.enums.TripStatus.DRAFT
             AND t.id NOT IN (
                 SELECT p.trip.id FROM Participant p
                 WHERE p.userId = :userId AND p.status IN (

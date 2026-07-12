@@ -250,9 +250,10 @@ class TripServiceTest {
     class GetTripDetail {
 
         @Test
-        @DisplayName("returns trip detail for public trip without membership check")
+        @DisplayName("returns trip detail for a published (non-DRAFT) public trip without membership check")
         void publicTripAccessible() {
             trip.setVisibility(TripVisibility.PUBLIC);
+            trip.setStatus(TripStatus.PLANNED);
             when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
             when(participantRepository.findByTripId(TRIP_ID))
                     .thenReturn(List.of(ownerParticipant()));
@@ -261,6 +262,20 @@ class TripServiceTest {
 
             assertThat(response.id()).isEqualTo(TRIP_ID);
             assertThat(response.participants()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("DRAFT public trip is not visible to non-participants")
+        void publicDraftTripHiddenFromNonMembers() {
+            trip.setVisibility(TripVisibility.PUBLIC);
+            trip.setStatus(TripStatus.DRAFT);
+            UUID nonMember = UUID.randomUUID();
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(participantRepository.findByTripIdAndUserId(TRIP_ID, nonMember))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> tripService.getTripDetail(TRIP_ID, nonMember))
+                    .isInstanceOf(ForbiddenException.class);
         }
 
         @Test
