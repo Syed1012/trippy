@@ -1413,6 +1413,7 @@ function DayCard({
   onVoteUpdate,
   isParticipant,
   readOnly = false,
+  isAiTrip = false,
 }: {
   day: DayPlan;
   tripId: string;
@@ -1426,6 +1427,7 @@ function DayCard({
   onVoteUpdate: (dayNumber: number, summary: VoteSummary) => void;
   isParticipant: boolean;
   readOnly?: boolean;
+  isAiTrip?: boolean;
 }) {
   const dayDate = tripStartDate
     ? new Date(new Date(tripStartDate).getTime() + (day.dayNumber - 1) * 86400000).toLocaleDateString("en-US", {
@@ -1563,17 +1565,31 @@ function DayCard({
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
             className="flex flex-1 min-w-0 items-center gap-4 text-left cursor-pointer"
           >
-            <div
-              className={cn(
-                "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
-                expanded
-                  ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
-                  : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
-              )}
-            >
-              <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
-              <span className="text-lg">{day.dayNumber}</span>
-            </div>
+            {isAiTrip ? (
+              <div
+                className={cn(
+                  "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
+                  expanded
+                    ? "bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[0_12px_24px_-10px_rgba(99,102,241,0.5)]"
+                    : "bg-gradient-to-br from-purple-50 to-indigo-50/50 text-purple-600 border border-purple-100",
+                )}
+              >
+                <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+                <span className="text-lg">{day.dayNumber}</span>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
+                  expanded
+                    ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
+                    : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
+                )}
+              >
+                <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+                <span className="text-lg">{day.dayNumber}</span>
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
               {readOnly ? (
@@ -4221,6 +4237,7 @@ export default function TripDetailPage() {
                 onVoteUpdate={handleVoteUpdate}
                 isParticipant={isParticipant}
                 readOnly={isAiTrip && !isEditing}
+                isAiTrip={isAiTrip}
               />
             ))}
 
