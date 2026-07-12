@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -22,6 +22,7 @@ import {
   X,
   Save,
   Plane,
+  Bus,
   Sun,
   Coffee,
   Utensils,
@@ -41,7 +42,6 @@ import {
   Lock,
   Vote,
   Settings,
-  Search,
   Mail,
   UserPlus,
   Check,
@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -106,6 +106,210 @@ const categoryIcons: Record<string, typeof Coffee> = {
 function getCategoryIcon(category?: string) {
   if (!category) return categoryIcons.default;
   return categoryIcons[category.toLowerCase()] ?? categoryIcons.default;
+}
+
+/* ─── AI-polished read-only category badges ──────────────────────── */
+const CAT_COLORS: Record<string, string> = {
+  food: "bg-orange-100 text-orange-700 border-orange-200",
+  sightseeing: "bg-blue-100 text-blue-700 border-blue-200",
+  transport: "bg-slate-100 text-slate-600 border-slate-200",
+  shopping: "bg-pink-100 text-pink-700 border-pink-200",
+  activity: "bg-green-100 text-green-700 border-green-200",
+  other: "bg-gray-100 text-gray-600 border-gray-200",
+  morning: "bg-amber-100 text-amber-700 border-amber-200",
+  breakfast: "bg-orange-100 text-orange-700 border-orange-200",
+  lunch: "bg-orange-100 text-orange-700 border-orange-200",
+  dinner: "bg-orange-100 text-orange-700 border-orange-200",
+  evening: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  default: "bg-gray-100 text-gray-600 border-gray-200",
+};
+
+const CAT_EMOJIS: Record<string, string> = {
+  food: "🍽️", sightseeing: "👁️", transport: "🚌", shopping: "🛍️",
+  activity: "🌿", morning: "☀️", breakfast: "☕", lunch: "🍴",
+  dinner: "🍽️", evening: "🌙", other: "📌", default: "📌",
+};
+
+function formatStartTime(st?: string): string {
+  if (!st) return "";
+  // Strip trailing ":00" seconds if present (e.g., "09:00:00" → "09:00")
+  const stripped = st.replace(/^(\d{1,2}:\d{2}):\d{2}$/, "$1");
+  return stripped;
+}
+
+/* ── Polished Read-Only Activity Card (matches AI preview style) ── */
+function ReadOnlyActivityCard({
+  activity,
+  destination,
+  isLast,
+}: {
+  activity: Activity;
+  destination: string;
+  isLast: boolean;
+}) {
+  const cat = activity.category?.toLowerCase() || "default";
+  const catLabel = cat === "default" ? "" : cat.toUpperCase();
+  const emoji = CAT_EMOJIS[cat] || CAT_EMOJIS.default;
+  const colorCls = CAT_COLORS[cat] || CAT_COLORS.default;
+  const displayTime = formatStartTime(activity.startTime) || formatStartTime(activity.time);
+
+  return (
+    <div className="group relative flex gap-4">
+      {/* Timeline spine with time marker */}
+      <div className="flex flex-col items-center shrink-0 w-16">
+        {displayTime ? (
+          <span className="text-[10px] font-black text-accent-600 bg-accent-500/10 border border-accent-200 px-2 py-1 rounded-lg text-center leading-tight whitespace-nowrap z-10">
+            {displayTime}
+          </span>
+        ) : (
+          <div className="w-3 h-3 rounded-full bg-accent-400 border-2 border-white shadow-sm z-10 mt-1" />
+        )}
+        {!isLast && (
+          <div className="w-0.5 flex-1 bg-gradient-to-b from-accent-200 to-accent-100 my-1 min-h-[24px]" />
+        )}
+      </div>
+
+      {/* Activity card */}
+      <div className={`flex-1 min-w-0 ${isLast ? "pb-2" : "pb-4"}`}>
+        <div className="rounded-xl border border-border/50 bg-white hover:border-accent-300/60 hover:shadow-sm transition-all px-4 py-3">
+          <div className="flex items-start gap-3">
+            {/* Category emoji */}
+            <span className="text-xl leading-none mt-0.5 shrink-0">{emoji}</span>
+            <div className="flex-1 min-w-0">
+              {/* Title + Category badge */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-foreground leading-tight">{activity.title}</p>
+                {catLabel && (
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${colorCls}`}>
+                    {catLabel}
+                  </span>
+                )}
+              </div>
+
+              {/* Description */}
+              {activity.description && (
+                <p className="text-[12px] text-muted mt-1 leading-relaxed">{activity.description}</p>
+              )}
+
+              {/* Tips/Notes */}
+              {activity.notes && (
+                <p className="text-[11px] text-accent-600/70 mt-2 leading-relaxed italic border-l-2 border-accent-200 pl-2">
+                  💡 {activity.notes}
+                </p>
+              )}
+
+              {/* Meta row: location, Open in Maps, cost */}
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                {activity.location && (
+                  <span className="text-[11px] text-muted flex items-center gap-1 font-medium">
+                    <MapPin size={10} className="text-accent-400" />
+                    {activity.location}
+                  </span>
+                )}
+                {activity.location && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${activity.location}, ${destination}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 transition-colors"
+                  >
+                    <MapPin size={9} /> Open in Maps
+                  </a>
+                )}
+                {activity.estimatedCost && parseFloat(activity.estimatedCost) > 0 && (
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                    <DollarSign size={9} /> {activity.estimatedCost}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getWeatherIcon(condition: string | undefined): string {
+  if (!condition) return "🌤️";
+  const c = condition.toLowerCase();
+  if (c.includes("clear")) return "☀️";
+  if (c.includes("mainly clear")) return "🌤️";
+  if (c.includes("partly cloudy")) return "⛅";
+  if (c.includes("overcast") || c.includes("cloud")) return "☁️";
+  if (c.includes("fog")) return "🌫️";
+  if (c.includes("drizzle")) return "🌦️";
+  if (c.includes("thunderstorm")) return "⛈️";
+  if (c.includes("snow")) return "🌨️";
+  if (c.includes("rain")) return "🌧️";
+  if (c.includes("warm") || c.includes("summer")) return "☀️";
+  if (c.includes("cold") || c.includes("winter") || c.includes("frost")) return "🌨️";
+  if (c.includes("mild") || c.includes("spring")) return "🌸";
+  if (c.includes("cool") || c.includes("autumn")) return "🍂";
+  return "🌤️";
+}
+
+function formatTemperature(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  return `${Math.round(value)}°C`;
+}
+
+function DayContextBlocks({ day }: { day: DayPlan }) {
+  const transport = day.transportRecommendations?.filter((item) =>
+    Boolean((item.from || item.to) && (item.estimatedDuration || item.notes))
+  ) ?? [];
+
+  if (transport.length === 0) return null;
+
+  return (
+    <div className="bg-[#f9f9f7] px-5 py-4">
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Bus size={14} className="text-emerald-600" />
+          <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Transit</span>
+        </div>
+        <div className="mt-1.5 space-y-2">
+          {transport.slice(0, 3).map((item, idx) => (
+            <div key={`${item.from}-${item.to}-${idx}`} className="text-[11px] leading-relaxed">
+              <p className="font-bold text-foreground/80">
+                {item.from || "Start"} → {item.to || "Next stop"}
+              </p>
+              <p className="text-muted">
+                {[item.mode || "Route", item.estimatedDuration].filter(Boolean).join(" · ")}
+              </p>
+              {item.notes && <p className="text-muted">{item.notes}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function processItineraryDays(days: DayPlan[]): DayPlan[] {
+  return days.map((day) => {
+    let weather = day.weather;
+    let transportRecommendations = day.transportRecommendations;
+    const activities = (day.activities || []).filter((act) => {
+      if (act.title === "__METADATA__") {
+        try {
+          const meta = JSON.parse(act.description || "{}");
+          if (meta.weather) weather = meta.weather;
+          if (meta.transportRecommendations) transportRecommendations = meta.transportRecommendations;
+        } catch (e) {
+          console.error("Failed to parse AI metadata activity", e);
+        }
+        return false; // exclude __METADATA__ from normal activities list
+      }
+      return true;
+    });
+    return {
+      ...day,
+      activities,
+      weather,
+      transportRecommendations,
+    };
+  });
 }
 
 /* ─── Currency options ────────────────────────────────────────────── */
@@ -1208,6 +1412,7 @@ function DayCard({
   onCurrencyChange,
   onVoteUpdate,
   isParticipant,
+  readOnly = false,
 }: {
   day: DayPlan;
   tripId: string;
@@ -1220,6 +1425,7 @@ function DayCard({
   onCurrencyChange: (c: string) => void;
   onVoteUpdate: (dayNumber: number, summary: VoteSummary) => void;
   isParticipant: boolean;
+  readOnly?: boolean;
 }) {
   const dayDate = tripStartDate
     ? new Date(new Date(tripStartDate).getTime() + (day.dayNumber - 1) * 86400000).toLocaleDateString("en-US", {
@@ -1240,6 +1446,11 @@ function DayCard({
   const mapStops = day.activities
     .filter((a) => a.location?.trim())
     .map((a) => ({ title: a.title?.trim() || "Untitled activity", location: a.location!.trim(), time: activityTimes(a).start }));
+
+  const weatherCondition = day.weather?.condition;
+  const hasWeather = weatherCondition && !weatherCondition.includes("unavailable");
+  const weatherTemp = formatTemperature(day.weather?.temperatureCelsius);
+  const weatherIcon = getWeatherIcon(weatherCondition);
 
   // Add a blank activity, pre-seeding a sensible start time so the user only types a title.
   function addActivity() {
@@ -1280,9 +1491,27 @@ function DayCard({
     });
   }
 
+  function timeToMinutes(t: string): number {
+    if (!t) return Infinity;
+    const startPart = t.split("-")[0]?.trim() || "";
+    const m24 = startPart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (m24) return parseInt(m24[1]) * 60 + parseInt(m24[2]);
+    const m12 = startPart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (m12) {
+      let h = parseInt(m12[1]);
+      const min = parseInt(m12[2]);
+      const ampm = m12[4] || m12[3];
+      if (ampm && ampm.toUpperCase() === "PM" && h !== 12) h += 12;
+      if (ampm && ampm.toUpperCase() === "AM" && h === 12) h = 0;
+      return h * 60 + min;
+    }
+    return Infinity;
+  }
+
   function updateActivity(idx: number, updated: Activity) {
     const acts = [...day.activities];
     acts[idx] = updated;
+    acts.sort((a, b) => timeToMinutes(a.time || "") - timeToMinutes(b.time || ""));
     onUpdateDay({ ...day, activities: acts });
   }
 
@@ -1347,6 +1576,11 @@ function DayCard({
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
+              {readOnly ? (
+                <p className="flex-1 text-sm font-bold text-foreground">
+                  {day.title || `Day ${day.dayNumber}`}
+                </p>
+              ) : (
                 <input
                   type="text"
                   value={day.title ?? ""}
@@ -1358,33 +1592,34 @@ function DayCard({
                   placeholder={`Day ${day.dayNumber} — Give it a title`}
                   className="flex-1 bg-transparent text-sm font-bold text-foreground placeholder:text-muted/50 focus:outline-none"
                 />
-              </div>
-              <div className="flex items-center gap-3 mt-0.5">
-                {dayDate && (
-                  <span className="text-[11px] text-muted flex items-center gap-1">
-                    <Calendar size={10} /> {dayDate}
-                  </span>
-                )}
-                <span className="text-[11px] text-muted">
-                  {day.activities.length} activit{day.activities.length !== 1 ? "ies" : "y"}
+              )}
+            </div>
+            <div className="flex items-center gap-3 mt-0.5">
+              {dayDate && (
+                <span className="text-[11px] text-muted flex items-center gap-1">
+                  <Calendar size={10} /> {dayDate}
                 </span>
-                {totalCost > 0 && (
-                  <span className="text-[11px] text-accent-600 font-medium flex items-center gap-0.5">
-                    <DollarSign size={9} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalCost.toFixed(0)}
-                  </span>
-                )}
-              </div>
+              )}
+              <span className="text-[11px] text-muted">
+                {day.activities.length} activit{day.activities.length !== 1 ? "ies" : "y"}
+              </span>
+              {totalCost > 0 && (
+                <span className="text-[11px] text-accent-600 font-medium flex items-center gap-0.5">
+                  <DollarSign size={9} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalCost.toFixed(0)}
+                </span>
+              )}
             </div>
           </div>
+        </div>
 
-          {/* Weather badge beside the title */}
-          <WeatherBadge destination={destination} dateIso={dayIso} />
+        {/* Weather badge beside the title */}
+        <WeatherBadge destination={destination} dateIso={dayIso} />
 
-          {/* Expand / collapse */}
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label={expanded ? "Collapse day" : "Expand day"}
+        {/* Expand / collapse */}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={expanded ? "Collapse day" : "Expand day"}
             className={cn(
               "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors cursor-pointer",
               expanded ? "bg-accent-100 text-accent-600" : "bg-shore-100 text-muted hover:text-accent-600",
@@ -1407,9 +1642,12 @@ function DayCard({
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="px-5 pb-5 space-y-3">
+            {/* Transit block at the top of the day content */}
+            <DayContextBlocks day={day} />
+
+            <div className={readOnly ? "px-5 pb-5 space-y-0" : "px-5 pb-5 space-y-3"}>
               {/* Smart quick-add + one-tap starters */}
-              {isParticipant && (
+              {!readOnly && isParticipant && (
                 <div className="space-y-2.5">
                   <QuickAddBar onAdd={addQuick} />
                   <div className="flex flex-wrap gap-1.5">
@@ -1429,25 +1667,36 @@ function DayCard({
                   </div>
                 </div>
               )}
-
               {/* Activities list */}
-              <AnimatePresence>
-                {day.activities.map((activity, idx) => (
-                  <ActivityRow
+              {readOnly ? (
+                /* Polished read-only cards matching the AI preview */
+                day.activities.map((activity, idx) => (
+                  <ReadOnlyActivityCard
                     key={activity.activityId}
                     activity={activity}
-                    currency={currency}
-                    onCurrencyChange={onCurrencyChange}
-                    onUpdate={(a) => updateActivity(idx, a)}
-                    onRemove={() => removeActivity(idx)}
-                    tripId={tripId}
-                    votingEnabled={day.votingEnabled ?? false}
-                    votingFrozen={day.votingFrozen ?? false}
-                    onActivityVoteUpdate={handleActivityVoteUpdate}
-                    isParticipant={isParticipant}
+                    destination={destination || ""}
+                    isLast={idx === day.activities.length - 1}
                   />
-                ))}
-              </AnimatePresence>
+                ))
+              ) : (
+                <AnimatePresence>
+                  {day.activities.map((activity, idx) => (
+                    <ActivityRow
+                      key={activity.activityId}
+                      activity={activity}
+                      currency={currency}
+                      onCurrencyChange={onCurrencyChange}
+                      onUpdate={(a) => updateActivity(idx, a)}
+                      onRemove={() => removeActivity(idx)}
+                      tripId={tripId}
+                      votingEnabled={day.votingEnabled ?? false}
+                      votingFrozen={day.votingFrozen ?? false}
+                      onActivityVoteUpdate={handleActivityVoteUpdate}
+                      isParticipant={isParticipant}
+                    />
+                  ))}
+                </AnimatePresence>
+              )}
 
               {/* Empty state — offer whole-day starter kits */}
               {day.activities.length === 0 && (
@@ -1476,8 +1725,8 @@ function DayCard({
                 </div>
               )}
 
-              {/* Add activity button */}
-              {isParticipant && (
+              {/* Add activity button (only in edit mode) */}
+              {!readOnly && isParticipant && (
                 <button
                   onClick={addActivity}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-xs font-medium text-muted transition-all hover:border-accent-400 hover:text-accent-600 hover:bg-accent-50/50 cursor-pointer"
@@ -2180,66 +2429,51 @@ function VotingSettingsPanel({
 }
 
 /* ─── Invite Modal ────────────────────────────────────────────────── */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function InviteModal({
   tripId,
-  existingParticipantIds,
   onClose,
   onInvited,
   currentUserName,
 }: {
   tripId: string;
-  existingParticipantIds: string[];
   onClose: () => void;
   onInvited: () => void;
   currentUserName: string;
 }) {
   const { addToast } = useToast();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<UserPublicProfile[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [inviting, setInviting] = useState<string | null>(null);
-  const [invited, setInvited] = useState<Set<string>>(new Set());
+  const [email, setEmail] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [sending, setSending] = useState(false);
+  const [sentEmails, setSentEmails] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSearch(value: string) {
-    setQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) {
-      setResults([]);
+  const trimmedEmail = email.trim();
+  const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
+
+  async function handleSend() {
+    if (!isValidEmail) {
+      setError("Enter a valid email address");
       return;
     }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const users = await usersApi.search(value.trim());
-        // Filter out existing participants
-        setResults(users.filter((u) => !existingParticipantIds.includes(u.id)));
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-  }
-
-  async function handleInvite(userId: string, email?: string) {
-    setInviting(userId);
+    setError(null);
+    setSending(true);
     try {
-      await participantsApi.invite(
+      await participantsApi.inviteByEmail(
         tripId,
-        userId,
-        email,
+        trimmedEmail,
         inviteMessage.trim() || undefined,
         currentUserName || undefined,
       );
-      setInvited((prev) => new Set([...prev, userId]));
-      addToast("Invitation sent!", "success");
+      setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+      setEmail("");
+      addToast("Invitation email sent!", "success");
       onInvited();
     } catch {
       addToast("Failed to send invitation", "error");
     } finally {
-      setInviting(null);
+      setSending(false);
     }
   }
 
@@ -2268,22 +2502,32 @@ function InviteModal({
           </button>
         </div>
 
-        {/* Search input */}
+        {/* Email form */}
         <div className="px-6 py-4 space-y-3">
+          <p className="text-xs text-muted">
+            We&apos;ll email them a summary of this trip with a link to open it.
+          </p>
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
-              type="text"
-              value={query}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search by name or email..."
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (error) setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="friend@example.com"
               autoFocus
               className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
             />
-            {searching && (
-              <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-accent-500" />
-            )}
           </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
           <textarea
             value={inviteMessage}
             onChange={(e) => setInviteMessage(e.target.value)}
@@ -2292,66 +2536,38 @@ function InviteModal({
             maxLength={300}
             className="w-full rounded-xl border border-border bg-shore-50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors resize-none"
           />
+          <button
+            onClick={handleSend}
+            disabled={!isValidEmail || sending}
+            className={cn(
+              "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
+              "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
+              (!isValidEmail || sending) && "opacity-60 cursor-not-allowed",
+            )}
+          >
+            {sending ? (
+              <><Loader2 size={14} className="animate-spin" /> Sending</>
+            ) : (
+              <><UserPlus size={14} /> Send Invite</>
+            )}
+          </button>
         </div>
 
-        {/* Results */}
-        <div className="px-6 pb-6 max-h-72 overflow-y-auto space-y-2">
-          {results.length === 0 && query.trim().length >= 2 && !searching && (
-            <p className="text-sm text-muted text-center py-4">No users found</p>
-          )}
-          {results.map((user) => {
-            const isInvited = invited.has(user.id);
-            const initials = (user.displayName ?? "U")
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2);
-
-            return (
+        {/* Sent list */}
+        {sentEmails.length > 0 && (
+          <div className="px-6 pb-6 max-h-48 overflow-y-auto space-y-2">
+            <p className="text-xs font-medium text-muted uppercase tracking-wide">Sent this session</p>
+            {sentEmails.map((sent) => (
               <div
-                key={user.id}
-                className="flex items-center gap-3 rounded-xl border border-border bg-white p-3 transition-all hover:border-accent-300"
+                key={sent}
+                className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-shore-100 text-xs font-bold text-trippy-600 border border-border">
-                  {initials}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{user.displayName}</p>
-                  {user.email && (
-                    <p className="text-[11px] text-muted flex items-center gap-1 truncate">
-                      <Mail size={10} /> {user.email}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleInvite(user.id, user.email)}
-                  disabled={isInvited || inviting === user.id}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all cursor-pointer",
-                    isInvited
-                      ? "bg-green-100 text-green-700 border border-green-300"
-                      : "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-                    (inviting === user.id) && "opacity-60"
-                  )}
-                >
-                  {isInvited ? (
-                    <><Check size={12} /> Invited</>
-                  ) : inviting === user.id ? (
-                    <><Loader2 size={12} className="animate-spin" /> Sending</>
-                  ) : (
-                    <><UserPlus size={12} /> Invite</>
-                  )}
-                </button>
+                <Check size={14} className="text-green-600 shrink-0" />
+                <p className="text-sm text-foreground truncate flex-1">{sent}</p>
               </div>
-            );
-          })}
-          {query.trim().length < 2 && (
-            <p className="text-xs text-muted text-center py-4">
-              Type at least 2 characters to search for users
-            </p>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -2752,7 +2968,26 @@ export default function TripDetailPage() {
   const { user } = useAuth();
   const tripId = tripIdFromSlug(params.id as string);
 
+  const searchParams = useSearchParams();
+  const isFromAi = searchParams.get("from") === "ai";
+
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const [preferences, setPreferences] = useState<TripPreference | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
+
+  useEffect(() => {
+    if (trip) {
+      setEditTitle(trip.title);
+      setEditDesc(trip.description || "");
+      setEditStartDate(trip.startDate || "");
+      setEditEndDate(trip.endDate || "");
+    }
+  }, [trip]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
@@ -2918,11 +3153,13 @@ export default function TripDetailPage() {
 
   const refreshTrip = useCallback(async () => {
     if (!tripId) return;
-    const data = await tripsApi.get(tripId);
-    await enrichParticipants(data);
+    const data = user?.userId ? await tripsApi.get(tripId) : await tripsApi.getShared(tripId);
+    if (user?.userId) {
+      await enrichParticipants(data);
+    }
     setTrip(data);
     applyParticipantFlags(data);
-  }, [tripId, enrichParticipants, applyParticipantFlags]);
+  }, [tripId, user?.userId, enrichParticipants, applyParticipantFlags]);
 
   // Generate a cover image in the background for trips that don't have one yet.
   useEffect(() => {
@@ -3003,26 +3240,42 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (!tripId) return;
     setLoading(true);
-    tripsApi
-      .get(tripId)
+    const loadTrip = user?.userId ? tripsApi.get(tripId) : tripsApi.getShared(tripId);
+    const loadItinerary = user?.userId
+      ? itineraryApi.get(tripId)
+      : itineraryApi.getShared(tripId);
+
+    loadTrip
       .then(async (data) => {
         // Fetch participant display names from user-service
-        await enrichParticipants(data);
+        if (user?.userId) {
+          await enrichParticipants(data);
+        }
         setTrip(data);
+        if (user?.userId) {
+          preferencesApi.getForTrip(tripId)
+            .then((pref) => setPreferences(pref))
+            .catch(() => {});
+        }
 
         // Check if current user is owner/editor
         applyParticipantFlags(data);
 
         // Fetch itinerary from backend
         try {
-          const itinerary = await itineraryApi.get(tripId);
+          const itinerary = await loadItinerary;
           if (itinerary.days.length > 0) {
-            setItineraryDays(itinerary.days);
+            const processedDays = processItineraryDays(itinerary.days);
+            setItineraryDays(processedDays);
             // Restore the itinerary's saved currency (persisted per activity).
-            const savedCurrency = itinerary.days
+            const savedCurrency = processedDays
               .flatMap((d) => d.activities)
               .find((a) => a.currency)?.currency;
             if (savedCurrency) setCurrency(savedCurrency);
+            // Auto-expand all days when arriving from AI trip save
+            if (isFromAi) {
+              setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
+            }
           } else {
             // Initialize empty days based on trip dates
             const numDays = getNumDays(data.startDate, data.endDate);
@@ -3122,27 +3375,41 @@ export default function TripDetailPage() {
         dayNumber: day.dayNumber,
         date: day.date ?? undefined,
         title: day.title || undefined,
-        activities: day.activities.map((a) => {
-          // Parse time "09:00 - 11:00" into startTime/endTime
-          const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
-          const startTime = timeParts[0] || a.startTime || undefined;
-          const endTime = timeParts[1] || a.endTime || undefined;
-          // Map frontend "default" category to backend "OTHER"
-          const rawCat = (a.category ?? "OTHER").toUpperCase();
-          const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
-          const costNum = a.estimatedCost != null && a.estimatedCost !== "" ? Number(a.estimatedCost) : NaN;
-          return {
-            title: a.title || "Untitled activity",
-            description: a.description || undefined,
-            location: a.location || undefined,
-            startTime,
-            endTime,
-            category,
-            notes: undefined,
-            estimatedCost: Number.isFinite(costNum) ? costNum : undefined,
-            currency: currency || undefined,
-          };
-        }),
+        activities: [
+          ...day.activities.map((a) => {
+            // Parse time "09:00 - 11:00" into startTime/endTime
+            const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
+            const startTime = timeParts[0] || a.startTime || undefined;
+            const endTime = timeParts[1] || a.endTime || undefined;
+            // Map frontend "default" category to backend "OTHER"
+            const rawCat = (a.category ?? "OTHER").toUpperCase();
+            const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
+            const costNum = a.estimatedCost != null && a.estimatedCost !== "" ? Number(a.estimatedCost) : NaN;
+            return {
+              title: a.title || "Untitled activity",
+              description: a.description || undefined,
+              location: a.location || undefined,
+              startTime,
+              endTime,
+              category,
+              notes: a.notes || undefined,
+              estimatedCost: Number.isFinite(costNum) ? costNum : undefined,
+              currency: currency || undefined,
+            };
+          }),
+          ...((day.transportRecommendations?.length || day.weather) ? [{
+            title: "__METADATA__",
+            description: JSON.stringify({
+              transportRecommendations: day.transportRecommendations,
+              weather: day.weather
+            }),
+            location: undefined,
+            startTime: undefined,
+            endTime: undefined,
+            category: "OTHER",
+            notes: undefined
+          }] : [])
+        ],
       })),
     };
   }
@@ -3158,7 +3425,7 @@ export default function TripDetailPage() {
     if (!opts?.silent) setSaving(true);
     try {
       const result = await itineraryApi.update(tripId, buildItineraryPayload(days));
-      setItineraryDays(result.days);
+      setItineraryDays(processItineraryDays(result.days));
       setHasUnsavedChanges(false);
       // The backend may auto-promote DRAFT → PLANNED (or back) based on the
       // itinerary; refresh so the status badge reflects it without a reload.
@@ -3181,6 +3448,52 @@ export default function TripDetailPage() {
 
   async function handleSave() {
     await persistItinerary(itineraryDays);
+  }
+
+  async function saveInlineEdits() {
+    if (!tripId) return;
+    setSaving(true);
+    try {
+      const updated = await tripsApi.update(tripId, {
+        title: editTitle,
+        description: editDesc || undefined,
+        startDate: editStartDate || undefined,
+        endDate: editEndDate || undefined,
+      });
+      setTrip((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: updated.title,
+              description: updated.description,
+              startDate: updated.startDate,
+              endDate: updated.endDate,
+            }
+          : null
+      );
+
+      // Save itinerary too if it has unsaved changes
+      if (hasUnsavedChanges) {
+        await persistItinerary(itineraryDays, { silent: true });
+      }
+
+      setIsEditing(false);
+      addToast("Trip updated successfully", "success");
+    } catch {
+      addToast("Failed to update trip details", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelInlineEdits() {
+    if (trip) {
+      setEditTitle(trip.title);
+      setEditDesc(trip.description || "");
+      setEditStartDate(trip.startDate || "");
+      setEditEndDate(trip.endDate || "");
+    }
+    setIsEditing(false);
   }
 
   function handleVoteUpdate(dayNumber: number, summary: VoteSummary) {
@@ -3225,7 +3538,7 @@ export default function TripDetailPage() {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
         <p className="text-muted">{error || "Trip not found"}</p>
-        <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+        <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
           <ArrowLeft size={16} /> Back to trips
         </Button>
       </div>
@@ -3242,15 +3555,33 @@ export default function TripDetailPage() {
     0
   );
 
+  const totalActivities = itineraryDays.reduce((sum, day) => sum + day.activities.length, 0);
+
+  const hasAiMetadata = itineraryDays.some((d) => d.weather || (d.transportRecommendations && d.transportRecommendations.length > 0));
+  const isAiTrip = (isFromAi || hasAiMetadata) && trip?.status === "PLANNED";
+
   return (
     <div className="space-y-8 pb-12">
       {/* Back link */}
       <Link
-        href="/dashboard"
+        href={user?.userId ? "/dashboard" : "/"}
         className="inline-flex items-center gap-2 text-sm text-muted hover:text-foreground transition-colors"
       >
         <ArrowLeft size={16} /> Back to trips
       </Link>
+
+      {!user?.userId && (
+        <GlassCard className="!p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted">
+              You are viewing a shared trip in read-only mode. Sign in to join and collaborate.
+            </p>
+            <Button size="sm" onClick={() => router.push(`/login?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}>
+              Sign in to join
+            </Button>
+          </div>
+        </GlassCard>
+      )}
 
       {/* Pending approval banner */}
       {isPendingApproval && (
@@ -3269,35 +3600,57 @@ export default function TripDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] sm:p-10"
+        className={cn(
+          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10",
+          isAiTrip
+            ? "h-80 flex flex-col justify-end bg-black"
+            : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
+        )}
       >
         {/* AI-generated cover as a softly blurred backdrop (fades in when loaded) */}
         {trip.coverImageUrl && (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={trip.coverImageUrl}
-              alt=""
-              aria-hidden
-              className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover opacity-0 blur-[3px] transition-opacity duration-1000"
-              onLoad={(e) => { e.currentTarget.style.opacity = "0.7"; }}
-            />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-trippy-900/78 via-trippy-800/68 to-trippy-900/85" />
-          </>
+          isAiTrip ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={trip.coverImageUrl}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-100 scale-105 blur-[2px]"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-black/30 bg-gradient-to-t from-black/80 via-black/20 to-black/10" />
+            </>
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={trip.coverImageUrl}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover opacity-0 blur-[3px] transition-opacity duration-1000"
+                onLoad={(e) => { e.currentTarget.style.opacity = "0.7"; }}
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-trippy-900/78 via-trippy-800/68 to-trippy-900/85" />
+            </>
+          )
         )}
 
         {/* Immersive texture + warm mesh */}
-        <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
-        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
-        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
-          <Plane size={90} className="rotate-12 text-white" />
-        </div>
+        {!isAiTrip && (
+          <>
+            <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+            <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
+            <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
+              <Plane size={90} className="rotate-12 text-white" />
+            </div>
+          </>
+        )}
 
         <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
             <div className="flex items-center gap-3 mb-2">
               <Badge variant={statusVariant[trip.status] ?? "default"}>
                 {statusLabel[trip.status] ?? trip.status}
@@ -3308,9 +3661,41 @@ export default function TripDetailPage() {
                 </span>
               )}
             </div>
-            <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">{trip.title}</h1>
-            {trip.description && (
-              <p className="mt-2 text-sm text-white/60 max-w-xl">{trip.description}</p>
+
+            {isEditing ? (
+              <div className="space-y-4 w-full">
+                {/* Editable Title */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1">Trip Name</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="font-display text-2xl font-black tracking-tight text-white bg-white/10 border border-white/20 rounded-xl px-3 py-1.5 focus:outline-none focus:border-white/45 w-full"
+                  />
+                </div>
+                {/* Editable Description */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1">Description</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    className="text-sm text-white bg-white/10 border border-white/20 rounded-xl px-3 py-1.5 focus:outline-none focus:border-white/45 w-full resize-none"
+                    rows={2}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
+                  {trip.title}
+                </h1>
+                {trip.description && (
+                  <p className="mt-2 text-sm text-white/60 max-w-xl">
+                    {trip.description}
+                  </p>
+                )}
+              </>
             )}
 
             {/* Quick stats */}
@@ -3319,19 +3704,40 @@ export default function TripDetailPage() {
                 <MapPin size={14} className="text-accent-400" />
                 <span className="text-sm font-medium">{trip.destination}</span>
               </div>
-              {trip.startDate && trip.endDate && (
-                <div className="flex items-center gap-2 text-white/80">
+              
+              {isEditing ? (
+                <div className="flex items-center gap-2 text-white/85 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5">
                   <Calendar size={14} className="text-accent-400" />
-                  <span className="text-sm">
-                    {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    {" — "}
-                    {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
-                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60">
-                    {numDays} day{numDays !== 1 ? "s" : ""}
-                  </span>
+                  <input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    className="bg-transparent text-xs outline-none text-white w-28 [color-scheme:dark]"
+                  />
+                  <span className="text-white/40 text-xs">—</span>
+                  <input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    className="bg-transparent text-xs outline-none text-white w-28 [color-scheme:dark]"
+                  />
                 </div>
+              ) : (
+                trip.startDate && trip.endDate && (
+                  <div className="flex items-center gap-2 text-white/80">
+                    <Calendar size={14} className="text-accent-400" />
+                    <span className="text-sm">
+                      {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {" — "}
+                      {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60">
+                      {numDays} day{numDays !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                )
               )}
+
               <div className="flex items-center gap-2 text-white/80">
                 <Users size={14} className="text-accent-400" />
                 <span className="text-sm">{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
@@ -3346,25 +3752,107 @@ export default function TripDetailPage() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap gap-2">
-            <Link href={`/dashboard/chat/${trip.tripId}`}>
-              <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
-                <MessageSquare size={14} /> Chat
-              </Button>
-            </Link>
-            {isOwnerOrEditor && (
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {isEditing ? (
               <>
-                <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setEditModalOpen(true)}>
-                  <Edit size={14} /> Edit
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={saveInlineEdits}
+                  disabled={saving}
+                  className="bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Save Changes
                 </Button>
-                <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
-                  <Trash2 size={14} /> Delete
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={cancelInlineEdits}
+                  disabled={saving}
+                  className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                >
+                  Cancel
                 </Button>
+              </>
+            ) : (
+              <>
+                {user?.userId && (
+                  <Link href={`/dashboard/chat/${trip.tripId}`}>
+                    <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                      <MessageSquare size={14} /> Chat
+                    </Button>
+                  </Link>
+                )}
+                {isOwnerOrEditor && (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      onClick={() => {
+                        if (isAiTrip) {
+                          setIsEditing(true);
+                        } else {
+                          setEditModalOpen(true);
+                        }
+                      }}
+                    >
+                      <Edit size={14} /> Edit
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
+                      <Trash2 size={14} /> Delete
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>
         </div>
       </motion.div>
+
+      {/* AI trip stats bar */}
+      {isAiTrip && (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            {
+              icon: <Sparkles size={16} className="text-purple-500" />,
+              label: "Activities",
+              value: `${totalActivities} planned`,
+              bg: "bg-purple-50 border-purple-100",
+            },
+            {
+              icon: <DollarSign size={16} className="text-amber-500" />,
+              label: "Budget",
+              value: preferences?.budgetTier
+                ? preferences.budgetTier.charAt(0) + preferences.budgetTier.slice(1).toLowerCase()
+                : "Moderate",
+              bg: "bg-amber-50 border-amber-100",
+            },
+            {
+              icon: <Calendar size={16} className="text-accent-500" />,
+              label: "Duration",
+              value: `${numDays} day${numDays !== 1 ? "s" : ""}`,
+              bg: "bg-accent-500/5 border-accent-200",
+            },
+          ].map((s, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all ${s.bg}`}
+            >
+              <div className="shrink-0">{s.icon}</div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                  {s.label}
+                </p>
+                <p className="text-sm font-bold text-foreground truncate">
+                  {s.value}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ─── Team Section ──────────────────────────────────────────── */}
       {members.length > 0 && (
@@ -3732,11 +4220,12 @@ export default function TripDetailPage() {
                 onCurrencyChange={(c) => { setCurrency(c); setHasUnsavedChanges(true); }}
                 onVoteUpdate={handleVoteUpdate}
                 isParticipant={isParticipant}
+                readOnly={isAiTrip && !isEditing}
               />
             ))}
 
             {/* Add day button */}
-            {isParticipant && (
+            {isParticipant && (!isAiTrip || isEditing) && (
               <button
                 onClick={addDay}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-5 text-sm font-medium text-muted transition-all hover:border-accent-400 hover:text-accent-600 hover:bg-accent-50/30 cursor-pointer"
@@ -3829,7 +4318,6 @@ export default function TripDetailPage() {
         {inviteOpen && (
           <InviteModal
             tripId={tripId}
-            existingParticipantIds={trip.participants?.map((p) => p.userId) ?? []}
             onClose={() => setInviteOpen(false)}
             onInvited={() => {
               // Refresh trip data to show new participant
