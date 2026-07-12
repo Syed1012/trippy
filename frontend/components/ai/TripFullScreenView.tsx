@@ -14,6 +14,7 @@ import AmbientBackground from "@/components/layout/AmbientBackground";
 import Button from "@/components/ui/Button";
 import { getAccessToken } from "@/lib/api";
 import { ROUTES } from "@/lib/routes";
+import { updateAiTripRouteState } from "@/lib/ai-trip-route-state";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface AiItineraryDay {
@@ -96,6 +97,7 @@ interface TripFullScreenViewProps {
   saveError?: string;
   visibility?: "PRIVATE" | "PUBLIC";
   onVisibilityChange?: (visibility: "PRIVATE" | "PUBLIC") => void;
+  sid?: string;
 }
 
 const CAT_COLORS: Record<string, string> = {
@@ -118,6 +120,7 @@ const CAT_ICONS: Record<string, string> = {
 export default function TripFullScreenView({
   trip, userPrompt, userDates, onClose, onSave, saved,
   isSaving = false, saveError = "", visibility = "PRIVATE", onVisibilityChange,
+  sid,
 }: TripFullScreenViewProps) {
   const [draftTrip, setDraftTrip] = useState<GeneratedTrip>(trip);
   const [itineraryVersion, setItineraryVersion] = useState(0);
@@ -156,6 +159,13 @@ export default function TripFullScreenView({
   }
 
   useEffect(() => { setDraftTrip(trip); }, [trip]);
+
+  // Sync state changes to storage cache so page refresh does not trigger regeneration
+  useEffect(() => {
+    if (sid && draftTrip.aiItinerary?.length) {
+      updateAiTripRouteState(sid, draftTrip);
+    }
+  }, [draftTrip, sid]);
 
   // Fetch city image
   useEffect(() => {
