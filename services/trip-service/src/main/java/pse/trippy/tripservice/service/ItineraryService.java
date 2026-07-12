@@ -65,7 +65,10 @@ public class ItineraryService {
 
     @Transactional(readOnly = true)
     public ItineraryResponse getSharedItinerary(UUID tripId) {
-        findTripOrThrow(tripId);
+        Trip trip = findTripOrThrow(tripId);
+        if (!isPubliclyViewable(trip)) {
+            throw new ForbiddenException("This itinerary is not publicly viewable");
+        }
 
         return itineraryRepository.findByTripId(tripId)
                 .map(it -> toItineraryResponse(it, null))
@@ -179,10 +182,9 @@ public class ItineraryService {
         }
     }
 
-    /** Published public trips are readable by anyone; DRAFT trips never are. */
+    /** Non-DRAFT trips are readable by anyone (either publicly listed or accessible via direct URL); DRAFT trips never are. */
     private boolean isPubliclyViewable(Trip trip) {
-        return trip.getVisibility() == TripVisibility.PUBLIC
-                && trip.getStatus() != TripStatus.DRAFT;
+        return trip.getStatus() != TripStatus.DRAFT;
     }
 
     private Trip findTripOrThrow(UUID tripId) {

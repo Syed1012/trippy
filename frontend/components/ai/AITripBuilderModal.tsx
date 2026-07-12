@@ -443,9 +443,9 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [results, setResults] = useState<GeneratedTrip[]>([]);
   const [alsoExplore, setAlsoExplore] = useState<DestinationSuggestionItem[]>([]);
   const [savedTrips, setSavedTrips] = useState<Set<string>>(new Set());
-  const [saveVisibility, setSaveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [saveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
+  const [, setIsSaving] = useState(false);
+  const [, setSaveError] = useState("");
 
   const router = useRouter();
   const { isAuthenticated } = useAuth();

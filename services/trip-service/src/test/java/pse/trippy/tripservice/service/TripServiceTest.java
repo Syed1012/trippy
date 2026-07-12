@@ -316,6 +316,36 @@ class TripServiceTest {
     }
 
     // =========================================================================
+    // getSharedTripDetail
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getSharedTripDetail")
+    class GetSharedTripDetail {
+
+        @Test
+        @DisplayName("returns shared trip detail for a published (non-DRAFT) trip")
+        void sharedTripAccessible() {
+            trip.setStatus(TripStatus.PLANNED);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            TripDetailResponse response = tripService.getSharedTripDetail(TRIP_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.id()).isEqualTo(TRIP_ID);
+        }
+
+        @Test
+        @DisplayName("throws ForbiddenException for a DRAFT trip")
+        void sharedDraftTripForbidden() {
+            trip.setStatus(TripStatus.DRAFT);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            assertThatThrownBy(() -> tripService.getSharedTripDetail(TRIP_ID))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+    }
+
+    // =========================================================================
     // updateTrip
     // =========================================================================
 
