@@ -2741,6 +2741,8 @@ export default function TripDetailPage() {
   useEffect(() => () => setReserve(0), [setReserve]);
 
   function openAI() {
+    // AI Suggestions is host-only; ignore any stray trigger from a non-owner.
+    if (!isOwner) return;
     setAiPanelOpen(true);
     setAiMinimized(false);
     setAiSession((n) => n + 1);
@@ -2821,6 +2823,7 @@ export default function TripDetailPage() {
   const savingRef = useRef(false);
   const pendingSaveRef = useRef<DayPlan[] | null>(null);
   const [votingSettingsOpen, setVotingSettingsOpen] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
   const [isOwnerOrEditor, setIsOwnerOrEditor] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
@@ -2832,10 +2835,12 @@ export default function TripDetailPage() {
     (data: TripDetail) => {
       if (user?.userId && data.participants) {
         const me = data.participants.find((p) => p.userId === user.userId);
+        setIsOwner(me?.role === "OWNER");
         setIsOwnerOrEditor(me?.role === "OWNER" || me?.role === "EDITOR");
         setIsParticipant(!!me && (me.status === "ACCEPTED" || me.role === "OWNER"));
         setIsPendingApproval(!!me && me.status === "PENDING_APPROVAL");
       } else {
+        setIsOwner(false);
         setIsParticipant(false);
         setIsPendingApproval(false);
       }
@@ -3615,7 +3620,8 @@ export default function TripDetailPage() {
                 Voting
               </button>
             )}
-            {isParticipant && (
+            {/* AI Suggestions — host (trip owner) only */}
+            {isOwner && (
               <button
                 onClick={openAI}
                 className={cn(
@@ -3682,7 +3688,7 @@ export default function TripDetailPage() {
             <h3 className="text-lg font-bold">No itinerary yet</h3>
             <p className="text-sm text-muted mt-1 max-w-sm">
               {numDays > 0
-                ? `You have ${numDays} days to plan. Add days manually or let AI create a complete itinerary for you.`
+                ? `You have ${numDays} days to plan. Add days manually${isOwner ? " or let AI create a complete itinerary for you" : ""}.`
                 : "Set your trip dates first, then plan your day-by-day adventure here."}
             </p>
             <div className="flex items-center gap-3 mt-5">
@@ -3691,34 +3697,39 @@ export default function TripDetailPage() {
                   <Plus size={14} /> Add first day
                 </Button>
               )}
-              <button
-                onClick={openAI}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
-              >
-                <Sparkles size={14} /> Suggest with AI
-              </button>
+              {/* AI Suggestions — host (trip owner) only */}
+              {isOwner && (
+                <button
+                  onClick={openAI}
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
+                >
+                  <Sparkles size={14} /> Suggest with AI
+                </button>
+              )}
             </div>
           </GlassCard>
         )}
       </motion.section>
 
-      {/* AI Itinerary Studio */}
-      <AIItinerarySidebar
-        key={aiSession}
-        open={aiPanelOpen}
-        minimized={aiMinimized}
-        width={panelWidth}
-        onClose={closeAI}
-        onMinimize={minimizeAI}
-        onExpand={expandAI}
-        onResize={resizeAI}
-        onDragChange={setDragging}
-        tripId={tripId}
-        destination={trip.destination}
-        numDays={numDays > 0 ? numDays : 5}
-        currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
-        onApply={applySuggestion}
-      />
+      {/* AI Itinerary Studio — host (trip owner) only */}
+      {isOwner && (
+        <AIItinerarySidebar
+          key={aiSession}
+          open={aiPanelOpen}
+          minimized={aiMinimized}
+          width={panelWidth}
+          onClose={closeAI}
+          onMinimize={minimizeAI}
+          onExpand={expandAI}
+          onResize={resizeAI}
+          onDragChange={setDragging}
+          tripId={tripId}
+          destination={trip.destination}
+          numDays={numDays > 0 ? numDays : 5}
+          currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
+          onApply={applySuggestion}
+        />
+      )}
 
       {/* Edit Trip Modal */}
       <AnimatePresence>
