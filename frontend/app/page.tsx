@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
-  LayoutDashboard,
   Route,
   Search,
   SlidersHorizontal,
@@ -25,6 +24,7 @@ import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITri
 import AuthModal from "@/components/auth/AuthModal";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
+import Navbar from "@/components/layout/Navbar";
 import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
@@ -262,24 +262,16 @@ export default function LandingPage() {
     <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f]">
       <AmbientBackground />
 
-      <header className="sticky top-0 z-50 border-b border-white/30 bg-white/18 px-4 shadow-[0_1px_0_rgba(20,47,43,0.04)] backdrop-blur-2xl lg:px-8">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
-          <Link href={ROUTES.home} aria-label="Trippy home">
-            <Logo size="md" />
-          </Link>
+      {isAuthenticated ? (
+        <Navbar variant="landing" />
+      ) : (
+        <header className="sticky top-0 z-50 border-b border-white/30 bg-white/18 px-4 shadow-[0_1px_0_rgba(20,47,43,0.04)] backdrop-blur-2xl lg:px-8">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
+            <Link href={ROUTES.home} aria-label="Trippy home">
+              <Logo size="md" />
+            </Link>
 
-          <div className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <Link href={ROUTES.dashboard}>
-                <Button
-                  size="sm"
-                  className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
-                >
-                  <LayoutDashboard size={14} />
-                  Dashboard
-                </Button>
-              </Link>
-            ) : (
+            <div className="flex items-center gap-2">
               <Link href={ROUTES.login}>
                 <Button
                   size="sm"
@@ -288,10 +280,10 @@ export default function LandingPage() {
                   Log in
                 </Button>
               </Link>
-            )}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main className="relative z-10">
         <section className="relative isolate overflow-hidden">
