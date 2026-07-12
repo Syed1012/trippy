@@ -1,12 +1,20 @@
 package pse.trippy.tripservice.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import pse.trippy.tripservice.config.RabbitMQConfig;
 import pse.trippy.tripservice.dto.event.ParticipantEvent;
+import pse.trippy.tripservice.dto.request.InviteByEmailRequest;
 import pse.trippy.tripservice.dto.request.InviteParticipantRequest;
 import pse.trippy.tripservice.dto.response.ParticipantActionResponse;
 import pse.trippy.tripservice.dto.response.ParticipantResponse;
@@ -20,12 +28,6 @@ import pse.trippy.tripservice.model.enums.ParticipantStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.repository.ParticipantRepository;
 import pse.trippy.tripservice.repository.TripRepository;
-
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @Service
 @Slf4j
@@ -77,6 +79,27 @@ public class ParticipantService {
             publishInviteProposedEvent(trip, request.userId(), inviterId, request.inviterName(), request.message());
             return new ParticipantActionResponse("Invite proposed — awaiting owner approval", toResponse(participant));
         }
+    }
+
+    @Transactional(readOnly = true)
+    public ParticipantActionResponse inviteByEmail(UUID tripId, InviteByEmailRequest request, UUID inviterId) {
+        log.info("Inviting by email to trip {} by inviter {}", tripId, inviterId);
+        Trip trip = findTripOrThrow(tripId);
+
+        // Any accepted participant can share the trip via email
+        participantRepository.findByTripIdAndUserId(tripId, inviterId)
+                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED)
+                .orElseThrow(() -> new ForbiddenException("You are not a participant of this trip"));
+
+        long currentCount = participantRepository.countByTripIdAndStatusIn(
+                tripId, List.of(ParticipantStatus.INVITED, ParticipantStatus.ACCEPTED, ParticipantStatus.PENDING_APPROVAL));
+        if (currentCount >= trip.getMaxParticipants()) {
+            throw new InvalidTripDataException("Trip has reached maximum number of participants");
+        }
+
+        publishEmailInvitation(trip, request.email(), inviterId, request.message(), request.inviterName());
+
+        return new ParticipantActionResponse("Invitation email sent", null);
     }
 
     @Transactional
@@ -362,5 +385,29 @@ public class ParticipantService {
         }
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.invited", event);
+    }
+
+    private void publishEmailInvitation(Trip trip, String email, UUID inviterId, String message, String inviterName) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", "trip.invitation.created");
+        event.put("tripId", trip.getId().toString());
+        event.put("tripTitle", trip.getTitle());
+        event.put("destination", trip.getDestination());
+        event.put("startDate", trip.getStartDate().toString());
+        event.put("endDate", trip.getEndDate().toString());
+        if (trip.getDescription() != null && !trip.getDescription().isBlank()) {
+            event.put("tripDescription", trip.getDescription());
+        }
+        event.put("inviteeEmail", email);
+        event.put("inviterId", inviterId.toString());
+        event.put("timestamp", Instant.now().toString());
+        if (inviterName != null && !inviterName.isBlank()) {
+            event.put("inviterName", inviterName);
+        }
+        if (message != null && !message.isBlank()) {
+            event.put("inviteMessage", message);
+        }
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.invitation.created", event);
     }
 }

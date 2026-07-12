@@ -193,6 +193,19 @@ public class TripService {
         return toTripDetailResponse(trip, participants);
     }
 
+    @Transactional(readOnly = true)
+    public TripDetailResponse getSharedTripDetail(UUID tripId) {
+        log.debug("Fetching shared trip detail: tripId={}", tripId);
+        Trip trip = findTripOrThrow(tripId);
+
+        List<ParticipantResponse> participants = participantRepository.findByTripId(tripId).stream()
+                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED || p.getRole() == ParticipantRole.OWNER)
+                .map(this::toParticipantResponse)
+                .toList();
+
+        return toTripDetailResponse(trip, participants);
+    }
+
     @Transactional
     public TripResponse updateTrip(UUID tripId, UpdateTripRequest request, UUID userId) {
         log.info("Updating trip: tripId={}, requestedBy={}", tripId, userId);

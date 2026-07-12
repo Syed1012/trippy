@@ -63,6 +63,16 @@ public class ItineraryService {
                         tripId, Collections.emptyList(), null, null));
     }
 
+    @Transactional(readOnly = true)
+    public ItineraryResponse getSharedItinerary(UUID tripId) {
+        findTripOrThrow(tripId);
+
+        return itineraryRepository.findByTripId(tripId)
+                .map(it -> toItineraryResponse(it, null))
+                .orElseGet(() -> new ItineraryResponse(
+                        tripId, Collections.emptyList(), null, null));
+    }
+
     @Transactional
     public ItineraryResponse updateItinerary(UUID tripId, UpdateItineraryRequest request, UUID userId) {
         Trip trip = findTripOrThrow(tripId);
@@ -240,7 +250,9 @@ public class ItineraryService {
 
         long upvotes = dayPlanVoteRepository.countByDayPlanIdAndVoteType(dayPlan.getId(), VoteType.UPVOTE);
         long downvotes = dayPlanVoteRepository.countByDayPlanIdAndVoteType(dayPlan.getId(), VoteType.DOWNVOTE);
-        String currentUserVote = dayPlanVoteRepository.findByDayPlanIdAndUserId(dayPlan.getId(), userId)
+        String currentUserVote = userId == null
+                ? null
+                : dayPlanVoteRepository.findByDayPlanIdAndUserId(dayPlan.getId(), userId)
                 .map(v -> v.getVoteType().name())
                 .orElse(null);
 
@@ -262,7 +274,9 @@ public class ItineraryService {
     private ActivityResponse toActivityResponse(Activity activity, UUID userId) {
         long upvotes = activityVoteRepository.countByActivityIdAndVoteType(activity.getId(), VoteType.UPVOTE);
         long downvotes = activityVoteRepository.countByActivityIdAndVoteType(activity.getId(), VoteType.DOWNVOTE);
-        String currentUserVote = activityVoteRepository.findByActivityIdAndUserId(activity.getId(), userId)
+        String currentUserVote = userId == null
+                ? null
+                : activityVoteRepository.findByActivityIdAndUserId(activity.getId(), userId)
                 .map(v -> v.getVoteType().name())
                 .orElse(null);
 

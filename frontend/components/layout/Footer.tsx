@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Logo from "@/components/Logo";
+import { LANDING_ANCHORS, ROUTES } from "@/lib/routes";
 
 export default function Footer() {
   return (
@@ -7,7 +8,9 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-            <Logo size="sm" />
+            <Link href={ROUTES.home} aria-label="Trippy home" className="inline-block">
+              <Logo size="sm" />
+            </Link>
             <p className="text-caption max-w-xs">
               Collaborative trip planning powered by AI. Plan together, travel
               better.
@@ -18,17 +21,17 @@ export default function Footer() {
             <div className="space-y-2">
               <h6 className="font-semibold">Product</h6>
               <ul className="space-y-1 text-muted">
-                <li><Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link></li>
-                <li><Link href="/#features" className="hover:text-foreground transition-colors">Features</Link></li>
-                <li><Link href="/#how-it-works" className="hover:text-foreground transition-colors">How it works</Link></li>
+                <li><Link href={ROUTES.dashboard} className="hover:text-foreground transition-colors">Dashboard</Link></li>
+                <li><Link href={LANDING_ANCHORS.features} className="hover:text-foreground transition-colors">Features</Link></li>
+                <li><Link href={LANDING_ANCHORS.howItWorks} className="hover:text-foreground transition-colors">How it works</Link></li>
               </ul>
             </div>
             <div className="space-y-2">
               <h6 className="font-semibold">Company</h6>
               <ul className="space-y-1 text-muted">
-                <li><Link href="/about" className="hover:text-foreground transition-colors">About</Link></li>
-                <li><Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link></li>
-                <li><Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link></li>
+                <li><Link href={ROUTES.about} className="hover:text-foreground transition-colors">About</Link></li>
+                <li><Link href={ROUTES.privacy} className="hover:text-foreground transition-colors">Privacy</Link></li>
+                <li><Link href={ROUTES.terms} className="hover:text-foreground transition-colors">Terms</Link></li>
               </ul>
             </div>
           </div>

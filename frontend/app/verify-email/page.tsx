@@ -9,6 +9,7 @@ import Logo from "@/components/Logo";
 import { Button, GlassCard, Input } from "@/components/ui";
 import { ApiError, resendVerification, verifyEmail } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { ROUTES } from "@/lib/routes";
 
 export default function VerifyEmailPage() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function VerifyEmailPage() {
     try {
       await verifyEmail(token.trim());
       addToast("Email verified. You can sign in now.", "success");
-      router.push(`/login?verified=true&email=${encodeURIComponent(email.trim())}`);
+      router.push(`${ROUTES.login}?verified=true&email=${encodeURIComponent(email.trim())}`);
     } catch (err) {
       if (err instanceof ApiError) {
         setVerifyError(
@@ -100,7 +101,7 @@ export default function VerifyEmailPage() {
         transition={{ duration: 0.5 }}
       >
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-block">
+          <Link href={ROUTES.home} className="inline-block">
             <Logo size="lg" className="justify-center" />
           </Link>
           <p className="mt-3 text-muted">Confirm your email to activate your account</p>
@@ -179,7 +180,7 @@ export default function VerifyEmailPage() {
           <p className="text-center text-sm text-muted">
             Already verified?{" "}
             <Link
-              href="/login"
+              href={ROUTES.login}
               className="font-medium text-trippy-400 transition-colors hover:text-trippy-300"
             >
               Sign in

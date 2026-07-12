@@ -2,6 +2,7 @@ package pse.trippy.notificationservice.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,9 @@ import java.util.Map;
 public class EmailController {
 
     private final EmailService emailService;
+
+    @Value("${app.base-url:https://trippy.app}")
+    private String appBaseUrl;
 
     @PostMapping("/send")
     public ResponseEntity<EmailSentResponse> sendEmail(
@@ -49,7 +53,7 @@ public class EmailController {
             @RequestBody @Valid WelcomeEmailRequest request) {
         String dashboardUrl = request.dashboardUrl() != null
                 ? request.dashboardUrl()
-                : "https://trippy.app/dashboard";
+                : appBaseUrl + "/dashboard";
         emailService.sendTemplateEmail(
                 request.to(),
                 "Welcome to Trippy!",

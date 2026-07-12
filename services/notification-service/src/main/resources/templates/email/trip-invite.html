@@ -10,7 +10,10 @@
         .header h1 { color: #ffffff; margin: 0; font-size: 28px; }
         .body { padding: 32px; color: #374151; line-height: 1.6; }
         .trip-card { background: #f0f0ff; border-radius: 8px; padding: 20px; margin: 20px 0; }
-        .trip-card h3 { color: #6366f1; margin-top: 0; }
+        .trip-card h3 { color: #6366f1; margin-top: 0; margin-bottom: 8px; }
+        .trip-card .meta { color: #6b7280; font-size: 14px; margin: 0 0 8px 0; }
+        .trip-card .description { color: #4b5563; font-size: 14px; margin: 8px 0 0 0; }
+        .quote { border-left: 3px solid #6366f1; padding-left: 12px; margin: 16px 0; color: #4b5563; font-style: italic; }
         .btn { display: inline-block; padding: 12px 32px; background: #6366f1; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 16px; }
         .footer { padding: 20px 32px; background: #f9fafb; text-align: center; color: #9ca3af; font-size: 13px; }
     </style>
@@ -22,12 +25,15 @@
     </div>
     <div class="body">
         <p>Hello, <span th:text="${inviteeName}">Traveler</span>!</p>
-        <p><strong th:text="${inviterName}">Someone</strong> invited you to join this trip:</p>
+        <p><strong th:text="${inviterName}">Someone</strong> invited you to join this trip on Trippy:</p>
         <div class="trip-card">
             <h3 th:text="${tripTitle}">Trip Title</h3>
+            <p class="meta" th:if="${tripSummary != null and !#strings.isEmpty(tripSummary)}" th:text="${tripSummary}">Destination • Dates</p>
+            <p class="description" th:if="${tripDescription != null and !#strings.isEmpty(tripDescription)}" th:text="${tripDescription}">Trip description</p>
         </div>
+        <p class="quote" th:if="${inviteMessage != null and !#strings.isEmpty(inviteMessage)}" th:text="${inviteMessage}">Optional personal message</p>
         <p>Open Trippy to review the invitation and start planning together.</p>
-        <a th:href="${dashboardUrl}" class="btn">View Invitation</a>
+        <a th:href="${dashboardUrl}" class="btn">View Trip</a>
     </div>
     <div class="footer">
         <p>&copy; 2026 Trippy. All rights reserved.</p>

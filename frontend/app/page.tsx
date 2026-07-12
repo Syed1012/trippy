@@ -30,6 +30,7 @@ import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
 
 const HERO_IDEAS = [
   "a 7-day food trip through Kyoto",
@@ -168,7 +169,7 @@ export default function LandingPage() {
     stashPendingTrip();
 
     if (isAuthenticated) {
-      router.push("/dashboard");
+      router.push(ROUTES.dashboard);
     } else {
       setShowAuthModal(true);
     }
@@ -177,7 +178,7 @@ export default function LandingPage() {
   const handleAuthSuccess = () => {
     // The pending trip is already stashed; the dashboard picks it up on mount.
     setShowAuthModal(false);
-    router.push("/dashboard");
+    router.push(ROUTES.dashboard);
   };
 
   const nextRequestId = () => {
@@ -263,13 +264,13 @@ export default function LandingPage() {
 
       <header className="sticky top-0 z-50 border-b border-white/30 bg-white/18 px-4 shadow-[0_1px_0_rgba(20,47,43,0.04)] backdrop-blur-2xl lg:px-8">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
-          <Link href="/" aria-label="Trippy home">
+          <Link href={ROUTES.home} aria-label="Trippy home">
             <Logo size="md" />
           </Link>
 
           <div className="flex items-center gap-2">
             {isAuthenticated ? (
-              <Link href="/dashboard">
+              <Link href={ROUTES.dashboard}>
                 <Button
                   size="sm"
                   className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
@@ -279,7 +280,7 @@ export default function LandingPage() {
                 </Button>
               </Link>
             ) : (
-              <Link href="/login">
+              <Link href={ROUTES.login}>
                 <Button
                   size="sm"
                   className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"

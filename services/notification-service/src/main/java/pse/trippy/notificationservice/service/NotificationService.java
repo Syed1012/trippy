@@ -16,6 +16,8 @@ import pse.trippy.notificationservice.repository.NotificationRepository;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
+
+import org.springframework.beans.factory.annotation.Value;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
@@ -31,7 +33,9 @@ public class NotificationService {
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
-    private static final String APP_HOST = "trippy.app";
+
+    @Value("${app.base-url:https://trippy.app}")
+    private String appBaseUrl;
 
     private final NotificationRepository notificationRepository;
 
@@ -181,9 +185,12 @@ public class NotificationService {
         String trimmed = actionUrl.trim();
         try {
             URI uri = new URI(trimmed);
+            URI baseUri = URI.create(appBaseUrl);
+            String appHost = baseUri.getHost();
+            String expectedScheme = baseUri.getScheme();
             if (uri.isAbsolute()) {
-                if (!"https".equalsIgnoreCase(uri.getScheme())
-                        || !APP_HOST.equalsIgnoreCase(uri.getHost())) {
+                if (!expectedScheme.equalsIgnoreCase(uri.getScheme())
+                        || !appHost.equalsIgnoreCase(uri.getHost())) {
                     log.warn("Dropping unsafe notification action URL reason=external-or-non-https");
                     return null;
                 }
