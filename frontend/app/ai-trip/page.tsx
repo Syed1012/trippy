@@ -142,7 +142,6 @@ function AiTripPageContent() {
   const [saveVisibility, setSaveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [savedTitles, setSavedTitles] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!sid) {
@@ -297,7 +296,6 @@ function AiTripPageContent() {
         void ensureTripCoverImage(tripId, trip.destination);
       }
 
-      setSavedTitles((prev) => new Set(prev).add(trip.title));
       addToast(state.savedTripId ? "Trip updated successfully!" : "Trip saved to your dashboard!", "success");
       router.push(`${ROUTES.dashboard}/trips/${tripSlug(title, tripId)}?from=ai`);
     } catch (err) {

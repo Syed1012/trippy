@@ -34,9 +34,16 @@ public class NotificationEventListener {
     @Value("${app.base-url:https://trippy.app}")
     private String appBaseUrl = "https://trippy.app";
 
+    private String getNormalizedBaseUrl() {
+        String effectiveBaseUrl = (appBaseUrl == null || appBaseUrl.isBlank()) ? "https://trippy.app" : appBaseUrl.trim();
+        if (effectiveBaseUrl.endsWith("/")) {
+            effectiveBaseUrl = effectiveBaseUrl.substring(0, effectiveBaseUrl.length() - 1);
+        }
+        return effectiveBaseUrl;
+    }
+
     private String dashboardUrl() {
-        String effectiveBaseUrl = (appBaseUrl == null || appBaseUrl.isBlank()) ? "https://trippy.app" : appBaseUrl;
-        return effectiveBaseUrl + DASHBOARD_PATH;
+        return getNormalizedBaseUrl() + DASHBOARD_PATH;
     }
 
     private final EmailService emailService;
@@ -485,9 +492,10 @@ public class NotificationEventListener {
         }
 
         String trimmed = actionUrl.trim();
-        if (trimmed.equals(appBaseUrl) || trimmed.equals(appBaseUrl + "/")) {
+        String normalizedBase = getNormalizedBaseUrl();
+        if (trimmed.equals(normalizedBase) || trimmed.equals(normalizedBase + "/")) {
             return dashboardUrl();
-        } else if (trimmed.startsWith(appBaseUrl + "/")) {
+        } else if (trimmed.startsWith(normalizedBase + "/")) {
             return trimmed;
         } else if (trimmed.startsWith("https://") || trimmed.startsWith("http://")
                 || trimmed.startsWith("//")) {
@@ -495,9 +503,9 @@ public class NotificationEventListener {
             return dashboardUrl();
         }
         if (trimmed.startsWith("/")) {
-            return appBaseUrl + trimmed;
+            return normalizedBase + trimmed;
         }
-        return appBaseUrl + "/" + trimmed;
+        return normalizedBase + "/" + trimmed;
     }
 
     private String inAppActionUrl(String actionUrl) {
@@ -506,11 +514,12 @@ public class NotificationEventListener {
         }
 
         String trimmed = actionUrl.trim();
-        if (trimmed.equals(appBaseUrl) || trimmed.equals(appBaseUrl + "/")) {
+        String normalizedBase = getNormalizedBaseUrl();
+        if (trimmed.equals(normalizedBase) || trimmed.equals(normalizedBase + "/")) {
             return DASHBOARD_PATH;
         }
-        if (trimmed.startsWith(appBaseUrl + "/")) {
-            return trimmed.substring(appBaseUrl.length());
+        if (trimmed.startsWith(normalizedBase + "/")) {
+            return trimmed.substring(normalizedBase.length());
         }
         return trimmed;
     }
