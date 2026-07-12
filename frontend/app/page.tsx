@@ -476,7 +476,7 @@ export default function LandingPage() {
         </section>
 
         {/* Explore Public Trips Section */}
-        <section className="relative border-t border-[#e2d6c1] bg-[#fdfaf5] py-20 lg:py-28">
+        <section className="relative py-20 lg:py-28">
           <div className="mx-auto max-w-7xl px-4 lg:px-8">
             <div className="max-w-2xl">
               <h2 className="font-display text-3xl font-black tracking-tight text-[#17211f] sm:text-4xl">
