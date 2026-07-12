@@ -21,8 +21,41 @@ public class PaymentValidator {
         }
 
         String normalized = paymentMethodToken.trim();
-        if (!(normalized.startsWith("pm_") || normalized.startsWith("tok_"))) {
-            throw new InvalidPaymentTokenException("Invalid payment method token: " + paymentMethodToken);
+        if (normalized.startsWith("pm_") || normalized.startsWith("tok_")) {
+            return;
+        }
+
+        if (isStoredPaymentMethodId(normalized)) {
+            return;
+        }
+
+        throw new InvalidPaymentTokenException("Invalid payment method token: " + paymentMethodToken);
+    }
+
+    public void validateCheckoutPaymentMethod(UUID userId, String paymentMethodToken) {
+        if (paymentMethodToken == null || paymentMethodToken.isBlank()) {
+            throw new InvalidPaymentTokenException("Payment method token is required.");
+        }
+
+        String normalized = paymentMethodToken.trim();
+        if (normalized.startsWith("pm_") || normalized.startsWith("tok_")) {
+            return;
+        }
+
+        if (isStoredPaymentMethodId(normalized)) {
+            validateStoredPaymentMethod(userId, UUID.fromString(normalized));
+            return;
+        }
+
+        throw new InvalidPaymentTokenException("Invalid payment method token: " + paymentMethodToken);
+    }
+
+    private boolean isStoredPaymentMethodId(String value) {
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
     }
 

@@ -56,7 +56,7 @@ public class PaymentService {
     @Transactional
     public CheckoutResponse checkout(UUID userId, CheckoutRequest request) {
         PlanType plan = parsePlan(request.getPlanId());
-        paymentValidator.validateCheckoutPaymentMethod(request.getPaymentMethodId());
+        paymentValidator.validateCheckoutPaymentMethod(userId, request.getPaymentMethodId());
 
         log.info("Processing checkout for user {} on plan {} with paymentMethod {}",
                 userId, plan.name(), request.getPaymentMethodId());

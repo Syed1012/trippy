@@ -163,7 +163,18 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     }
 
     private boolean isPublicPath(String path) {
-        return PUBLIC_PATHS.stream().anyMatch(p -> PATH_MATCHER.match(p, path));
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+
+        String normalized = path.startsWith("/") ? path : "/" + path;
+        return PUBLIC_PATHS.stream().anyMatch(pattern -> {
+            if (pattern.endsWith("/**")) {
+                String prefix = pattern.substring(0, pattern.length() - 3);
+                return normalized.equals(prefix) || normalized.startsWith(prefix + "/");
+            }
+            return PATH_MATCHER.match(pattern, normalized);
+        });
     }
 
     private boolean isAdminOnlyPath(String path) {

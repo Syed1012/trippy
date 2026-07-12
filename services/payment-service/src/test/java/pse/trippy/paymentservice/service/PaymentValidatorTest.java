@@ -39,6 +39,28 @@ class PaymentValidatorTest {
     }
 
     @Test
+    @DisplayName("accepts stored payment method IDs as checkout payment references")
+    void acceptsStoredPaymentMethodIds() {
+        UUID userId = UUID.randomUUID();
+        String paymentMethodId = UUID.randomUUID().toString();
+
+        PaymentMethod paymentMethod = PaymentMethod.builder()
+                .id(UUID.fromString(paymentMethodId))
+                .userId(userId)
+                .type("card")
+                .last4("4242")
+                .brand("VISA")
+                .expiryMonth(12)
+                .expiryYear(2030)
+                .build();
+
+        when(paymentMethodRepository.findById(UUID.fromString(paymentMethodId))).thenReturn(Optional.of(paymentMethod));
+
+        assertThatCode(() -> paymentValidator.validateCheckoutPaymentMethod(userId, paymentMethodId))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     @DisplayName("rejects malformed checkout payment tokens")
     void rejectsMalformedCheckoutPaymentTokens() {
         assertThatThrownBy(() -> paymentValidator.validateCheckoutPaymentMethod("bad-token"))
