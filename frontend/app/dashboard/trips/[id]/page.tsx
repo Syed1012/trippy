@@ -3666,9 +3666,13 @@ export default function TripDetailPage() {
               <Badge variant={statusVariant[trip.status] ?? "default"}>
                 {statusLabel[trip.status] ?? trip.status}
               </Badge>
-              {trip.visibility === "PUBLIC" && (
+              {trip.visibility === "PUBLIC" ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-medium text-white/70">
                   <Globe size={10} /> Public
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-medium text-white/70">
+                  <Lock size={10} /> Private
                 </span>
               )}
             </div>

@@ -303,12 +303,11 @@ public class TripService {
     }
 
     /**
-     * Published public trips are readable by anyone; DRAFT trips are hidden
-     * from non-participants (they are not yet shared with the platform).
+     * Non-DRAFT trips are readable by anyone (either publicly listed or accessible via direct URL);
+     * DRAFT trips are hidden from non-participants.
      */
     private boolean isPubliclyViewable(Trip trip) {
-        return trip.getVisibility() == TripVisibility.PUBLIC
-                && trip.getStatus() != TripStatus.DRAFT;
+        return trip.getStatus() != TripStatus.DRAFT;
     }
 
     private void validateDates(java.time.LocalDate startDate, java.time.LocalDate endDate) {

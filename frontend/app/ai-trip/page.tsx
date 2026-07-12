@@ -143,6 +143,18 @@ function AiTripPageContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  const handleVisibilityChange = async (visibility: "PRIVATE" | "PUBLIC") => {
+    setSaveVisibility(visibility);
+    if (state?.savedTripId) {
+      try {
+        await tripsApi.update(state.savedTripId, { visibility });
+        addToast(`Trip is now ${visibility.toLowerCase()}!`, "success");
+      } catch (err) {
+        addToast("Failed to update visibility.", "error");
+      }
+    }
+  };
+
   useEffect(() => {
     if (!sid) {
       setLoadError("Missing trip URL state. Please generate a trip again.");
@@ -338,7 +350,7 @@ function AiTripPageContent() {
       isSaving={isSaving}
       saveError={saveError}
       visibility={saveVisibility}
-      onVisibilityChange={setSaveVisibility}
+      onVisibilityChange={handleVisibilityChange}
       sid={sid}
     />
   );
