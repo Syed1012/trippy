@@ -2989,6 +2989,7 @@ export default function TripDetailPage() {
   const [editDesc, setEditDesc] = useState("");
   const [editStartDate, setEditStartDate] = useState("");
   const [editEndDate, setEditEndDate] = useState("");
+  const [editVisibility, setEditVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
 
   useEffect(() => {
     if (trip) {
@@ -2996,6 +2997,7 @@ export default function TripDetailPage() {
       setEditDesc(trip.description || "");
       setEditStartDate(trip.startDate || "");
       setEditEndDate(trip.endDate || "");
+      setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
     }
   }, [trip]);
 
@@ -3470,6 +3472,7 @@ export default function TripDetailPage() {
         description: editDesc || undefined,
         startDate: editStartDate || undefined,
         endDate: editEndDate || undefined,
+        visibility: editVisibility,
       });
       setTrip((prev) =>
         prev
@@ -3479,6 +3482,7 @@ export default function TripDetailPage() {
               description: updated.description,
               startDate: updated.startDate,
               endDate: updated.endDate,
+              visibility: updated.visibility,
             }
           : null
       );
@@ -3503,6 +3507,7 @@ export default function TripDetailPage() {
       setEditDesc(trip.description || "");
       setEditStartDate(trip.startDate || "");
       setEditEndDate(trip.endDate || "");
+      setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
     }
     setIsEditing(false);
   }
@@ -3699,6 +3704,34 @@ export default function TripDetailPage() {
                     rows={2}
                   />
                 </div>
+                {/* Editable Visibility */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1.5">Visibility</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditVisibility("PRIVATE")}
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                        editVisibility === "PRIVATE"
+                          ? "bg-white text-trippy-600 border-white shadow-sm"
+                          : "bg-white/10 border-white/20 text-white/70 hover:bg-white/20 hover:text-white"
+                      }`}
+                    >
+                      <Lock size={12} /> Private
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditVisibility("PUBLIC")}
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                        editVisibility === "PUBLIC"
+                          ? "bg-white text-trippy-600 border-white shadow-sm"
+                          : "bg-white/10 border-white/20 text-white/70 hover:bg-white/20 hover:text-white"
+                      }`}
+                    >
+                      <Globe size={12} /> Public
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : (
               <>
@@ -3807,6 +3840,7 @@ export default function TripDetailPage() {
                       className="bg-white/10 border-white/20 text-white hover:bg-white/20"
                       onClick={() => {
                         if (isAiTrip) {
+                          setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
                           setIsEditing(true);
                         } else {
                           setEditModalOpen(true);
