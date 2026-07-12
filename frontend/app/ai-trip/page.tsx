@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import TripFullScreenView from "@/components/ai/TripFullScreenView";
 import {
@@ -129,7 +129,7 @@ function mapBudgetToTier(budget?: string): BudgetTier | undefined {
   return undefined;
 }
 
-export default function AiTripPage() {
+function AiTripPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
@@ -317,5 +317,19 @@ export default function AiTripPage() {
       visibility={saveVisibility}
       onVisibilityChange={setSaveVisibility}
     />
+  );
+}
+
+export default function AiTripPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-4 py-10 text-center">
+          <p className="text-muted">Loading AI trip...</p>
+        </main>
+      }
+    >
+      <AiTripPageContent />
+    </Suspense>
   );
 }
