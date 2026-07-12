@@ -72,6 +72,7 @@ import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
 import { useAIGeneration } from "@/lib/ai-generation";
 import { type AISuggestion, buildDaySuggestions } from "@/lib/ai-suggestions";
+import { type DayWeather, fetchDayWeather } from "@/lib/weather";
 
 const statusVariant: Record<string, "default" | "success" | "warning" | "accent" | "danger"> = {
   DRAFT: "default",
@@ -128,6 +129,215 @@ const categoryOptions = [
   { key: "evening", label: "Evening", icon: Moon },
   { key: "default", label: "Other", icon: MapPin },
 ];
+
+/* ─── Smart itinerary helpers (quick-add, templates, auto-time) ───── */
+
+/** One-tap activity starters shown under the quick-add bar. */
+const ACTIVITY_TEMPLATES: {
+  key: string;
+  label: string;
+  icon: typeof Coffee;
+  title: string;
+  category: string;
+  durationMin: number;
+}[] = [
+  { key: "breakfast", label: "Breakfast", icon: Coffee, title: "Breakfast", category: "breakfast", durationMin: 60 },
+  { key: "sightseeing", label: "Sightseeing", icon: Camera, title: "Sightseeing", category: "sightseeing", durationMin: 120 },
+  { key: "lunch", label: "Lunch", icon: Utensils, title: "Lunch", category: "lunch", durationMin: 60 },
+  { key: "transfer", label: "Transfer", icon: Navigation, title: "Transfer", category: "transport", durationMin: 45 },
+  { key: "dinner", label: "Dinner", icon: Utensils, title: "Dinner", category: "dinner", durationMin: 90 },
+  { key: "free", label: "Free time", icon: Compass, title: "Free time", category: "default", durationMin: 60 },
+  { key: "nightlife", label: "Nightlife", icon: Moon, title: "Nightlife", category: "evening", durationMin: 120 },
+];
+
+/** Whole-day starter kits offered when a day is empty. */
+const DAY_SCAFFOLDS: {
+  key: string;
+  label: string;
+  icon: typeof Plane;
+  title: string;
+  items: { title: string; category: string; start: string; dur: number }[];
+}[] = [
+  {
+    key: "arrival", label: "Arrival day", icon: Plane, title: "Arrival & settle in",
+    items: [
+      { title: "Arrive & airport transfer", category: "transport", start: "12:00", dur: 90 },
+      { title: "Hotel check-in", category: "default", start: "14:30", dur: 30 },
+      { title: "Explore the neighborhood", category: "sightseeing", start: "16:30", dur: 120 },
+      { title: "Welcome dinner", category: "dinner", start: "19:30", dur: 90 },
+    ],
+  },
+  {
+    key: "explore", label: "Explore day", icon: Compass, title: "City exploring",
+    items: [
+      { title: "Breakfast", category: "breakfast", start: "08:30", dur: 60 },
+      { title: "Morning sightseeing", category: "sightseeing", start: "10:00", dur: 150 },
+      { title: "Lunch", category: "lunch", start: "13:00", dur: 60 },
+      { title: "Afternoon landmarks", category: "sightseeing", start: "14:30", dur: 150 },
+      { title: "Dinner", category: "dinner", start: "19:30", dur: 90 },
+    ],
+  },
+  {
+    key: "beach", label: "Beach day", icon: TreePalm, title: "Beach & relax",
+    items: [
+      { title: "Slow breakfast", category: "breakfast", start: "09:00", dur: 60 },
+      { title: "Beach time", category: "sightseeing", start: "10:30", dur: 180 },
+      { title: "Seaside lunch", category: "lunch", start: "13:30", dur: 75 },
+      { title: "Sunset drinks", category: "evening", start: "18:30", dur: 90 },
+    ],
+  },
+  {
+    key: "departure", label: "Departure day", icon: Plane, title: "Departure",
+    items: [
+      { title: "Breakfast & pack", category: "breakfast", start: "09:00", dur: 75 },
+      { title: "Last-minute souvenirs", category: "sightseeing", start: "10:30", dur: 90 },
+      { title: "Hotel checkout", category: "default", start: "12:00", dur: 30 },
+      { title: "Airport transfer", category: "transport", start: "13:30", dur: 90 },
+    ],
+  },
+];
+
+function hhmmToMin(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function minToHHMM(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Split an activity's stored "HH:MM - HH:MM" (or single time) into start/end. */
+function activityTimes(a: Activity): { start?: string; end?: string } {
+  const parts = (a.time ?? "").split("-").map((s) => s.trim());
+  return { start: parts[0] || a.startTime || undefined, end: parts[1] || a.endTime || undefined };
+}
+
+function startMinutes(a: Activity): number | null {
+  const { start } = activityTimes(a);
+  return start ? hhmmToMin(start) : null;
+}
+
+/** Suggest the next sensible start time: after the last activity, else 09:00. */
+function nextDefaultStart(activities: Activity[]): string {
+  for (let i = activities.length - 1; i >= 0; i--) {
+    const { start, end } = activityTimes(activities[i]);
+    const ref = end || start;
+    const mins = ref ? hhmmToMin(ref) : null;
+    if (mins != null) return minToHHMM(mins + (end ? 30 : 90));
+  }
+  return "09:00";
+}
+
+function makeActivity(partial: Partial<Activity>): Activity {
+  return {
+    activityId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: "",
+    time: "",
+    description: "",
+    location: "",
+    category: "default",
+    estimatedCost: "",
+    ...partial,
+  };
+}
+
+/** Keep a day's activities in chronological order (untimed items sink to the end). */
+function sortByTime(acts: Activity[]): Activity[] {
+  return [...acts].sort((a, b) => (startMinutes(a) ?? 1e9) - (startMinutes(b) ?? 1e9));
+}
+
+/** Guess an activity category from free text. */
+function detectCategory(text: string): string {
+  const t = text.toLowerCase();
+  const has = (...words: string[]) => words.some((w) => t.includes(w));
+  if (has("breakfast", "brunch", "coffee", "café", "cafe", "espresso")) return "breakfast";
+  if (has("lunch")) return "lunch";
+  if (has("dinner", "supper")) return "dinner";
+  if (has("bar", "club", "nightlife", "drinks", "pub", "cocktail")) return "evening";
+  if (has("flight", "fly", "airport", "train", "bus", "taxi", "transfer", "drive", "ferry", "check-in", "check in", "checkout", "hotel"))
+    return "transport";
+  if (has("museum", "tour", "see ", "visit", "sightsee", "gallery", "landmark", "temple", "church", "castle", "palace", "park", "beach", "hike", "explore", "walk", "market"))
+    return "sightseeing";
+  return "default";
+}
+
+/**
+ * Turn one line of natural language into an activity.
+ * e.g. "9am Breakfast at Café Central $12" →
+ *   { time:"09:00", title:"Breakfast", location:"Café Central", estimatedCost:"12", category:"breakfast" }
+ * If no time is given, the next sensible slot is chosen automatically.
+ */
+function parseQuickAdd(raw: string, activities: Activity[]): Activity | null {
+  let s = raw.trim();
+  if (!s) return null;
+  const original = s;
+
+  // 1) Cost: "$12", "12$", "12 usd", "€10"
+  let estimatedCost = "";
+  const costMatch = s.match(/(?:[$€£₹¥]\s?(\d+(?:\.\d+)?))|(\d+(?:\.\d+)?)\s?(?:usd|eur|gbp|inr|jpy|dollars?|euros?)\b/i);
+  if (costMatch) {
+    estimatedCost = costMatch[1] ?? costMatch[2] ?? "";
+    s = s.replace(costMatch[0], " ").trim();
+  }
+
+  // 2) Time: "9am", "9:30", "14:00", "at 2 pm"
+  let start: string | undefined;
+  const tm = s.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(\d{1,2}):(\d{2})\b/i);
+  if (tm) {
+    let h: number;
+    let min: number;
+    if (tm[3]) {
+      h = parseInt(tm[1], 10);
+      min = tm[2] ? parseInt(tm[2], 10) : 0;
+      const pm = tm[3].toLowerCase() === "pm";
+      if (pm && h !== 12) h += 12;
+      if (!pm && h === 12) h = 0;
+    } else {
+      h = parseInt(tm[4], 10);
+      min = parseInt(tm[5], 10);
+    }
+    if (h <= 23 && min <= 59) {
+      start = minToHHMM(h * 60 + min);
+      s = s.replace(tm[0], " ").trim();
+    }
+  }
+
+  // 3) Location: trailing "at <place>" or "@ <place>"
+  let location = "";
+  const locMatch = s.match(/(?:\bat\s+|@\s*)(.+)$/i);
+  if (locMatch) {
+    location = locMatch[1].replace(/\s+/g, " ").trim();
+    s = s.replace(locMatch[0], " ").trim();
+  }
+
+  // 4) Whatever is left is the title
+  let title = s.replace(/\s{2,}/g, " ").replace(/^[\s,·-]+|[\s,·-]+$/g, "").trim();
+  const category = detectCategory(original);
+  if (!title) {
+    title = ACTIVITY_TEMPLATES.find((t) => t.category === category)?.title || "Activity";
+  }
+
+  return makeActivity({
+    title,
+    location: location || undefined,
+    estimatedCost: estimatedCost || undefined,
+    category,
+    time: start || nextDefaultStart(activities),
+  });
+}
+
+/** Add N days to a "YYYY-MM-DD" (or ISO) date without timezone drift. */
+function isoDatePlus(startDate: string, days: number): string {
+  const base = new Date(startDate);
+  const utc = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
 
 /* ─── Time Picker Popup (fixed overlay) ───────────────────────────── */
 const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
@@ -265,6 +475,12 @@ function ActivityRow({
   const [showEndPicker, setShowEndPicker] = useState(false);
   const startBtnRef = useRef<HTMLButtonElement>(null);
   const endBtnRef = useRef<HTMLButtonElement>(null);
+  // Progressive disclosure: keep the card compact, reveal detail fields on demand.
+  // Open by default when there's already content or a live vote to show.
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(
+    Boolean(activity.description?.trim() || activity.location?.trim() || (votingEnabled && !votingFrozen)),
+  );
+  const hasDetail = Boolean(activity.location?.trim() || activity.description?.trim());
 
   // Parse time range: "09:00 - 11:00" or just "09:00"
   const timeParts = (activity.time ?? "").split("-").map((s) => s.trim());
@@ -275,8 +491,6 @@ function ActivityRow({
     const combined = end ? `${start} - ${end}` : start;
     onUpdate({ ...activity, time: combined });
   }
-
-  const currencySymbol = currencies.find((c) => c.code === currency)?.symbol ?? "$";
 
   return (
     <motion.div
@@ -289,7 +503,7 @@ function ActivityRow({
       {/* Top accent bar */}
       <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-accent-400/60 via-accent-500/30 to-transparent" />
 
-      <div className="p-4 space-y-3">
+      <div className="p-3.5 sm:p-4 space-y-2.5">
         {/* Row 1: Category icon + Title + Remove */}
         <div className="flex items-center gap-3">
           {/* Category picker button */}
@@ -358,7 +572,7 @@ function ActivityRow({
           </button>
         </div>
 
-        {/* Row 2: Time picker buttons + Cost with currency dropdown */}
+        {/* Row 2: Time picker buttons + Cost + Details toggle */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Start time */}
           <button
@@ -404,67 +618,103 @@ function ActivityRow({
             )}
           </AnimatePresence>
 
-          {/* Cost with inline currency dropdown */}
-          <div className="flex items-center gap-1 rounded-xl bg-shore-50 border border-border/80 px-2 py-1.5 ml-auto">
-            <div className="relative flex items-center">
-              <select
-                value={currency}
-                onChange={(e) => onCurrencyChange(e.target.value)}
-                className="bg-transparent text-[11px] font-bold text-accent-600 focus:outline-none cursor-pointer pr-4 appearance-none"
-              >
-                {currencies.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.symbol} {c.code}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={10} className="pointer-events-none absolute right-0 text-accent-500" />
+          {/* Right group: cost + details toggle */}
+          <div className="ml-auto flex items-center gap-2">
+            {/* Cost with inline currency dropdown */}
+            <div className="flex items-center gap-1 rounded-xl bg-shore-50 border border-border/80 px-2 py-1.5">
+              <div className="relative flex items-center">
+                <select
+                  value={currency}
+                  onChange={(e) => onCurrencyChange(e.target.value)}
+                  className="bg-transparent text-[11px] font-bold text-accent-600 focus:outline-none cursor-pointer pr-4 appearance-none"
+                >
+                  {currencies.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.symbol} {c.code}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={10} className="pointer-events-none absolute right-0 text-accent-500" />
+              </div>
+              <div className="w-px h-4 bg-border/60 mx-0.5" />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={activity.estimatedCost ?? ""}
+                onChange={(e) => onUpdate({ ...activity, estimatedCost: e.target.value })}
+                placeholder="0.00"
+                className="w-14 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/40 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
             </div>
-            <div className="w-px h-4 bg-border/60 mx-0.5" />
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={activity.estimatedCost ?? ""}
-              onChange={(e) => onUpdate({ ...activity, estimatedCost: e.target.value })}
-              placeholder="0.00"
-              className="w-16 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/40 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
+
+            {/* Details toggle (progressive disclosure) */}
+            <button
+              onClick={() => setDetailsOpen((o) => !o)}
+              title="Location, notes & voting"
+              className={cn(
+                "relative flex items-center gap-1 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition-all cursor-pointer",
+                detailsOpen
+                  ? "border-accent-300 bg-accent-50 text-accent-700"
+                  : "border-border/80 bg-shore-50 text-muted hover:border-accent-300 hover:text-accent-600"
+              )}
+            >
+              <span>Details</span>
+              {!detailsOpen && hasDetail && (
+                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent-500" />
+              )}
+              {detailsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
           </div>
         </div>
 
-        {/* Row 3: Location */}
-        <div className="flex items-center gap-2 rounded-xl bg-shore-50/60 border border-border/50 px-3 py-2">
-          <MapPin size={12} className="text-muted/60 shrink-0" />
-          <input
-            type="text"
-            value={activity.location ?? ""}
-            onChange={(e) => onUpdate({ ...activity, location: e.target.value })}
-            placeholder="Add a location..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted/40 focus:outline-none"
-          />
-        </div>
+        {/* Collapsible detail fields */}
+        <AnimatePresence initial={false}>
+          {detailsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="space-y-2.5 pt-0.5">
+                {/* Location */}
+                <div className="flex items-center gap-2 rounded-xl bg-shore-50/60 border border-border/50 px-3 py-2">
+                  <MapPin size={12} className="text-muted/60 shrink-0" />
+                  <input
+                    type="text"
+                    value={activity.location ?? ""}
+                    onChange={(e) => onUpdate({ ...activity, location: e.target.value })}
+                    placeholder="Add a location..."
+                    className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted/40 focus:outline-none"
+                  />
+                </div>
 
-        {/* Row 4: Description / notes */}
-        <textarea
-          value={activity.description ?? ""}
-          onChange={(e) => onUpdate({ ...activity, description: e.target.value })}
-          placeholder="Add notes or description..."
-          rows={1}
-          className="w-full resize-none rounded-xl bg-shore-50/40 border border-border/40 px-3 py-2 text-xs text-foreground placeholder:text-muted/40 focus:border-accent-300 focus:outline-none focus:ring-1 focus:ring-accent-100 transition-colors"
-        />
+                {/* Description / notes */}
+                <textarea
+                  value={activity.description ?? ""}
+                  onChange={(e) => onUpdate({ ...activity, description: e.target.value })}
+                  placeholder="Add notes or description..."
+                  rows={2}
+                  className="w-full resize-none rounded-xl bg-shore-50/40 border border-border/40 px-3 py-2 text-xs text-foreground placeholder:text-muted/40 focus:border-accent-300 focus:outline-none focus:ring-1 focus:ring-accent-100 transition-colors"
+                />
 
-        {/* Activity-level voting */}
-        <ActivityVotingBar
-          activity={activity}
-          tripId={tripId}
-          votingEnabled={votingEnabled}
-          votingFrozen={votingFrozen}
-          onVoteUpdate={onActivityVoteUpdate}
-        />
+                {/* Activity-level voting */}
+                <ActivityVotingBar
+                  activity={activity}
+                  tripId={tripId}
+                  votingEnabled={votingEnabled}
+                  votingFrozen={votingFrozen}
+                  onVoteUpdate={onActivityVoteUpdate}
+                />
 
-        {/* Activity comments */}
-        <ActivityComments activityId={activity.activityId} tripId={tripId} isParticipant={isParticipant} />
+                {/* Activity comments */}
+                <ActivityComments activityId={activity.activityId} tripId={tripId} isParticipant={isParticipant} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -789,10 +1039,167 @@ function ActivityVotingBar({
   );
 }
 
+/* ─── Per-day weather badge with hover timeline ───────────────────── */
+function WeatherBadge({ destination, dateIso }: { destination?: string; dateIso?: string | null }) {
+  const [data, setData] = useState<DayWeather | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hover, setHover] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!destination || !dateIso) return;
+    let cancelled = false;
+    // Loading starts true; only flip it from inside the async callbacks so we
+    // never call setState synchronously in the effect body.
+    fetchDayWeather(destination, dateIso)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [destination, dateIso]);
+
+  function openCard() {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const width = 264;
+    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
+    setPos({ top: r.bottom + 8, left });
+    setHover(true);
+  }
+
+  if (!destination || !dateIso) return null;
+  if (loading && !data) {
+    return <div className="h-7 w-16 shrink-0 animate-pulse rounded-full bg-shore-100" />;
+  }
+  if (!data || data.tempC == null) return null;
+
+  // Timeline rows — for today, from the current hour to day end; downsampled to ~8.
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = dateIso === today;
+  const nowHour = new Date().getHours();
+  let rows = data.hourly;
+  if (isToday) {
+    const upcoming = rows.filter((h) => h.hour >= nowHour);
+    if (upcoming.length > 0) rows = upcoming;
+  }
+  if (rows.length > 8) {
+    const step = Math.ceil(rows.length / 8);
+    rows = rows.filter((_, i) => i % step === 0);
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="group/weather relative shrink-0"
+      onMouseEnter={openCard}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div className="flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-sky-700 cursor-default transition-colors group-hover/weather:border-sky-300">
+        <span className="text-sm leading-none">{data.icon}</span>
+        <span className="text-[11px] font-bold whitespace-nowrap">{Math.round(data.tempC)}°C</span>
+      </div>
+
+      {hover && pos && typeof document !== "undefined" && createPortal(
+        <div
+          style={{ top: pos.top, left: pos.left, width: 264 }}
+          className="pointer-events-none fixed z-[60] rounded-2xl border border-border bg-white p-4 shadow-2xl"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <span className="text-2xl leading-none">{data.icon}</span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-foreground leading-tight">{data.condition}</p>
+              <p className="text-[10px] text-muted">
+                {new Date(dateIso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              </p>
+            </div>
+            <div className="ml-auto text-right shrink-0">
+              <p className="text-lg font-black text-foreground leading-none">{Math.round(data.tempC)}°</p>
+              {data.high != null && data.low != null && (
+                <p className="text-[10px] text-muted mt-0.5">H {data.high}° · L {data.low}°</p>
+              )}
+            </div>
+          </div>
+
+          {/* Hourly timeline */}
+          {rows.length > 0 ? (
+            <div className="mt-3 border-t border-border/60 pt-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-muted mb-1.5">
+                {isToday ? "Rest of today" : "Through the day"}
+              </p>
+              <div className="space-y-1">
+                {rows.map((h) => (
+                  <div key={h.iso} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-12 shrink-0 text-muted">{h.label}</span>
+                    <span className="text-sm leading-none">{h.icon}</span>
+                    <span className="w-8 shrink-0 font-bold text-foreground">{h.temp}°</span>
+                    <span className="truncate text-muted">{h.condition}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 border-t border-border/60 pt-2.5 text-[11px] text-muted">
+              Hourly forecast opens closer to the date.
+            </p>
+          )}
+
+          {/* Advice */}
+          {data.advice && (
+            <p className="mt-2.5 rounded-lg bg-shore-50 px-2.5 py-1.5 text-[10px] leading-snug text-muted">
+              {data.advice}
+            </p>
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+/* ─── Natural-language quick-add bar ──────────────────────────────── */
+function QuickAddBar({ onAdd }: { onAdd: (text: string) => void }) {
+  const [text, setText] = useState("");
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+  return (
+    <div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); submit(); }}
+        className="flex items-center gap-2 rounded-xl border border-accent-200 bg-gradient-to-r from-accent-50/70 to-shore-50/60 px-3 py-2 transition-all focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100"
+      >
+        <Zap size={14} className="shrink-0 text-accent-500" />
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Quick add — e.g. 9am Breakfast at Café Central $12"
+          className="flex-1 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/50 focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!text.trim()}
+          className="shrink-0 rounded-lg bg-accent-500 px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+        >
+          Add
+        </button>
+      </form>
+      <p className="mt-1 pl-1 text-[10px] text-muted/70">
+        Add a time, place or price and Trippy sorts it into the timeline — or tap a starter below.
+      </p>
+    </div>
+  );
+}
+
 function DayCard({
   day,
   tripId,
   tripStartDate,
+  destination,
   expanded,
   onToggle,
   onUpdateDay,
@@ -804,6 +1211,7 @@ function DayCard({
   day: DayPlan;
   tripId: string;
   tripStartDate?: string;
+  destination?: string;
   expanded: boolean;
   onToggle: () => void;
   onUpdateDay: (d: DayPlan) => void;
@@ -819,18 +1227,50 @@ function DayCard({
         day: "numeric",
       })
     : null;
+  // ISO date for this day, used for the weather lookup.
+  const dayIso = day.date
+    ? day.date.slice(0, 10)
+    : tripStartDate
+      ? isoDatePlus(tripStartDate, day.dayNumber - 1)
+      : null;
 
+  // Add a blank activity, pre-seeding a sensible start time so the user only types a title.
   function addActivity() {
-    const newActivity: Activity = {
-      activityId: `temp-${Date.now()}-${Math.random()}`,
-      title: "",
-      time: "",
-      description: "",
-      location: "",
-      category: "default",
-      estimatedCost: "",
-    };
-    onUpdateDay({ ...day, activities: [...day.activities, newActivity] });
+    onUpdateDay({
+      ...day,
+      activities: [...day.activities, makeActivity({ time: nextDefaultStart(day.activities) })],
+    });
+  }
+
+  // Natural-language quick add: "9am Breakfast at Café Central $12".
+  function addQuick(text: string) {
+    const activity = parseQuickAdd(text, day.activities);
+    if (!activity) return;
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
+  // One-tap starter: adds a pre-categorised activity, auto-timed after the last one.
+  function addFromTemplate(tpl: (typeof ACTIVITY_TEMPLATES)[number]) {
+    const start = nextDefaultStart(day.activities);
+    const end = minToHHMM((hhmmToMin(start) ?? 540) + tpl.durationMin);
+    const activity = makeActivity({ title: tpl.title, category: tpl.category, time: `${start} - ${end}` });
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
+  // Whole-day starter kit for an empty day.
+  function applyScaffold(scaffold: (typeof DAY_SCAFFOLDS)[number]) {
+    const activities = scaffold.items.map((it) =>
+      makeActivity({
+        title: it.title,
+        category: it.category,
+        time: `${it.start} - ${minToHHMM((hhmmToMin(it.start) ?? 540) + it.dur)}`,
+      }),
+    );
+    onUpdateDay({
+      ...day,
+      title: day.title?.trim() ? day.title : scaffold.title,
+      activities,
+    });
   }
 
   function updateActivity(idx: number, updated: Activity) {
@@ -879,65 +1319,72 @@ function DayCard({
 
       {/* Day header */}
       <div className="p-5">
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onToggle}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
-          className="flex w-full items-center gap-4 text-left cursor-pointer"
-        >
+        <div className="flex w-full items-center gap-3">
           <div
-            className={cn(
-              "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
-              expanded
-                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
-                : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
-            )}
+            role="button"
+            tabIndex={0}
+            onClick={onToggle}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+            className="flex flex-1 min-w-0 items-center gap-4 text-left cursor-pointer"
           >
-            <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
-            <span className="text-lg">{day.dayNumber}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={day.title ?? ""}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  onUpdateDay({ ...day, title: e.target.value });
-                }}
-                onClick={(e) => e.stopPropagation()}
-                placeholder={`Day ${day.dayNumber} — Give it a title`}
-                className={cn(
-                  "flex-1 bg-transparent text-sm font-bold placeholder:text-muted/50 focus:outline-none",
-                  expanded ? "text-foreground" : "text-foreground"
+            <div
+              className={cn(
+                "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
+                expanded
+                  ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
+                  : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
+              )}
+            >
+              <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+              <span className="text-lg">{day.dayNumber}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={day.title ?? ""}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onUpdateDay({ ...day, title: e.target.value });
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder={`Day ${day.dayNumber} — Give it a title`}
+                  className="flex-1 bg-transparent text-sm font-bold text-foreground placeholder:text-muted/50 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-3 mt-0.5">
+                {dayDate && (
+                  <span className="text-[11px] text-muted flex items-center gap-1">
+                    <Calendar size={10} /> {dayDate}
+                  </span>
                 )}
-              />
-            </div>
-            <div className="flex items-center gap-3 mt-0.5">
-              {dayDate && (
-                <span className="text-[11px] text-muted flex items-center gap-1">
-                  <Calendar size={10} /> {dayDate}
+                <span className="text-[11px] text-muted">
+                  {day.activities.length} activit{day.activities.length !== 1 ? "ies" : "y"}
                 </span>
-              )}
-              <span className="text-[11px] text-muted">
-                {day.activities.length} activit{day.activities.length !== 1 ? "ies" : "y"}
-              </span>
-              {totalCost > 0 && (
-                <span className="text-[11px] text-accent-600 font-medium flex items-center gap-0.5">
-                  <DollarSign size={9} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalCost.toFixed(0)}
-                </span>
-              )}
+                {totalCost > 0 && (
+                  <span className="text-[11px] text-accent-600 font-medium flex items-center gap-0.5">
+                    <DollarSign size={9} /> ~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalCost.toFixed(0)}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-          <div
+
+          {/* Weather badge beside the title */}
+          <WeatherBadge destination={destination} dateIso={dayIso} />
+
+          {/* Expand / collapse */}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={expanded ? "Collapse day" : "Expand day"}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-xl transition-colors",
-              expanded ? "bg-accent-100 text-accent-600" : "bg-shore-100 text-muted"
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors cursor-pointer",
+              expanded ? "bg-accent-100 text-accent-600" : "bg-shore-100 text-muted hover:text-accent-600",
             )}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
+          </button>
         </div>
         {/* Voting bar - outside the toggle to avoid button-in-button */}
         <VotingBar day={day} tripId={tripId} onVoteUpdate={onVoteUpdate} />
@@ -954,6 +1401,28 @@ function DayCard({
             className="overflow-hidden"
           >
             <div className="px-5 pb-5 space-y-3">
+              {/* Smart quick-add + one-tap starters */}
+              {isParticipant && (
+                <div className="space-y-2.5">
+                  <QuickAddBar onAdd={addQuick} />
+                  <div className="flex flex-wrap gap-1.5">
+                    {ACTIVITY_TEMPLATES.map((tpl) => {
+                      const TplIcon = tpl.icon;
+                      return (
+                        <button
+                          key={tpl.key}
+                          onClick={() => addFromTemplate(tpl)}
+                          className="flex items-center gap-1.5 rounded-full border border-border/70 bg-white px-2.5 py-1 text-[11px] font-semibold text-muted transition-all hover:-translate-y-0.5 hover:border-accent-300 hover:bg-accent-50/50 hover:text-accent-700 cursor-pointer"
+                        >
+                          <TplIcon size={12} className="text-accent-500" />
+                          {tpl.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Activities list */}
               <AnimatePresence>
                 {day.activities.map((activity, idx) => (
@@ -973,14 +1442,30 @@ function DayCard({
                 ))}
               </AnimatePresence>
 
-              {/* Empty state */}
+              {/* Empty state — offer whole-day starter kits */}
               {day.activities.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-shore-100 mb-3">
-                    <Plane size={20} className="text-muted/50" />
-                  </div>
-                  <p className="text-sm text-muted/70">No activities yet</p>
-                  <p className="text-xs text-muted/50 mt-0.5">Add activities or let AI plan this day</p>
+                <div className="rounded-2xl border border-dashed border-border bg-shore-50/40 px-4 py-5 text-center">
+                  <p className="text-sm font-semibold text-foreground">Start this day in one tap</p>
+                  <p className="mt-0.5 text-xs text-muted/70">
+                    Pick a starter kit, quick-add above, or let AI plan it.
+                  </p>
+                  {isParticipant && (
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      {DAY_SCAFFOLDS.map((scaffold) => {
+                        const ScIcon = scaffold.icon;
+                        return (
+                          <button
+                            key={scaffold.key}
+                            onClick={() => applyScaffold(scaffold)}
+                            className="flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent-300 hover:text-accent-700 hover:shadow-md cursor-pointer"
+                          >
+                            <ScIcon size={13} className="text-accent-500" />
+                            {scaffold.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -990,7 +1475,7 @@ function DayCard({
                   onClick={addActivity}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-xs font-medium text-muted transition-all hover:border-accent-400 hover:text-accent-600 hover:bg-accent-50/50 cursor-pointer"
                 >
-                  <Plus size={14} /> Add activity
+                  <Plus size={14} /> Add a blank activity
                 </button>
               )}
             </div>
@@ -3123,6 +3608,7 @@ export default function TripDetailPage() {
                 day={day}
                 tripId={tripId}
                 tripStartDate={trip.startDate}
+                destination={trip.destination}
                 expanded={expandedDays.has(day.dayNumber)}
                 onToggle={() => toggleDay(day.dayNumber)}
                 onUpdateDay={updateDay}
