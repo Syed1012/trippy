@@ -67,7 +67,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
+import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
 import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
@@ -2632,11 +2632,8 @@ function InviteModal({
                     className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
                   >
                     <div className="h-7 w-7 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-xs overflow-hidden shrink-0">
-                      {user.avatarUrl ? (
-                        <img src={user.avatarUrl} alt={user.displayName} className="h-full w-full object-cover" />
-                      ) : (
-                        user.displayName.charAt(0).toUpperCase()
-                      )}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={user.avatarUrl || generateAvatarUrl(user.displayName)} alt={user.displayName} className="h-full w-full object-cover" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-foreground truncate">{user.displayName}</p>
@@ -4061,12 +4058,8 @@ export default function TripDetailPage() {
                           ? "bg-gradient-to-br from-accent-100 to-accent-200 text-accent-700 border-accent-300"
                           : "bg-shore-100 text-trippy-600 border-border"
                       )}>
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
@@ -4181,12 +4174,8 @@ export default function TripDetailPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold border-2 bg-shore-100 text-trippy-600 border-border">
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
@@ -4253,12 +4242,8 @@ export default function TripDetailPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold border-2 bg-blue-50 text-blue-600 border-blue-200">
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
