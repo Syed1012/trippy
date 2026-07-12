@@ -285,7 +285,6 @@ public class NotificationEventListener {
     void handleJoinRequest(Object payload) {
         if (payload instanceof Map<?, ?> map) {
             String userId = validUuidText(map, "userId", "ownerId");
-            String requesterId = text(map, "requesterId", "userId");
             String requesterName = fallback(text(map, "requesterName"), "Someone");
             String tripTitle = fallback(text(map, "tripTitle", "tripName", "title"), "a trip");
             String tripId = text(map, "tripId");
