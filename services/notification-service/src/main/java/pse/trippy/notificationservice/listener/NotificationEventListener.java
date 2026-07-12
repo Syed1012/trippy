@@ -32,10 +32,11 @@ public class NotificationEventListener {
     private static final String DASHBOARD_PATH = "/dashboard";
 
     @Value("${app.base-url:https://trippy.app}")
-    private String appBaseUrl;
+    private String appBaseUrl = "https://trippy.app";
 
     private String dashboardUrl() {
-        return appBaseUrl + DASHBOARD_PATH;
+        String effectiveBaseUrl = (appBaseUrl == null || appBaseUrl.isBlank()) ? "https://trippy.app" : appBaseUrl;
+        return effectiveBaseUrl + DASHBOARD_PATH;
     }
 
     private final EmailService emailService;
