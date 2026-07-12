@@ -35,7 +35,7 @@ public class NotificationService {
     private static final int MAX_PAGE_SIZE = 50;
 
     @Value("${app.base-url:https://trippy.app}")
-    private String appBaseUrl;
+    private String appBaseUrl = "https://trippy.app";
 
     private final NotificationRepository notificationRepository;
 
@@ -185,7 +185,8 @@ public class NotificationService {
         String trimmed = actionUrl.trim();
         try {
             URI uri = new URI(trimmed);
-            URI baseUri = URI.create(appBaseUrl);
+            String effectiveBaseUrl = (appBaseUrl == null || appBaseUrl.isBlank()) ? "https://trippy.app" : appBaseUrl;
+            URI baseUri = URI.create(effectiveBaseUrl);
             String appHost = baseUri.getHost();
             String expectedScheme = baseUri.getScheme();
             if (uri.isAbsolute()) {

@@ -25,7 +25,7 @@ public class EmailController {
     private final EmailService emailService;
 
     @Value("${app.base-url:https://trippy.app}")
-    private String appBaseUrl;
+    private String appBaseUrl = "https://trippy.app";
 
     @PostMapping("/send")
     public ResponseEntity<EmailSentResponse> sendEmail(
