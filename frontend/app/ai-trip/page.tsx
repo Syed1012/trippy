@@ -22,7 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ROUTES } from "@/lib/routes";
 import { useToast } from "@/lib/toast";
 import { tripSlug } from "@/lib/utils";
-import { loadAiTripRouteState } from "@/lib/ai-trip-route-state";
+import { loadAiTripRouteState, updateAiTripRouteState } from "@/lib/ai-trip-route-state";
 
 interface AiItineraryDay {
   dayNumber: number;
@@ -67,6 +67,7 @@ interface AiTripPageState {
     preferences?: string;
     customPreference?: string;
   };
+  savedTripId?: string;
 }
 
 function offsetDate(baseDate: string, days: number): string {
@@ -181,24 +182,48 @@ function AiTripPageContent() {
     setSaveError("");
 
     try {
-      const createPayload: CreateTripRequest = {
-        title: trip.title,
-        destination: trip.destination,
-        description: trip.reason || trip.highlights.join(", ") || undefined,
-        startDate,
-        endDate,
-        visibility: saveVisibility,
-      };
+      let tripId = state.savedTripId;
+      let title = trip.title;
 
-      const created = await tripsApi.create(createPayload);
-
-      // Save cover image immediately using trip.image
-      if (trip.image) {
-        try {
-          await tripsApi.update(created.tripId, { coverImageUrl: trip.image });
-        } catch (e) {
-          console.error("Failed to update trip cover image", e);
+      if (tripId) {
+        const updatePayload: Partial<CreateTripRequest> = {
+          title: trip.title,
+          destination: trip.destination,
+          description: trip.reason || trip.highlights.join(", ") || undefined,
+          startDate,
+          endDate,
+          visibility: saveVisibility,
+        };
+        if (trip.image) {
+          updatePayload.coverImageUrl = trip.image;
         }
+        await tripsApi.update(tripId, updatePayload);
+      } else {
+        const createPayload: CreateTripRequest = {
+          title: trip.title,
+          destination: trip.destination,
+          description: trip.reason || trip.highlights.join(", ") || undefined,
+          startDate,
+          endDate,
+          visibility: saveVisibility,
+        };
+
+        const created = await tripsApi.create(createPayload);
+        tripId = created.tripId;
+        title = created.title;
+
+        // Save cover image immediately using trip.image
+        if (trip.image) {
+          try {
+            await tripsApi.update(tripId, { coverImageUrl: trip.image });
+          } catch (e) {
+            console.error("Failed to update trip cover image", e);
+          }
+        }
+
+        // Cache the newly created tripId in state/storage
+        updateAiTripRouteState(sid, state.trip, tripId);
+        setState((prev) => (prev ? { ...prev, savedTripId: tripId } : null));
       }
 
       if (trip.aiItinerary && trip.aiItinerary.length > 0) {
@@ -233,7 +258,7 @@ function AiTripPageContent() {
             ],
           })),
         };
-        await itineraryApi.update(created.tripId, itineraryPayload);
+        await itineraryApi.update(tripId, itineraryPayload);
       }
 
       const filters = state.preferenceContext?.selectedFilters || [];
@@ -252,7 +277,7 @@ function AiTripPageContent() {
 
       if (hasTripPreferences(preferenceInput)) {
         try {
-          await preferencesApi.save(created.tripId, preferenceInput);
+          await preferencesApi.save(tripId, preferenceInput);
         } catch (err) {
           console.error("Failed to save AI trip preferences", err);
         }
@@ -261,7 +286,7 @@ function AiTripPageContent() {
       // Transition AI-generated trips to PLANNED status so they don't show as "Draft"
       if (trip.aiItinerary && trip.aiItinerary.length > 0) {
         try {
-          await tripsApi.updateStatus(created.tripId, "PLANNED");
+          await tripsApi.updateStatus(tripId, "PLANNED");
         } catch {
           // Non-critical — trip is still saved, just shows as Draft
         }
@@ -269,12 +294,12 @@ function AiTripPageContent() {
 
       // Fire cover image generation (non-blocking) only if we don't have a pre-fetched Wikipedia image
       if (!trip.image) {
-        void ensureTripCoverImage(created.tripId, trip.destination);
+        void ensureTripCoverImage(tripId, trip.destination);
       }
 
       setSavedTitles((prev) => new Set(prev).add(trip.title));
-      addToast("Trip saved to your dashboard!", "success");
-      router.push(`${ROUTES.dashboard}/trips/${tripSlug(created.title, created.tripId)}?from=ai`);
+      addToast(state.savedTripId ? "Trip updated successfully!" : "Trip saved to your dashboard!", "success");
+      router.push(`${ROUTES.dashboard}/trips/${tripSlug(title, tripId)}?from=ai`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save trip.";
       setSaveError(message);
@@ -311,7 +336,7 @@ function AiTripPageContent() {
       userDates={state.userDates}
       onClose={() => router.push(ROUTES.home)}
       onSave={(trip) => void handleSave(trip)}
-      saved={savedTitles.has(state.trip.title)}
+      saved={Boolean(state.savedTripId)}
       isSaving={isSaving}
       saveError={saveError}
       visibility={saveVisibility}
