@@ -63,6 +63,23 @@ write_or_update_env() {
   fi
 }
 
+write_or_update_frontend_env() {
+  local key="$1"
+  local value="$2"
+  local file="$FRONTEND_DIR/.env.local"
+
+  touch "$file"
+  if grep -q "^${key}=" "$file"; then
+    if sed --version >/dev/null 2>&1; then
+      sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+      sed -i '' "s|^${key}=.*|${key}=${value}|" "$file"
+    fi
+  else
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
 load_env_file() {
   local env_file="$1"
   while IFS= read -r line || [ -n "$line" ]; do
@@ -153,6 +170,10 @@ main() {
   local app_base_url="http://${ip}:3000"
   write_or_update_env "APP_BASE_URL" "$app_base_url"
   export APP_BASE_URL="$app_base_url"
+
+  # Write the dynamic API URL for the frontend Next.js dev server
+  local api_url="http://${ip}:8080"
+  write_or_update_frontend_env "NEXT_PUBLIC_API_URL" "$api_url"
 
   echo "============================================"
   echo " Trippy local launcher"

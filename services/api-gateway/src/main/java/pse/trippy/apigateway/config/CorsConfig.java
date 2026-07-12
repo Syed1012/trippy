@@ -7,8 +7,11 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
+import org.springframework.beans.factory.annotation.Value;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Configuration for Cross-Origin Resource Sharing (CORS) in the API Gateway.
@@ -18,11 +21,19 @@ import java.util.Collections;
 public class CorsConfig {
 
     @Bean
-    public CorsWebFilter corsWebFilter() {
+    public CorsWebFilter corsWebFilter(@Value("${APP_BASE_URL:http://localhost:3000}") String appBaseUrl) {
         CorsConfiguration corsConfig = new CorsConfiguration();
         
-        // Allow only localhost:3000 (frontend dev server)
-        corsConfig.setAllowedOrigins(Collections.singletonList("http://localhost:3000"));
+        List<String> allowedOrigins = new ArrayList<>();
+        allowedOrigins.add("http://localhost:3000");
+        allowedOrigins.add("http://127.0.0.1:3000");
+        if (appBaseUrl != null && !appBaseUrl.isBlank()) {
+            String trimmed = appBaseUrl.replaceAll("/+$", "");
+            if (!allowedOrigins.contains(trimmed)) {
+                allowedOrigins.add(trimmed);
+            }
+        }
+        corsConfig.setAllowedOrigins(allowedOrigins);
         
         // Allow all standard HTTP methods
         corsConfig.setAllowedMethods(Arrays.asList(
