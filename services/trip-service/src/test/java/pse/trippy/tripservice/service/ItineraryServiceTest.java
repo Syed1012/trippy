@@ -185,6 +185,37 @@ class ItineraryServiceTest {
         }
     }
 
+    // =========================================================================
+    // getSharedItinerary
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getSharedItinerary")
+    class GetSharedItinerary {
+
+        @Test
+        @DisplayName("returns shared itinerary for a published (non-DRAFT) trip")
+        void sharedItineraryAccessible() {
+            trip.setStatus(TripStatus.PLANNED);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(itineraryRepository.findByTripId(TRIP_ID)).thenReturn(Optional.empty());
+
+            ItineraryResponse response = itineraryService.getSharedItinerary(TRIP_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.tripId()).isEqualTo(TRIP_ID);
+        }
+
+        @Test
+        @DisplayName("throws ForbiddenException for a DRAFT trip")
+        void sharedDraftItineraryForbidden() {
+            trip.setStatus(TripStatus.DRAFT);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            assertThatThrownBy(() -> itineraryService.getSharedItinerary(TRIP_ID))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+    }
+
     @Nested
     @DisplayName("updateItinerary")
     class UpdateItinerary {

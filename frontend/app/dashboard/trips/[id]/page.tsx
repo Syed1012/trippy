@@ -4366,7 +4366,7 @@ export default function TripDetailPage() {
                 onCurrencyChange={(c) => { setCurrency(c); setHasUnsavedChanges(true); }}
                 onVoteUpdate={handleVoteUpdate}
                 isParticipant={isParticipant}
-                readOnly={isAiTrip && !isEditing}
+                readOnly={!isParticipant || (isAiTrip && !isEditing)}
                 isAiTrip={isAiTrip}
               />
             ))}

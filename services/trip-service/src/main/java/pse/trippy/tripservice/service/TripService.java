@@ -198,6 +198,10 @@ public class TripService {
         log.debug("Fetching shared trip detail: tripId={}", tripId);
         Trip trip = findTripOrThrow(tripId);
 
+        if (!isPubliclyViewable(trip)) {
+            throw new ForbiddenException("This trip is not publicly viewable");
+        }
+
         List<ParticipantResponse> participants = participantRepository.findByTripId(tripId).stream()
                 .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED || p.getRole() == ParticipantRole.OWNER)
                 .map(this::toParticipantResponse)
