@@ -57,7 +57,7 @@ export function loadAiTripRouteState<T>(id: string): T | null {
   }
 }
 
-export function updateAiTripRouteState<T>(id: string, state: T): void {
+export function updateAiTripRouteState<T>(id: string, state: T, savedTripId?: string): void {
   if ((!canUseSessionStorage() && !canUseLocalStorage()) || !id) {
     return;
   }
@@ -72,6 +72,9 @@ export function updateAiTripRouteState<T>(id: string, state: T): void {
       ...parsed.state,
       trip: state,
     };
+    if (savedTripId) {
+      parsed.state.savedTripId = savedTripId;
+    }
     if (canUseLocalStorage()) {
       window.localStorage.setItem(key, JSON.stringify(parsed));
     }
