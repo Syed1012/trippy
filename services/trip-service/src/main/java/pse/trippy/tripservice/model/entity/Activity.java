@@ -23,6 +23,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import pse.trippy.tripservice.model.enums.ActivityCategory;
 
+import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.UUID;
 
@@ -82,6 +83,13 @@ public class Activity {
     @Size(max = 1000)
     @Column(name = "notes", length = 1000)
     private String notes;
+
+    @Column(name = "estimated_cost", precision = 12, scale = 2)
+    private BigDecimal estimatedCost;
+
+    @Size(max = 8)
+    @Column(name = "currency", length = 8)
+    private String currency;
 
     @Min(0)
     @Column(name = "order_index", nullable = false)

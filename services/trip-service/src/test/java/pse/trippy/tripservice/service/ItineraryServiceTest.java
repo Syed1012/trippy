@@ -193,7 +193,7 @@ class ItineraryServiceTest {
             ActivityRequest activityReq = new ActivityRequest(
                     "Walk La Rambla", null, "La Rambla, Barcelona",
                     LocalTime.of(16, 0), LocalTime.of(18, 0),
-                    "SIGHTSEEING", null);
+                    "SIGHTSEEING", null, new java.math.BigDecimal("18.50"), "EUR");
             DayPlanRequest dayPlanReq = new DayPlanRequest(
                     1, LocalDate.of(2026, 7, 1), "Day One", List.of(activityReq));
             return new UpdateItineraryRequest(List.of(dayPlanReq));
@@ -363,7 +363,7 @@ class ItineraryServiceTest {
     class StatusTransition {
 
         private ActivityRequest act(String title) {
-            return new ActivityRequest(title, null, null, null, null, "SIGHTSEEING", null);
+            return new ActivityRequest(title, null, null, null, null, "SIGHTSEEING", null, null, null);
         }
 
         private DayPlanRequest day(int dayNumber, ActivityRequest... activities) {

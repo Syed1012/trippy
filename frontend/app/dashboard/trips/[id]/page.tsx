@@ -3018,6 +3018,11 @@ export default function TripDetailPage() {
           const itinerary = await itineraryApi.get(tripId);
           if (itinerary.days.length > 0) {
             setItineraryDays(itinerary.days);
+            // Restore the itinerary's saved currency (persisted per activity).
+            const savedCurrency = itinerary.days
+              .flatMap((d) => d.activities)
+              .find((a) => a.currency)?.currency;
+            if (savedCurrency) setCurrency(savedCurrency);
           } else {
             // Initialize empty days based on trip dates
             const numDays = getNumDays(data.startDate, data.endDate);
@@ -3125,6 +3130,7 @@ export default function TripDetailPage() {
           // Map frontend "default" category to backend "OTHER"
           const rawCat = (a.category ?? "OTHER").toUpperCase();
           const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
+          const costNum = a.estimatedCost != null && a.estimatedCost !== "" ? Number(a.estimatedCost) : NaN;
           return {
             title: a.title || "Untitled activity",
             description: a.description || undefined,
@@ -3133,6 +3139,8 @@ export default function TripDetailPage() {
             endTime,
             category,
             notes: undefined,
+            estimatedCost: Number.isFinite(costNum) ? costNum : undefined,
+            currency: currency || undefined,
           };
         }),
       })),

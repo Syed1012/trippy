@@ -110,6 +110,8 @@ public class ItineraryService {
                         .endTime(actReq.endTime())
                         .category(parseCategory(actReq.category()))
                         .notes(actReq.notes())
+                        .estimatedCost(actReq.estimatedCost())
+                        .currency(actReq.currency())
                         .orderIndex(i)
                         .build();
                 savedActivities.add(activityRepository.save(activity));
@@ -273,6 +275,8 @@ public class ItineraryService {
                 activity.getEndTime(),
                 activity.getCategory().name(),
                 activity.getNotes(),
+                activity.getEstimatedCost(),
+                activity.getCurrency(),
                 activity.getOrderIndex(),
                 upvotes,
                 downvotes,

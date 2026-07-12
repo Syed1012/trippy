@@ -327,6 +327,7 @@ export interface Activity {
   location?: string;
   category?: string;
   estimatedCost?: string;
+  currency?: string;
   startTime?: string;
   endTime?: string;
   upvotes?: number;
@@ -699,6 +700,8 @@ interface RawDayPlanResponse {
     endTime?: string;
     category?: string;
     notes?: string;
+    estimatedCost?: number | string;
+    currency?: string;
     orderIndex: number;
     upvotes?: number;
     downvotes?: number;
@@ -735,7 +738,8 @@ function normalizeItinerary(raw: RawItineraryResponse): { days: DayPlan[]; creat
         startTime: a.startTime,
         endTime: a.endTime,
         time: a.startTime && a.endTime ? `${a.startTime} - ${a.endTime}` : a.startTime || "",
-        estimatedCost: "",
+        estimatedCost: a.estimatedCost != null && a.estimatedCost !== "" ? String(a.estimatedCost) : "",
+        currency: a.currency ?? undefined,
         upvotes: a.upvotes ?? 0,
         downvotes: a.downvotes ?? 0,
         currentUserVote: a.currentUserVote as "UPVOTE" | "DOWNVOTE" | null,
@@ -765,6 +769,8 @@ export interface UpdateItineraryRequest {
       endTime?: string;
       category: string;
       notes?: string;
+      estimatedCost?: number;
+      currency?: string;
     }>;
   }>;
 }

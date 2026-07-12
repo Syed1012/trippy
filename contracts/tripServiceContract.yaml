@@ -658,6 +658,8 @@ components:
                     endTime: { type: string, format: time }
                     category: { type: string, enum: [ACCOMMODATION, TRANSPORT, FOOD, SIGHTSEEING, ACTIVITY, SHOPPING, OTHER] }
                     notes: { type: string, maxLength: 1000 }
+                    estimatedCost: { type: number, description: "Estimated cost per person (numeric, whole or decimal)" }
+                    currency: { type: string, maxLength: 8, description: "ISO-ish currency code for estimatedCost, e.g. USD" }
 
     ItineraryResponse:
       type: object
@@ -699,6 +701,8 @@ components:
         endTime: { type: string, format: time }
         category: { type: string }
         notes: { type: string }
+        estimatedCost: { type: number, nullable: true }
+        currency: { type: string, nullable: true }
         orderIndex: { type: integer }
         upvotes: { type: integer }
         downvotes: { type: integer }
