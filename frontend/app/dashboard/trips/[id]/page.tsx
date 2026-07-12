@@ -1256,6 +1256,18 @@ function WeatherBadge({ destination, dateIso }: { destination?: string; dateIso?
 
   useEffect(() => {
     if (!destination || !dateIso) return;
+
+    const target = new Date(dateIso);
+    const todayDate = new Date();
+    target.setHours(0, 0, 0, 0);
+    todayDate.setHours(0, 0, 0, 0);
+    const diffTime = target.getTime() - todayDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays > 10) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     // Loading starts true; only flip it from inside the async callbacks so we
     // never call setState synchronously in the effect body.
@@ -1276,6 +1288,15 @@ function WeatherBadge({ destination, dateIso }: { destination?: string; dateIso?
   }
 
   if (!destination || !dateIso) return null;
+
+  // Do not show weather for days that are more than 10 days away
+  const target = new Date(dateIso);
+  const todayDate = new Date();
+  target.setHours(0, 0, 0, 0);
+  todayDate.setHours(0, 0, 0, 0);
+  const diffTime = target.getTime() - todayDate.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays > 10) return null;
   if (loading && !data) {
     return <div className="h-7 w-16 shrink-0 animate-pulse rounded-full bg-shore-100" />;
   }
