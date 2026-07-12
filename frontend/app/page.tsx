@@ -31,6 +31,9 @@ import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
+import { tripsApi, type Trip } from "@/lib/api";
+import { tripSlug } from "@/lib/utils";
+import TripCard from "@/components/trips/TripCard";
 
 const HERO_IDEAS = [
   "a 7-day food trip through Kyoto",
@@ -120,6 +123,23 @@ export default function LandingPage() {
   const [showAIBuilder, setShowAIBuilder] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [aiBuilderRequest, setAiBuilderRequest] = useState<AIBuilderRequest | undefined>(undefined);
+
+  const [publicTrips, setPublicTrips] = useState<Trip[]>([]);
+  const [publicLoading, setPublicLoading] = useState(true);
+
+  useEffect(() => {
+    tripsApi
+      .listPublic(0, 6)
+      .then((data) => {
+        setPublicTrips(data.content || []);
+      })
+      .catch(() => {
+        setPublicTrips([]);
+      })
+      .finally(() => {
+        setPublicLoading(false);
+      });
+  }, []);
 
   const hasTicketData = Boolean(
     searchQuery.trim() ||
@@ -452,6 +472,61 @@ export default function LandingPage() {
               </AnimatePresence>
 
             </motion.div>
+          </div>
+        </section>
+
+        {/* Explore Public Trips Section */}
+        <section className="relative border-t border-[#e2d6c1] bg-[#fdfaf5] py-20 lg:py-28">
+          <div className="mx-auto max-w-7xl px-4 lg:px-8">
+            <div className="max-w-2xl">
+              <h2 className="font-display text-3xl font-black tracking-tight text-[#17211f] sm:text-4xl">
+                Explore Public Trips
+              </h2>
+              <p className="mt-3 text-sm text-[#5f6f69] sm:text-base">
+                Discover incredible journeys planned by fellow travelers on our platform.
+              </p>
+            </div>
+
+            {publicLoading ? (
+              <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {[...Array(3)].map((_, idx) => (
+                  <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                ))}
+              </div>
+            ) : publicTrips.length > 0 ? (
+              <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {publicTrips.map((trip) => (
+                  <div
+                    key={trip.tripId}
+                    onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                    className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                  >
+                    <TripCard
+                      title={trip.title}
+                      destination={trip.destination}
+                      startDate={trip.startDate ?? "TBD"}
+                      endDate={trip.endDate ?? "TBD"}
+                      status={
+                        trip.status === "ONGOING"
+                          ? "ACTIVE"
+                          : (trip.status as
+                              | "DRAFT"
+                              | "PLANNED"
+                              | "ACTIVE"
+                              | "COMPLETED"
+                              | "CANCELLED")
+                      }
+                      participantCount={trip.participantCount}
+                      coverImageUrl={trip.coverImageUrl}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-12 text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                <p className="text-sm text-[#5f6f69]">No public trips available to explore yet.</p>
+              </div>
+            )}
           </div>
         </section>
 
