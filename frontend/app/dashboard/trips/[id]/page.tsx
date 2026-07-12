@@ -3708,9 +3708,9 @@ export default function TripDetailPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10",
+          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10 transition-all duration-300",
           isAiTrip
-            ? "h-80 flex flex-col justify-end bg-black"
+            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-80 flex flex-col justify-end bg-black")
             : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
         )}
       >
