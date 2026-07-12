@@ -2456,6 +2456,7 @@ function InviteModal({
   currentUserName: string;
 }) {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const [email, setEmail] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -2483,7 +2484,9 @@ function InviteModal({
       usersApi
         .search(query, 5)
         .then((res) => {
-          setSearchResults(res);
+          // Filter out the logged-in user from matching results
+          const filtered = res.filter((u) => u.id !== user?.userId && u.email !== user?.email);
+          setSearchResults(filtered);
         })
         .catch(() => {
           setSearchResults([]);
@@ -2494,7 +2497,7 @@ function InviteModal({
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [email]);
+  }, [email, user]);
 
   async function handleSend() {
     if (!isValidEmail) {
