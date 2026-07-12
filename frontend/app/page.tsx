@@ -26,6 +26,7 @@ import AuthModal from "@/components/auth/AuthModal";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
 import Navbar from "@/components/layout/Navbar";
+import Footer from "@/components/layout/Footer";
 import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
@@ -358,7 +359,7 @@ export default function LandingPage() {
     .slice(0, 6);
 
   return (
-    <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f]">
+    <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f] flex flex-col">
       <AmbientBackground />
 
       {isAuthenticated ? (
@@ -793,6 +794,7 @@ export default function LandingPage() {
           </div>
         )}
       </AnimatePresence>
+      <Footer />
     </div>
   );
 }
