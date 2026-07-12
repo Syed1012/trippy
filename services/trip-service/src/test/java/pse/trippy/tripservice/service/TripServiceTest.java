@@ -279,8 +279,9 @@ class TripServiceTest {
         }
 
         @Test
-        @DisplayName("private trip requires participant membership")
-        void privateTripRequiresMembership() {
+        @DisplayName("draft private trip requires participant membership")
+        void draftPrivateTripRequiresMembership() {
+            trip.setStatus(TripStatus.DRAFT);
             trip.setVisibility(TripVisibility.PRIVATE);
             UUID nonMember = UUID.randomUUID();
             when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
@@ -289,6 +290,19 @@ class TripServiceTest {
 
             assertThatThrownBy(() -> tripService.getTripDetail(TRIP_ID, nonMember))
                     .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        @DisplayName("planned private trip is accessible to non-members by direct link")
+        void plannedPrivateTripAccessibleToNonMembers() {
+            trip.setStatus(TripStatus.PLANNED);
+            trip.setVisibility(TripVisibility.PRIVATE);
+            UUID nonMember = UUID.randomUUID();
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            TripDetailResponse response = tripService.getTripDetail(TRIP_ID, nonMember);
+            assertThat(response).isNotNull();
+            assertThat(response.visibility()).isEqualTo("PRIVATE");
         }
 
         @Test
