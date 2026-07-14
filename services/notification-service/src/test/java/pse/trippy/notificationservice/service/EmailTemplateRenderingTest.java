@@ -1,33 +1,44 @@
 package pse.trippy.notificationservice.service;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.test.context.ActiveProfiles;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
+import org.thymeleaf.spring6.SpringTemplateEngine;
+import org.thymeleaf.templatemode.TemplateMode;
+import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
+import pse.trippy.notificationservice.repository.EmailLogRepository;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @DisplayName("Email template rendering")
 class EmailTemplateRenderingTest {
 
-    @Autowired
     private TemplateEngine templateEngine;
 
-    @Autowired
     private EmailService emailService;
 
-    @MockBean
-    private JavaMailSender mailSender;
+    @BeforeEach
+    void setUp() {
+        ClassLoaderTemplateResolver templateResolver = new ClassLoaderTemplateResolver();
+        templateResolver.setPrefix("templates/");
+        templateResolver.setSuffix(".html");
+        templateResolver.setTemplateMode(TemplateMode.HTML);
+        templateResolver.setCharacterEncoding("UTF-8");
+
+        templateEngine = new SpringTemplateEngine();
+        templateEngine.setTemplateResolver(templateResolver);
+        emailService = new EmailService(
+                mock(JavaMailSender.class),
+                templateEngine,
+                mock(EmailLogRepository.class));
+    }
 
     private String render(String template, Map<String, Object> variables) {
         Context ctx = new Context();
