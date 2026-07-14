@@ -37,7 +37,8 @@ class EmailTemplateRenderingTest {
         emailService = new EmailService(
                 mock(JavaMailSender.class),
                 templateEngine,
-                mock(EmailLogRepository.class));
+                mock(EmailLogRepository.class),
+                "no-reply@trippy.app");
     }
 
     private String render(String template, Map<String, Object> variables) {
