@@ -15,7 +15,7 @@ import pse.trippy.paymentservice.dto.response.PaymentConfirmationResponse;
 import pse.trippy.paymentservice.dto.response.SubscriptionResponse;
 import pse.trippy.paymentservice.exception.InvalidPaymentException;
 import pse.trippy.paymentservice.exception.SubscriptionNotFoundException;
-import pse.trippy.paymentservice.model.entity.Subscription;
+import pse.trippy.paymentservice.model.entity.UserSubscription;
 import pse.trippy.paymentservice.model.entity.Transaction;
 import pse.trippy.paymentservice.model.enums.PlanType;
 import pse.trippy.paymentservice.model.enums.SubscriptionPlan;
@@ -63,8 +63,8 @@ class SubscriptionServiceTest {
         return t;
     }
 
-    private Subscription existingSubscription() {
-        Subscription s = Subscription.builder()
+    private UserSubscription existingSubscription() {
+        UserSubscription s = UserSubscription.builder()
                 .userId(USER_ID)
                 .plan(SubscriptionPlan.PREMIUM)
                 .status(SubscriptionStatus.ACTIVE)
@@ -93,8 +93,8 @@ class SubscriptionServiceTest {
             Transaction transaction = savedTransaction();
             when(transactionRepository.save(any(Transaction.class))).thenReturn(transaction);
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
-            when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(invocation -> {
-                Subscription s = invocation.getArgument(0);
+            when(subscriptionRepository.save(any(UserSubscription.class))).thenAnswer(invocation -> {
+                UserSubscription s = invocation.getArgument(0);
                 s.setId(UUID.randomUUID());
                 return s;
             });
@@ -121,15 +121,15 @@ class SubscriptionServiceTest {
             transaction.setAmount(new BigDecimal("299.99"));
             when(transactionRepository.save(any(Transaction.class))).thenReturn(transaction);
 
-            Subscription existing = existingSubscription();
+            UserSubscription existing = existingSubscription();
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.of(existing));
-            when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+            when(subscriptionRepository.save(any(UserSubscription.class))).thenAnswer(i -> i.getArgument(0));
 
             PaymentConfirmationResponse response = subscriptionService.confirmPayment(USER_ID, request);
 
             assertThat(response.subscription().plan()).isEqualTo("ENTERPRISE");
             assertThat(response.subscription().priceAmount()).isEqualByComparingTo(new BigDecimal("299.99"));
-            verify(subscriptionRepository).save(any(Subscription.class));
+            verify(subscriptionRepository).save(any(UserSubscription.class));
         }
 
         @Test
@@ -155,7 +155,7 @@ class SubscriptionServiceTest {
         @Test
         @DisplayName("returns subscription for existing user")
         void returnsSubscription() {
-            Subscription subscription = existingSubscription();
+            UserSubscription subscription = existingSubscription();
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.of(subscription));
 
             SubscriptionResponse response = subscriptionService.getSubscription(USER_ID);
@@ -188,9 +188,9 @@ class SubscriptionServiceTest {
         @Test
         @DisplayName("cancels immediately when requested")
         void cancelsImmediately() {
-            Subscription subscription = existingSubscription();
+            UserSubscription subscription = existingSubscription();
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.of(subscription));
-            when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+            when(subscriptionRepository.save(any(UserSubscription.class))).thenAnswer(i -> i.getArgument(0));
 
             CancelSubscriptionRequest request = new CancelSubscriptionRequest(true);
             SubscriptionResponse response = subscriptionService.cancelSubscription(USER_ID, request);
@@ -202,9 +202,9 @@ class SubscriptionServiceTest {
         @Test
         @DisplayName("sets cancelAtPeriodEnd when not immediate")
         void cancelAtPeriodEnd() {
-            Subscription subscription = existingSubscription();
+            UserSubscription subscription = existingSubscription();
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.of(subscription));
-            when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+            when(subscriptionRepository.save(any(UserSubscription.class))).thenAnswer(i -> i.getArgument(0));
 
             CancelSubscriptionRequest request = new CancelSubscriptionRequest(false);
             SubscriptionResponse response = subscriptionService.cancelSubscription(USER_ID, request);

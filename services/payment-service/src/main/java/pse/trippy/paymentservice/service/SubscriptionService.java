@@ -13,7 +13,7 @@ import pse.trippy.paymentservice.dto.response.PaymentConfirmationResponse;
 import pse.trippy.paymentservice.dto.response.SubscriptionResponse;
 import pse.trippy.paymentservice.exception.InvalidPaymentException;
 import pse.trippy.paymentservice.exception.SubscriptionNotFoundException;
-import pse.trippy.paymentservice.model.entity.Subscription;
+import pse.trippy.paymentservice.model.entity.UserSubscription;
 import pse.trippy.paymentservice.model.entity.Transaction;
 import pse.trippy.paymentservice.model.enums.PlanType;
 import pse.trippy.paymentservice.model.enums.SubscriptionPlan;
@@ -72,7 +72,7 @@ public class SubscriptionService {
         LocalDate now = LocalDate.now();
         LocalDate periodEnd = isYearly ? now.plusYears(1) : now.plusMonths(1);
 
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
+        UserSubscription subscription = subscriptionRepository.findByUserId(userId)
                 .map(existing -> {
                     existing.setPlan(plan);
                     existing.setStatus(SubscriptionStatus.ACTIVE);
@@ -82,7 +82,7 @@ public class SubscriptionService {
                     existing.setPriceAmount(price);
                     return existing;
                 })
-                .orElseGet(() -> Subscription.builder()
+                .orElseGet(() -> UserSubscription.builder()
                         .userId(userId)
                         .plan(plan)
                         .status(SubscriptionStatus.ACTIVE)
@@ -108,7 +108,7 @@ public class SubscriptionService {
 
     @Transactional(readOnly = true)
     public SubscriptionResponse getSubscription(UUID userId) {
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
+        UserSubscription subscription = subscriptionRepository.findByUserId(userId)
                 .orElseThrow(() -> new SubscriptionNotFoundException(
                         "No subscription found for user: " + userId));
         return toSubscriptionResponse(subscription);
@@ -116,7 +116,7 @@ public class SubscriptionService {
 
     @Transactional
     public SubscriptionResponse cancelSubscription(UUID userId, CancelSubscriptionRequest request) {
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
+        UserSubscription subscription = subscriptionRepository.findByUserId(userId)
                 .orElseThrow(() -> new SubscriptionNotFoundException(
                         "No subscription found for user: " + userId));
 
@@ -140,7 +140,7 @@ public class SubscriptionService {
         return SubscriptionPlan.PREMIUM;
     }
 
-    private SubscriptionResponse toSubscriptionResponse(Subscription subscription) {
+    private SubscriptionResponse toSubscriptionResponse(UserSubscription subscription) {
         return new SubscriptionResponse(
                 subscription.getId(),
                 subscription.getPlan().name(),
@@ -153,7 +153,7 @@ public class SubscriptionService {
         );
     }
 
-    private void publishSubscriptionActivatedEvent(UUID userId, Subscription subscription) {
+    private void publishSubscriptionActivatedEvent(UUID userId, UserSubscription subscription) {
         try {
             Map<String, Object> event = Map.of(
                     "eventType", "payment.subscription.activated",
@@ -173,4 +173,40 @@ public class SubscriptionService {
             log.warn("Failed to publish subscription activated event for user {}: {}", userId, e.getMessage());
         }
     }
+
+    @Transactional
+    public UserSubscription activateSubscription(UUID userId, PlanType planType) {
+        LocalDate now = LocalDate.now();
+        LocalDate periodEnd = now.plusMonths(1);
+
+        SubscriptionPlan subscriptionPlan = SubscriptionPlan.valueOf(planType.name());
+
+        UserSubscription subscription = subscriptionRepository.findByUserId(userId)
+                .map(existing -> {
+                    existing.setPlan(subscriptionPlan);
+                    existing.setStatus(SubscriptionStatus.ACTIVE);
+                    existing.setCurrentPeriodStart(now);
+                    existing.setCurrentPeriodEnd(periodEnd);
+                    existing.setCancelAtPeriodEnd(false);
+                    existing.setPriceAmount(planType.getPrice());
+                    existing.setCurrency(planType.getCurrency());
+                    return existing;
+                })
+                .orElseGet(() -> UserSubscription.builder()
+                        .userId(userId)
+                        .plan(subscriptionPlan)
+                        .status(SubscriptionStatus.ACTIVE)
+                        .currentPeriodStart(now)
+                        .currentPeriodEnd(periodEnd)
+                        .priceAmount(planType.getPrice())
+                        .currency(planType.getCurrency())
+                        .build());
+
+        subscription = subscriptionRepository.save(subscription);
+
+        publishSubscriptionActivatedEvent(userId, subscription);
+
+        return subscription;
+    }
+
 }

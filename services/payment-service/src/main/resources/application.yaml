@@ -40,10 +40,16 @@ server:
   port: 8086
 
 stripe:
-  api:
-    key: ${STRIPE_API_KEY}
+  secret:
+    key: sk_test_51Ts9T4HPsFWQmqJBggOSkqquxjb4kC32L3HrP1xAmqfhv67qpj1L3tt2iU5kJdHF1oo1IBXlqcOFYijkY7wusg9z00AItLgFJ0
+  publishable:
+    key: pk_test_51Ts9T4HPsFWQmqJBxaHvGlfQxBg7WOxp0x1WxOZoIGHPhdqQde9E4Z6mA5Ob3hCLkzoza3YCKDVCJFQDBBPJw6o6006ij6IYoJ
   webhook:
-    secret: ${STRIPE_WEBHOOK_SECRET}
+    secret: whsec_c350d06c1820e8da40991c5c282388e95c9d17d69c76df7052fe43004c7a15c9
+  price:
+    premium: price_1TsA87HPsFWQmqJB2izPhg7w
+    enterprise: price_1TsAEnHPsFWQmqJBP6iOeXC4
+
 
 management:
   endpoints:

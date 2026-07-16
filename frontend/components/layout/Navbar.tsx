@@ -65,7 +65,10 @@ export default function Navbar() {
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-1">
           {[...navLinks, ...(user?.role === "ADMIN" ? adminLinks : [])].map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(href + "/");
+            const active =
+                  pathname === href ||
+                  (href !== "/dashboard" && pathname.startsWith(href + "/"));
+
             return (
               <Link
                 key={href}
