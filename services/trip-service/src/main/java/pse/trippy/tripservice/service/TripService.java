@@ -9,10 +9,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pse.trippy.tripservice.client.SubscriptionClient;
 import pse.trippy.tripservice.config.RabbitMQConfig;
 import pse.trippy.tripservice.dto.request.CreateTripRequest;
 import pse.trippy.tripservice.dto.request.UpdateTripRequest;
 import pse.trippy.tripservice.dto.response.ParticipantResponse;
+import pse.trippy.tripservice.dto.response.SubscriptionResponse;
 import pse.trippy.tripservice.dto.response.TripDetailResponse;
 import pse.trippy.tripservice.dto.response.TripPageResponse;
 import pse.trippy.tripservice.dto.response.TripResponse;
@@ -27,6 +29,7 @@ import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.repository.ParticipantRepository;
 import pse.trippy.tripservice.repository.TripRepository;
+import pse.trippy.tripservice.exception.TripLimitExceededException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -42,16 +45,22 @@ public class TripService {
     private final TripRepository tripRepository;
     private final ParticipantRepository participantRepository;
     private final RabbitTemplate rabbitTemplate;
+    private final SubscriptionClient subscriptionClient;
 
     @Transactional
     public TripResponse createTrip(CreateTripRequest request, UUID userId) {
-        log.info("Creating trip: title='{}' | destination='{}' | dates={}→{} | visibility={} | maxParticipants={} | user={}",
-                request.title(), request.destination(),
-                request.startDate() != null ? request.startDate() : "unset",
-                request.endDate() != null ? request.endDate() : "unset",
-                request.visibility() != null ? request.visibility() : "PRIVATE",
-                request.maxParticipants() != null ? request.maxParticipants() : 10,
-                userId);
+        SubscriptionResponse subscription = subscriptionClient.getSubscription(userId);
+
+        long ownedTrips = participantRepository.countByUserIdAndRole(userId, ParticipantRole.OWNER);
+
+        if ("FREE".equalsIgnoreCase(subscription.plan()) && ownedTrips >= 3) {
+            log.warn("User {} attempted to create more than 3 trips on FREE plan", userId);
+            throw new TripLimitExceededException();
+        }
+
+        log.info("Creating trip: title='{}' | destination='{}' | user={}",
+                request.title(), request.destination(), userId);
+
         validateDates(request.startDate(), request.endDate());
 
         Trip trip = Trip.builder()
@@ -67,7 +76,6 @@ public class TripService {
 
         trip = tripRepository.save(trip);
 
-        // Auto-add creator as OWNER participant with ACCEPTED status
         Participant owner = Participant.builder()
                 .trip(trip)
                 .userId(userId)
@@ -77,16 +85,6 @@ public class TripService {
                 .build();
         participantRepository.save(owner);
 
-        long durationDays = (trip.getStartDate() != null && trip.getEndDate() != null)
-                ? java.time.temporal.ChronoUnit.DAYS.between(trip.getStartDate(), trip.getEndDate())
-                : -1;
-        log.info("Trip created: id={} | '{}' → {} | {} | duration={} | visibility={} | owner={}",
-                trip.getId(), trip.getTitle(), trip.getDestination(),
-                trip.getStatus(),
-                durationDays >= 0 ? durationDays + " days" : "dates pending",
-                trip.getVisibility(), userId);
-
-        // Notify user-service so it can upgrade the creator's role to HOST
         publishTripCreatedEvent(trip.getId(), userId);
 
         return toTripResponse(trip);
@@ -94,20 +92,15 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public TripPageResponse listMyTrips(UUID userId, int page, int size) {
-        log.debug("Listing trips for user={}, page={}, size={}", userId, page, size);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "startDate"));
         Page<Trip> tripPage = tripRepository.findTripsByParticipantUserId(userId, pageRequest);
-
-        log.info("Trips listed: {} of {} total | user={} | page {}/{}",
-                tripPage.getNumberOfElements(), tripPage.getTotalElements(),
-                userId, page + 1, tripPage.getTotalPages());
 
         List<Trip> pageTrips = tripPage.getContent();
         List<UUID> tripIds = pageTrips.stream().map(Trip::getId).toList();
 
-        // Resolve the current user's participation status per trip
         Map<UUID, String> userStatusByTrip = new HashMap<>();
         Map<UUID, Integer> memberCountByTrip = new HashMap<>();
+
         if (!tripIds.isEmpty()) {
             for (Participant p : participantRepository.findByUserIdAndTripIds(userId, tripIds)) {
                 userStatusByTrip.put(p.getTrip().getId(), p.getStatus().name());
@@ -137,17 +130,15 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public TripPageResponse listPublicTrips(UUID userId, int page, int size) {
-        log.debug("Listing public trips for user={}, page={}, size={}", userId, page, size);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<Trip> tripPage = tripRepository.findPublicTripsExcludingUser(userId, pageRequest);
 
         List<Trip> pageTrips = tripPage.getContent();
         List<UUID> tripIds = pageTrips.stream().map(Trip::getId).toList();
 
-        // Resolve the current user's participation status per trip (for "Requested to Join" state)
         Map<UUID, String> userStatusByTrip = new HashMap<>();
-        // Count accepted members per trip
         Map<UUID, Integer> memberCountByTrip = new HashMap<>();
+
         if (!tripIds.isEmpty()) {
             for (Participant p : participantRepository.findByUserIdAndTripIds(userId, tripIds)) {
                 userStatusByTrip.put(p.getTrip().getId(), p.getStatus().name());
@@ -177,10 +168,8 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public TripDetailResponse getTripDetail(UUID tripId, UUID userId) {
-        log.debug("Fetching trip detail: tripId={}, requestedBy={}", tripId, userId);
         Trip trip = findTripOrThrow(tripId);
 
-        // Allow access if public trip or if user is a participant
         if (trip.getVisibility() != TripVisibility.PUBLIC) {
             ensureParticipant(tripId, userId);
         }
@@ -194,80 +183,48 @@ public class TripService {
 
     @Transactional
     public TripResponse updateTrip(UUID tripId, UpdateTripRequest request, UUID userId) {
-        log.info("Updating trip: tripId={}, requestedBy={}", tripId, userId);
         Trip trip = findTripOrThrow(tripId);
         ensureOwner(tripId, userId);
 
-        if (request.title() != null) {
-            trip.setTitle(request.title());
-        }
-        if (request.destination() != null) {
-            trip.setDestination(request.destination());
-        }
-        if (request.description() != null) {
-            trip.setDescription(request.description());
-        }
-        if (request.startDate() != null) {
-            trip.setStartDate(request.startDate());
-        }
-        if (request.endDate() != null) {
-            trip.setEndDate(request.endDate());
-        }
-        if (request.startDate() != null || request.endDate() != null) {
+        if (request.title() != null) trip.setTitle(request.title());
+        if (request.destination() != null) trip.setDestination(request.destination());
+        if (request.description() != null) trip.setDescription(request.description());
+        if (request.startDate() != null) trip.setStartDate(request.startDate());
+        if (request.endDate() != null) trip.setEndDate(request.endDate());
+        if (request.startDate() != null || request.endDate() != null)
             validateDates(trip.getStartDate(), trip.getEndDate());
-        }
-        if (request.status() != null) {
-            trip.setStatus(parseStatus(request.status()));
-        }
-        if (request.visibility() != null) {
-            trip.setVisibility(parseVisibility(request.visibility()));
-        }
-        if (request.maxParticipants() != null) {
-            trip.setMaxParticipants(request.maxParticipants());
-        }
-        if (request.coverImageUrl() != null) {
-            trip.setCoverImageUrl(request.coverImageUrl());
-        }
+        if (request.status() != null) trip.setStatus(parseStatus(request.status()));
+        if (request.visibility() != null) trip.setVisibility(parseVisibility(request.visibility()));
+        if (request.maxParticipants() != null) trip.setMaxParticipants(request.maxParticipants());
+        if (request.coverImageUrl() != null) trip.setCoverImageUrl(request.coverImageUrl());
 
         trip = tripRepository.save(trip);
-        log.info("Trip updated: tripId={}, title='{}', updatedBy={}", trip.getId(), trip.getTitle(), userId);
         return toTripResponse(trip);
     }
 
-    /**
-     * Trip status lifecycle transition. Restricted to the trip owner.
-     *
-     * <p>Moves a trip between its lifecycle states
-     * ({@code DRAFT → PLANNED → ONGOING → COMPLETED}, or {@code CANCELLED}).
-     */
     @Transactional
     public TripResponse updateTripStatus(UUID tripId, String status, UUID userId) {
-        log.info("Updating trip status: tripId={}, requestedStatus={}, requestedBy={}",
-                tripId, status, userId);
         Trip trip = findTripOrThrow(tripId);
         ensureOwner(tripId, userId);
 
-        TripStatus previous = trip.getStatus();
         TripStatus next = parseStatus(status);
         trip.setStatus(next);
         trip = tripRepository.save(trip);
 
-        log.info("Trip status changed: tripId={}, {} → {}, by={}",
-                tripId, previous, next, userId);
         return toTripResponse(trip);
     }
 
     @Transactional
     public void deleteTrip(UUID tripId, UUID userId) {
-        log.info("Deleting (cancelling) trip: tripId={}, requestedBy={}", tripId, userId);
         Trip trip = findTripOrThrow(tripId);
         ensureOwner(tripId, userId);
         trip.setStatus(TripStatus.CANCELLED);
         tripRepository.save(trip);
-        log.info("Trip cancelled: tripId={}, title='{}', deletedBy={}", tripId, trip.getTitle(), userId);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────
 
     private Trip findTripOrThrow(UUID tripId) {
         return tripRepository.findById(tripId)
@@ -277,15 +234,13 @@ public class TripService {
     private void ensureParticipant(UUID tripId, UUID userId) {
         participantRepository.findByTripIdAndUserId(tripId, userId)
                 .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED)
-                .orElseThrow(() -> new ForbiddenException(
-                        "You are not a participant of this trip"));
+                .orElseThrow(() -> new ForbiddenException("You are not a participant of this trip"));
     }
 
     private void ensureOwner(UUID tripId, UUID userId) {
         participantRepository.findByTripIdAndUserId(tripId, userId)
                 .filter(p -> p.getRole() == ParticipantRole.OWNER)
-                .orElseThrow(() -> new ForbiddenException(
-                        "Only the trip owner can perform this action"));
+                .orElseThrow(() -> new ForbiddenException("Only the trip owner can perform this action"));
     }
 
     private void validateDates(java.time.LocalDate startDate, java.time.LocalDate endDate) {
@@ -295,9 +250,7 @@ public class TripService {
     }
 
     private TripVisibility parseVisibility(String visibility) {
-        if (visibility == null) {
-            return TripVisibility.PRIVATE;
-        }
+        if (visibility == null) return TripVisibility.PRIVATE;
         try {
             return TripVisibility.valueOf(visibility.toUpperCase());
         } catch (IllegalArgumentException e) {
@@ -313,21 +266,15 @@ public class TripService {
         }
     }
 
-    /**
-     * Publishes a {@code trip.created} event to RabbitMQ so that user-service
-     * can upgrade the creator's platform role to HOST.
-     */
     private void publishTripCreatedEvent(UUID tripId, UUID createdBy) {
-        java.util.Map<String, Object> event = java.util.Map.of(
+        Map<String, Object> event = Map.of(
                 "eventType", "trip.created",
                 "tripId", tripId.toString(),
                 "createdBy", createdBy.toString(),
-                "timestamp", java.time.Instant.now().toString()
+                "timestamp", Instant.now().toString()
         );
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.created", event);
-            log.info("Event published: trip.created | tripId={} | owner={} | exchange={}",
-                    tripId, createdBy, RabbitMQConfig.TRIP_EXCHANGE);
         } catch (AmqpException ex) {
             log.error("Failed to publish trip.created event for tripId={}", tripId, ex);
         }

@@ -23,6 +23,7 @@ import {
   participantsApi,
   preferencesApi,
   hasTripPreferences,
+  ApiError,
   type Trip,
   type CreateTripRequest,
   type TripPreferenceInput,
@@ -176,16 +177,33 @@ export default function DashboardPage() {
   ) {
     try {
       const { trip, prefsSaved } = await createTripWithPreferences(data, preferences);
+
       setCreateOpen(false);
       addToast(
         prefsSaved ? "Trip created!" : "Trip created — preferences need a retry.",
         prefsSaved ? "success" : "error",
       );
+
       router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`);
-    } catch {
+
+    } catch (err: any) {
+      console.log("TRIP ERROR:", err);
+
+      const code = err instanceof ApiError ? err.body?.error ?? err.body?.message : err?.message;
+
+      if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
+        addToast(
+          "You've reached the free plan limit. Upgrade to continue creating trips.",
+          "warning"
+        );
+        router.push("/dashboard/payments?upgradeRequired=true");
+        return;
+      }
+
       addToast("Failed to create trip", "error");
     }
   }
+
 
   async function handleJoinTrip(tripId: string) {
     setJoiningTripId(tripId);

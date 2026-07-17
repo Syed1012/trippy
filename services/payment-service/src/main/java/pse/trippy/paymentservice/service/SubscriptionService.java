@@ -108,10 +108,28 @@ public class SubscriptionService {
 
     @Transactional(readOnly = true)
     public SubscriptionResponse getSubscription(UUID userId) {
-        UserSubscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new SubscriptionNotFoundException(
-                        "No subscription found for user: " + userId));
-        return toSubscriptionResponse(subscription);
+
+        return subscriptionRepository.findByUserId(userId)
+                .map(sub -> new SubscriptionResponse(
+                        sub.getId(),                         // subscriptionId
+                        sub.getPlan().name(),                // plan
+                        sub.getStatus().name(),              // status
+                        sub.getCurrentPeriodStart(),
+                        sub.getCurrentPeriodEnd(),
+                        sub.isCancelAtPeriodEnd(),           // cancelAtPeriodEnd
+                        sub.getPriceAmount(),
+                        sub.getCurrency()
+                ))
+                .orElseGet(() -> new SubscriptionResponse(
+                        null,                                // subscriptionId (FREE users have none)
+                        "FREE",                              // plan
+                        "ACTIVE",                            // status
+                        null,                                // currentPeriodStart
+                        null,                                // currentPeriodEnd
+                        false,                               // cancelAtPeriodEnd
+                        BigDecimal.ZERO,                     // priceAmount
+                        "INR"                                // or your default currency
+                ));
     }
 
     @Transactional

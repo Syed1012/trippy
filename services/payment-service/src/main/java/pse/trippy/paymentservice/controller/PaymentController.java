@@ -47,7 +47,6 @@ public class PaymentController {
     public ResponseEntity<CheckoutResponse> checkout(
             @Valid @RequestBody CheckoutRequest request,
             @RequestHeader("X-User-Id") UUID userId) {
-                System.out.println("Checkout request received");
         CheckoutResponse response = paymentService.checkout(userId, request);
         return ResponseEntity.ok(response);
     }

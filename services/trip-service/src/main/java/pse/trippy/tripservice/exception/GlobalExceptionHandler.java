@@ -38,4 +38,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse(400, errors));
     }
+
+    @ExceptionHandler(TripLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleTripLimitExceeded(TripLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse(
+                        403,
+                        "FREE_PLAN_LIMIT_EXCEEDED"
+                ));
+    }
+
 }

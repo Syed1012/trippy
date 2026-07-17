@@ -32,6 +32,9 @@ spring:
     username: ${MQ_USERNAME}
     password: ${MQ_PASSWORD}
     virtual-host: ${RABBITMQ_DEFAULT_VHOST:trippy}
+  cloud:
+    compatibility-verifier:
+      enabled: false
 
 server:
   port: 8082
@@ -69,3 +72,7 @@ logging:
     org.springframework.amqp: WARN
   pattern:
     console: "%d{HH:mm:ss.SSS} %highlight(%-5level) [trip-service] %cyan(%logger{20}) — %msg%n"
+
+payment:
+  service:
+    url: http://localhost:8086

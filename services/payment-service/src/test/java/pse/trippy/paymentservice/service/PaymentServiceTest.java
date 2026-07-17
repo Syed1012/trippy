@@ -44,10 +44,6 @@ class PaymentServiceTest {
     @InjectMocks
     private PaymentService paymentService;
 
-    // -------------------------------
-    // PLAN TESTS (still valid)
-    // -------------------------------
-
     @Test
     @DisplayName("getAvailablePlans returns PREMIUM and ENTERPRISE")
     void getAvailablePlansReturnsBothPlans() {
@@ -60,10 +56,6 @@ class PaymentServiceTest {
         assertThat(plans.get(1).getPlanId()).isEqualTo("ENTERPRISE");
         assertThat(plans.get(1).getPrice()).isEqualByComparingTo(new BigDecimal("29.99"));
     }
-
-    // -------------------------------
-    // CHECKOUT TESTS (rewritten for Stripe)
-    // -------------------------------
 
     @Test
     @DisplayName("checkout returns Stripe payment link for PREMIUM")
@@ -104,15 +96,10 @@ class PaymentServiceTest {
                 .hasMessageContaining("INVALID_PLAN");
     }
 
-    // -------------------------------
-    // TRANSACTION HISTORY TESTS (still valid)
-    // -------------------------------
-
     @Test
     @DisplayName("getTransactions returns newest transactions first and maps billing fields")
     void getTransactionsReturnsNewestFirst() {
         UUID userId = UUID.randomUUID();
-
         Transaction older = Transaction.builder()
                 .id(UUID.randomUUID())
                 .userId(userId)
@@ -144,7 +131,6 @@ class PaymentServiceTest {
         assertThat(transactions.get(0).transactionId()).isEqualTo(newer.getId());
         assertThat(transactions.get(0).description()).isEqualTo("Enterprise Plan subscription");
         assertThat(transactions.get(0).type()).isEqualTo("SUBSCRIPTION");
-
         assertThat(transactions.get(1).transactionId()).isEqualTo(older.getId());
         assertThat(transactions.get(1).description()).isEqualTo("Premium Plan subscription");
     }
