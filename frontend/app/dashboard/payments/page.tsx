@@ -28,7 +28,6 @@ export default function PaymentPage() {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-  const [isActionLoading, setIsActionLoading] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("success")) {
@@ -62,18 +61,6 @@ export default function PaymentPage() {
       addToast("Failed to initiate checkout. Please try again.", "error");
     } finally {
       setCheckoutLoading(null);
-    }
-  }
-
-  async function openCustomerPortal() {
-    setIsActionLoading(true);
-    try {
-      const response = await paymentsApi.createPortalSession();
-      window.location.href = response.url;
-    } catch {
-      addToast("Could not open billing management", "error");
-    } finally {
-      setIsActionLoading(false);
     }
   }
 

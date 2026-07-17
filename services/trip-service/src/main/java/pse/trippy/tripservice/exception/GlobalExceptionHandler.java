@@ -40,7 +40,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(TripLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleTripLimitExceeded(TripLimitExceededException ex) {
+    public ResponseEntity<ErrorResponse> handleTripLimitExceeded() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ErrorResponse(
                         403,
