@@ -1,555 +1,30 @@
 openapi: 3.0.3
 info:
-  title: Trip Service API Contract
+  title: Trip Service API
   description: |
-    ## Overview
-    Complete API contract for the Trip Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Trip CRUD Operations (create, read, update, delete)
-    - Itinerary Management (manual & AI-generated)
-    - Participant Management (invitations, roles, join/leave)
-    - Discovery Feed (public trips from verified hosts)
-    - Trip Search & Filtering
-    - Integration with AI Service for itinerary generation
-    - Integration with User Service for quota validation
-
-    ## Architecture Pattern
-    **Hexagonal Architecture (Ports & Adapters)**
-    - Domain layer contains Trip, Itinerary, Participant entities
-    - Application layer contains use cases
-    - Infrastructure layer contains REST adapters, DB repositories, external service clients
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Public** | No Auth | Discovery feed (public trips) |
-    | **Protected** | JWT (User) | Trip CRUD, Participants, Itinerary |
-    | **Internal S2S** | Service Token | Chat Service queries |
-    | **Admin** | JWT (Admin) | Trip moderation |
-
-    ## S2S Communication (Outbound)
-    | Target Service | Purpose | Endpoint Called |
-    |----------------|---------|-----------------|
-    | **User Service** | Check quota before trip creation | `GET /users/{userId}/subscription/quota` |
-    | **User Service** | Increment usage after creation | `POST /users/{userId}/subscription/increment` |
-    | **User Service** | Validate user exists (invitations) | `GET /users/{userId}/exists` |
-    | **User Service** | Batch get user profiles | `POST /users/batch` |
-    | **AI Service** | Generate itinerary | `POST /ai/itineraries` |
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-User-Id` | Injected by Gateway | User UUID from JWT |
-    | `X-User-Plan` | Injected by Gateway | Subscription tier |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-
-    ## Database Schema
-    - **Schema Name**: `trip_schema`
-    - **Tables**: 
-      - `trips` - Core trip data (id, title, destination, organizer_id, status, visibility)
-      - `itineraries` - Generated/manual itineraries (id, trip_id, generated_at, source)
-      - `day_plans` - Daily plans within itinerary (id, itinerary_id, day_number, date)
-      - `activities` - Activities within day plans (id, day_plan_id, time, title, location)
-      - `participants` - Trip participants (trip_id, user_id, role, status, invited_at)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **PostgreSQL** | Trip data persistence |
-    | **User Service** | Quota validation, user profiles |
-    | **AI Service** | Itinerary generation |
-
-  version: 1.0.0
-  contact:
-    name: Trip Domain Team
-    email: trip-team@trippy.dev
-
+    Trip microservice for the Trippy platform. Manages trips, itineraries,
+    participants, voting, and activity comments.
+  version: 2.0.0
 servers:
   - url: http://localhost:8082
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://trip-service.internal:8082
-    description: Internal Cluster URL (K8s/Docker)
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
   - name: Trips
-    description: Trip CRUD operations
   - name: Itinerary
-    description: Itinerary management and AI generation
   - name: Participants
-    description: Participant and invitation management
-  - name: Discovery
-    description: Public trip discovery feed
-  - name: Internal
-    description: Service-to-service APIs
-  - name: Admin
-    description: Administrative operations
+  - name: Voting
+  - name: Comments
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    TripId:
-      name: tripId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    UserId:
-      name: userId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    ErrorResponse:
-      type: object
-      required:
-        - error
-        - message
-        - timestamp
-      properties:
-        error:
-          type: string
-        message:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-        path:
-          type: string
-        details:
-          type: array
-          items:
-            type: object
-            properties:
-              field:
-                type: string
-              message:
-                type: string
-
-    # =====================================================
-    # ENUMS
-    # =====================================================
-    TripStatus:
-      type: string
-      enum: ["DRAFT", "PLANNED", "ONGOING", "COMPLETED", "CANCELLED"]
-
-    TripVisibility:
-      type: string
-      enum: ["PRIVATE", "PUBLIC"]
-
-    ParticipantRole:
-      type: string
-      enum: ["OWNER", "EDITOR", "VIEWER"]
-
-    ParticipantStatus:
-      type: string
-      enum: ["PENDING", "ACCEPTED", "DECLINED", "LEFT"]
-
-    BudgetLevel:
-      type: string
-      enum: ["ECONOMY", "MODERATE", "LUXURY"]
-
-    # =====================================================
-    # TRIP SCHEMAS
-    # =====================================================
-    Trip:
-      type: object
-      required:
-        - tripId
-        - title
-        - destination
-        - organizerId
-        - status
-        - visibility
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        title:
-          type: string
-          example: "Summer in Paris"
-        description:
-          type: string
-        destination:
-          type: string
-          example: "Paris, France"
-        coverImageUrl:
-          type: string
-          format: uri
-        startDate:
-          type: string
-          format: date
-        endDate:
-          type: string
-          format: date
-        organizerId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/TripStatus'
-        visibility:
-          $ref: '#/components/schemas/TripVisibility'
-        budgetLevel:
-          $ref: '#/components/schemas/BudgetLevel'
-        participantCount:
-          type: integer
-        hasItinerary:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    TripDetail:
-      allOf:
-        - $ref: '#/components/schemas/Trip'
-        - type: object
-          properties:
-            participants:
-              type: array
-              items:
-                $ref: '#/components/schemas/Participant'
-            itinerary:
-              $ref: '#/components/schemas/Itinerary'
-            organizer:
-              $ref: '#/components/schemas/TripOrganizer'
-
-    TripOrganizer:
-      type: object
-      properties:
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        avatarUrl:
-          type: string
-          format: uri
-        isVerifiedHost:
-          type: boolean
-
-    Participant:
-      type: object
-      properties:
-        participantId:
-          type: string
-          format: uuid
-        tripId:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        avatarUrl:
-          type: string
-          format: uri
-        role:
-          $ref: '#/components/schemas/ParticipantRole'
-        status:
-          $ref: '#/components/schemas/ParticipantStatus'
-        invitedAt:
-          type: string
-          format: date-time
-        joinedAt:
-          type: string
-          format: date-time
-
-    # =====================================================
-    # ITINERARY SCHEMAS
-    # =====================================================
-    Itinerary:
-      type: object
-      properties:
-        itineraryId:
-          type: string
-          format: uuid
-        tripId:
-          type: string
-          format: uuid
-        generatedAt:
-          type: string
-          format: date-time
-        source:
-          type: string
-          enum: ["AI_GENERATED", "MANUAL", "TEMPLATE"]
-        summary:
-          type: string
-        days:
-          type: array
-          items:
-            $ref: '#/components/schemas/DayPlan'
-
-    DayPlan:
-      type: object
-      properties:
-        dayPlanId:
-          type: string
-          format: uuid
-        dayNumber:
-          type: integer
-        date:
-          type: string
-          format: date
-        title:
-          type: string
-        activities:
-          type: array
-          items:
-            $ref: '#/components/schemas/Activity'
-
-    Activity:
-      type: object
-      properties:
-        activityId:
-          type: string
-          format: uuid
-        time:
-          type: string
-        duration:
-          type: integer
-        title:
-          type: string
-        description:
-          type: string
-        location:
-          type: string
-        category:
-          type: string
-          enum: ["SIGHTSEEING", "FOOD", "TRANSPORT", "ACCOMMODATION", "ACTIVITY", "FREE_TIME"]
-        estimatedCost:
-          type: number
-          format: float
-
-    # =====================================================
-    # REQUEST SCHEMAS
-    # =====================================================
-    CreateTripRequest:
-      type: object
-      required:
-        - title
-        - destination
-      properties:
-        title:
-          type: string
-          minLength: 3
-          maxLength: 100
-        description:
-          type: string
-          maxLength: 1000
-        destination:
-          type: string
-        startDate:
-          type: string
-          format: date
-        endDate:
-          type: string
-          format: date
-        budgetLevel:
-          $ref: '#/components/schemas/BudgetLevel'
-        visibility:
-          $ref: '#/components/schemas/TripVisibility'
-
-    UpdateTripRequest:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        destination:
-          type: string
-        startDate:
-          type: string
-          format: date
-        endDate:
-          type: string
-          format: date
-        budgetLevel:
-          $ref: '#/components/schemas/BudgetLevel'
-        status:
-          $ref: '#/components/schemas/TripStatus'
-        visibility:
-          $ref: '#/components/schemas/TripVisibility'
-
-    GenerateItineraryRequest:
-      type: object
-      properties:
-        userPrompt:
-          type: string
-          maxLength: 500
-          example: "Focus on art museums and hidden cafes."
-        tone:
-          type: string
-          enum: ["RELAXED", "ADVENTUROUS", "FAMILY", "ROMANTIC", "CULTURAL"]
-        includeTransport:
-          type: boolean
-          default: true
-        includeMeals:
-          type: boolean
-          default: true
-
-    InviteParticipantRequest:
-      type: object
-      required:
-        - userId
-      properties:
-        userId:
-          type: string
-          format: uuid
-        role:
-          $ref: '#/components/schemas/ParticipantRole'
-        message:
-          type: string
-          maxLength: 200
-
-    # =====================================================
-    # INTERNAL S2S SCHEMAS
-    # =====================================================
-    TripExistsResponse:
-      type: object
-      properties:
-        exists:
-          type: boolean
-        tripId:
-          type: string
-          format: uuid
-        organizerId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/TripStatus'
-
-    TripParticipantsResponse:
-      type: object
-      properties:
-        tripId:
-          type: string
-          format: uuid
-        participants:
-          type: array
-          items:
-            type: object
-            properties:
-              userId:
-                type: string
-                format: uuid
-              role:
-                $ref: '#/components/schemas/ParticipantRole'
-              status:
-                $ref: '#/components/schemas/ParticipantStatus'
-
-    # =====================================================
-    # PAGINATION
-    # =====================================================
-    PaginationMeta:
-      type: object
-      properties:
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-        totalPages:
-          type: integer
-
-    TripListResponse:
-      type: object
-      properties:
-        trips:
-          type: array
-          items:
-            $ref: '#/components/schemas/Trip'
-        pagination:
-          $ref: '#/components/schemas/PaginationMeta'
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # TRIP MANAGEMENT
-  # =====================================================
   /trips:
-    get:
-      summary: List My Trips
-      operationId: getMyTrips
-      tags: [Trips]
-      security: [BearerAuth: []]
-      description: Returns all trips where the user is owner or participant.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: status
-          in: query
-          schema:
-            $ref: '#/components/schemas/TripStatus'
-        - name: role
-          in: query
-          schema:
-            $ref: '#/components/schemas/ParticipantRole'
-        - name: page
-          in: query
-          schema: { type: integer, default: 0 }
-        - name: size
-          in: query
-          schema: { type: integer, default: 20, maximum: 50 }
-      responses:
-        '200':
-          description: Trip list
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TripListResponse'
-
     post:
-      summary: Create Trip
-      operationId: createTrip
       tags: [Trips]
-      security: [BearerAuth: []]
-      description: |
-        Creates a new trip. User becomes OWNER.
-        
-        **S2S Flow:**
-        1. `GET http://localhost:8081/users/{userId}/subscription/quota` - Check quota
-        2. Create trip in database
-        3. `POST http://localhost:8081/users/{userId}/subscription/increment` - Increment usage
+      summary: Create a trip
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
@@ -558,42 +33,78 @@ paths:
               $ref: '#/components/schemas/CreateTripRequest'
       responses:
         '201':
-          description: Trip created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TripDetail'
-        '403':
-          description: Subscription quota exceeded
+                $ref: '#/components/schemas/TripResponse'
+    get:
+      tags: [Trips]
+      summary: List my trips (paginated)
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripPageResponse'
+
+  /trips/public:
+    get:
+      tags: [Trips]
+      summary: List public trips
+      description: >
+        Discovery feed of PUBLIC trips the caller does not already participate in.
+        DRAFT trips are excluded — a trip is only shared with the platform once its
+        itinerary is substantial enough to leave DRAFT (see PUT /trips/{tripId}/itinerary).
+        CANCELLED trips are also excluded.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripPageResponse'
 
   /trips/{tripId}:
     get:
-      summary: Get Trip Details
-      operationId: getTrip
       tags: [Trips]
-      security: [BearerAuth: []]
+      summary: Get trip details
+      description: >
+        Open access only for a published (non-DRAFT) PUBLIC trip. DRAFT trips — and
+        all PRIVATE/UNLISTED trips — require the caller to be an accepted participant,
+        otherwise 403. This keeps unpublished DRAFT trips hidden from other users even
+        via a direct link.
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Trip details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TripDetail'
-        '404':
-          description: Trip not found
-
+                $ref: '#/components/schemas/TripDetailResponse'
+        '403':
+          description: Not a participant of a non-public or DRAFT trip
     patch:
-      summary: Update Trip
-      operationId: updateTrip
       tags: [Trips]
-      security: [BearerAuth: []]
-      description: Requires OWNER or EDITOR role.
+      summary: Update trip
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
@@ -602,469 +113,642 @@ paths:
               $ref: '#/components/schemas/UpdateTripRequest'
       responses:
         '200':
-          description: Trip updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Trip'
-        '403':
-          description: Insufficient permissions
-
+                $ref: '#/components/schemas/TripResponse'
     delete:
-      summary: Delete Trip
-      operationId: deleteTrip
       tags: [Trips]
-      security: [BearerAuth: []]
-      description: Only OWNER can delete.
+      summary: Delete trip
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '204':
           description: Deleted
-        '403':
-          description: Only owner can delete
 
-  /trips/{tripId}/cover:
-    post:
-      summary: Upload Cover Image
-      operationId: uploadCoverImage
+  /trips/{tripId}/status:
+    patch:
       tags: [Trips]
-      security: [BearerAuth: []]
+      summary: Transition trip status
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-      responses:
-        '200':
-          description: Cover uploaded
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  coverImageUrl:
-                    type: string
-                    format: uri
-
-  # =====================================================
-  # ITINERARY
-  # =====================================================
-  /trips/{tripId}/itinerary:
-    get:
-      summary: Get Itinerary
-      operationId: getItinerary
-      tags: [Itinerary]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Itinerary
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Itinerary'
-
-    put:
-      summary: Update Itinerary
-      operationId: updateItinerary
-      tags: [Itinerary]
-      security: [BearerAuth: []]
-      description: Manual itinerary update. Requires OWNER or EDITOR.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Itinerary'
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
       responses:
         '200':
-          description: Updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Itinerary'
+                $ref: '#/components/schemas/TripResponse'
 
-  /trips/{tripId}/itinerary/generate:
-    post:
-      summary: Generate AI Itinerary
-      operationId: generateItinerary
+  /trips/{tripId}/itinerary:
+    get:
       tags: [Itinerary]
-      security: [BearerAuth: []]
-      description: |
-        Calls AI Service to generate itinerary.
-        
-        **S2S Call:**
-        `POST http://localhost:8084/ai/itineraries`
+      summary: Get itinerary
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryResponse'
+    put:
+      tags: [Itinerary]
+      summary: Replace itinerary (full update)
+      description: >
+        Full replace of the itinerary. Side effect: the trip status is auto-managed
+        between DRAFT and PLANNED based on the saved plan. A trip becomes PLANNED
+        (published) once at least two days each have an activity, or a single day has
+        more than one activity; otherwise it stays/returns to DRAFT. Deliberate later
+        states (ONGOING, COMPLETED, CANCELLED) are never changed by this endpoint.
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenerateItineraryRequest'
+              $ref: '#/components/schemas/UpdateItineraryRequest'
       responses:
         '200':
-          description: Itinerary generated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Itinerary'
-        '429':
-          description: AI quota exceeded
-        '504':
-          description: AI service timeout
+                $ref: '#/components/schemas/ItineraryResponse'
 
-  # =====================================================
-  # PARTICIPANTS
-  # =====================================================
   /trips/{tripId}/participants:
     get:
-      summary: List Participants
-      operationId: getParticipants
       tags: [Participants]
-      security: [BearerAuth: []]
+      summary: List participants
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Participants
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Participant'
+                  $ref: '#/components/schemas/ParticipantResponse'
 
-  /trips/{tripId}/invitations:
+  /trips/{tripId}/participants/invite:
     post:
-      summary: Invite User
-      operationId: inviteParticipant
       tags: [Participants]
-      security: [BearerAuth: []]
-      description: |
-        Invite user to trip. Requires OWNER or EDITOR.
-        
-        **S2S Call:**
-        `GET http://localhost:8081/users/{userId}/exists`
+      summary: Invite a user
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/InviteParticipantRequest'
+              type: object
+              properties:
+                userId: { type: string, format: uuid }
+                email: { type: string }
+                message: { type: string }
+                inviterName: { type: string }
       responses:
         '201':
-          description: Invited
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Participant'
-        '404':
-          description: User not found
+                $ref: '#/components/schemas/ParticipantActionResponse'
 
-  /trips/{tripId}/invitations/accept:
+  /trips/{tripId}/participants/approve:
     post:
-      summary: Accept Invitation
-      operationId: joinTrip
       tags: [Participants]
-      security: [BearerAuth: []]
+      summary: Approve a join request (owner only)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Joined
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Participant'
-
-  /trips/{tripId}/invitations/decline:
-    post:
-      summary: Decline Invitation
-      operationId: declineInvitation
-      tags: [Participants]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Declined
-
-  /trips/{tripId}/participants/leave:
-    post:
-      summary: Leave Trip
-      operationId: leaveTrip
-      tags: [Participants]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Left trip
-        '400':
-          description: Owner cannot leave
-
-  /trips/{tripId}/participants/{userId}:
-    patch:
-      summary: Update Participant Role
-      operationId: updateParticipant
-      tags: [Participants]
-      security: [BearerAuth: []]
-      description: Only OWNER can update roles.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         content:
           application/json:
             schema:
               type: object
               properties:
-                role:
-                  $ref: '#/components/schemas/ParticipantRole'
+                userId: { type: string, format: uuid }
       responses:
         '200':
-          description: Updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Participant'
+                $ref: '#/components/schemas/ParticipantActionResponse'
 
-    delete:
-      summary: Remove Participant
-      operationId: removeParticipant
+  /trips/{tripId}/participants/reject:
+    post:
       tags: [Participants]
-      security: [BearerAuth: []]
-      description: Only OWNER can remove.
+      summary: Reject a join request (owner only)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantActionResponse'
+
+  /trips/{tripId}/participants/accept:
+    post:
+      tags: [Participants]
+      summary: Accept an invitation
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantActionResponse'
+
+  /trips/{tripId}/participants/decline:
+    post:
+      tags: [Participants]
+      summary: Decline an invitation
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantActionResponse'
+
+  /trips/{tripId}/participants/request-join:
+    post:
+      tags: [Participants]
+      summary: Request to join a public trip
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requesterName: { type: string }
+                message: { type: string }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantActionResponse'
+
+  /trips/{tripId}/participants/leave:
+    delete:
+      tags: [Participants]
+      summary: Leave a trip
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '204':
-          description: Removed
+          description: Left
 
-  /trips/invitations:
-    get:
-      summary: My Pending Invitations
-      operationId: getMyInvitations
+  /trips/{tripId}/participants/kick/{targetUserId}:
+    delete:
       tags: [Participants]
-      security: [BearerAuth: []]
+      summary: Kick a participant (owner only)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: targetUserId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Invitations
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/ParticipantActionResponse'
+
+  /trips/{tripId}/itinerary/days/{dayNumber}/vote:
+    post:
+      tags: [Voting]
+      summary: Vote on a day plan
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: dayNumber
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [voteType]
+              properties:
+                voteType: { type: string, enum: [UPVOTE, DOWNVOTE] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteSummaryResponse'
+    delete:
+      tags: [Voting]
+      summary: Remove day vote
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: dayNumber
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteSummaryResponse'
+
+  /trips/{tripId}/itinerary/days/{dayNumber}/votes:
+    get:
+      tags: [Voting]
+      summary: Day vote summary
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: dayNumber
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteSummaryResponse'
+
+  /trips/{tripId}/itinerary/voting-settings:
+    put:
+      tags: [Voting]
+      summary: Update voting settings
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                votingEnabled: { type: boolean }
+                votingDeadline: { type: string, format: date-time, nullable: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VoteSummaryResponse'
+
+  /trips/{tripId}/itinerary/activities/{activityId}/vote:
+    post:
+      tags: [Voting]
+      summary: Vote on an activity
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [voteType]
+              properties:
+                voteType: { type: string, enum: [UPVOTE, DOWNVOTE] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityVoteSummaryResponse'
+    delete:
+      tags: [Voting]
+      summary: Remove activity vote
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityVoteSummaryResponse'
+
+  /trips/{tripId}/activities/{activityId}/comments:
+    get:
+      tags: [Comments]
+      summary: List activity comments
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommentResponse'
+    post:
+      tags: [Comments]
+      summary: Add a comment
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 1000 }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+
+  /trips/{tripId}/activities/{activityId}/comments/{commentId}:
+    delete:
+      tags: [Comments]
+      summary: Delete own comment
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: commentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+components:
+  parameters:
+    TripId:
+      name: tripId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: Injected by API Gateway from JWT
+
+  schemas:
+    CreateTripRequest:
+      type: object
+      required: [title, destination]
+      properties:
+        title: { type: string, maxLength: 200 }
+        destination: { type: string }
+        description: { type: string, maxLength: 2000 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        visibility: { type: string, enum: [PRIVATE, PUBLIC, UNLISTED] }
+        maxParticipants: { type: integer, minimum: 1, maximum: 20 }
+
+    UpdateTripRequest:
+      type: object
+      properties:
+        title: { type: string, maxLength: 200 }
+        destination: { type: string }
+        description: { type: string, maxLength: 2000 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        status: { type: string }
+        visibility: { type: string }
+        maxParticipants: { type: integer, minimum: 1, maximum: 20 }
+        coverImageUrl: { type: string }
+
+    TripResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        destination: { type: string }
+        description: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        status:
+          type: string
+          enum: [DRAFT, PLANNED, ONGOING, COMPLETED, CANCELLED]
+          description: >
+            DRAFT ⇄ PLANNED is auto-managed from the itinerary (a trip stays DRAFT and
+            hidden from other users until 2+ days each have an activity, or one day has
+            more than one). ONGOING/COMPLETED/CANCELLED are set deliberately via
+            PATCH /trips/{tripId}/status and are never overridden by itinerary edits.
+        visibility: { type: string, enum: [PRIVATE, PUBLIC, UNLISTED] }
+        maxParticipants: { type: integer }
+        coverImageUrl: { type: string }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        currentUserStatus: { type: string }
+        memberCount: { type: integer }
+
+    TripDetailResponse:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/TripResponse'
+        - type: object
+          properties:
+            participants:
+              type: array
+              items:
+                $ref: '#/components/schemas/ParticipantResponse'
+
+    TripPageResponse:
+      type: object
+      properties:
+        trips:
+          type: array
+          items:
+            $ref: '#/components/schemas/TripResponse'
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+        totalPages: { type: integer }
+        hasNext: { type: boolean }
+
+    UpdateItineraryRequest:
+      type: object
+      required: [dayPlans]
+      properties:
+        dayPlans:
+          type: array
+          items:
+            type: object
+            required: [dayNumber, activities]
+            properties:
+              dayNumber: { type: integer, minimum: 1 }
+              date: { type: string, format: date }
+              title: { type: string, maxLength: 200 }
+              activities:
                 type: array
                 items:
                   type: object
+                  required: [title, category]
                   properties:
-                    tripId:
-                      type: string
-                      format: uuid
-                    tripTitle:
-                      type: string
-                    destination:
-                      type: string
-                    invitedBy:
-                      $ref: '#/components/schemas/TripOrganizer'
-                    invitedAt:
-                      type: string
-                      format: date-time
-                    role:
-                      $ref: '#/components/schemas/ParticipantRole'
+                    title: { type: string, maxLength: 200 }
+                    description: { type: string, maxLength: 2000 }
+                    location: { type: string, maxLength: 500 }
+                    startTime: { type: string, format: time }
+                    endTime: { type: string, format: time }
+                    category: { type: string, enum: [ACCOMMODATION, TRANSPORT, FOOD, SIGHTSEEING, ACTIVITY, SHOPPING, OTHER] }
+                    notes: { type: string, maxLength: 1000 }
+                    estimatedCost: { type: number, description: "Estimated cost per person (numeric, whole or decimal)" }
+                    currency: { type: string, maxLength: 8, description: "ISO-ish currency code for estimatedCost, e.g. USD" }
 
-  # =====================================================
-  # DISCOVERY
-  # =====================================================
-  /trips/discover:
-    get:
-      summary: Discovery Feed
-      operationId: getDiscoveryFeed
-      tags: [Discovery]
-      description: Public trips from verified hosts.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: destination
-          in: query
-          schema: { type: string }
-        - name: startDateFrom
-          in: query
-          schema: { type: string, format: date }
-        - name: startDateTo
-          in: query
-          schema: { type: string, format: date }
-        - name: budgetLevel
-          in: query
-          schema:
-            $ref: '#/components/schemas/BudgetLevel'
-        - name: page
-          in: query
-          schema: { type: integer, default: 0 }
-        - name: size
-          in: query
-          schema: { type: integer, default: 20 }
-      responses:
-        '200':
-          description: Feed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TripListResponse'
+    ItineraryResponse:
+      type: object
+      properties:
+        tripId: { type: string, format: uuid }
+        dayPlans:
+          type: array
+          items:
+            $ref: '#/components/schemas/DayPlanResponse'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
-  /trips/{tripId}/join-requests:
-    post:
-      summary: Request to Join Public Trip
-      operationId: requestJoinPublicTrip
-      tags: [Discovery]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  maxLength: 300
-      responses:
-        '201':
-          description: Request sent
+    DayPlanResponse:
+      type: object
+      properties:
+        dayPlanId: { type: string, format: uuid }
+        dayNumber: { type: integer }
+        date: { type: string, format: date }
+        title: { type: string }
+        activities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityResponse'
+        votingEnabled: { type: boolean }
+        votingFrozen: { type: boolean }
+        votingDeadline: { type: string, format: date-time }
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        currentUserVote: { type: string, enum: [UPVOTE, DOWNVOTE], nullable: true }
 
-  # =====================================================
-  # INTERNAL S2S
-  # =====================================================
-  /trips/{tripId}/exists:
-    get:
-      summary: "[Internal] Check Trip Exists"
-      operationId: internalCheckTripExists
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Chat Service, Payment Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Trip info
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TripExistsResponse'
-        '404':
-          description: Not found
+    ActivityResponse:
+      type: object
+      properties:
+        activityId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        location: { type: string }
+        startTime: { type: string, format: time }
+        endTime: { type: string, format: time }
+        category: { type: string }
+        notes: { type: string }
+        estimatedCost: { type: number, nullable: true }
+        currency: { type: string, nullable: true }
+        orderIndex: { type: integer }
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        currentUserVote: { type: string, nullable: true }
 
-  /trips/{tripId}/participants:
-    get:
-      summary: "[Internal] Get Participants"
-      operationId: internalGetParticipants
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Chat Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Participants
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TripParticipantsResponse'
+    ParticipantResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        role: { type: string, enum: [OWNER, EDITOR, VIEWER, MEMBER] }
+        status: { type: string, enum: [PENDING, PENDING_APPROVAL, ACCEPTED, DECLINED, LEFT, INVITED] }
+        joinedAt: { type: string, format: date-time }
 
-  /trips/{tripId}/is-participant/{userId}:
-    get:
-      summary: "[Internal] Check Participant"
-      operationId: internalIsParticipant
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: "**Consumer**: Chat Service"
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  isParticipant:
-                    type: boolean
-                  role:
-                    $ref: '#/components/schemas/ParticipantRole'
-                  status:
-                    $ref: '#/components/schemas/ParticipantStatus'
+    ParticipantActionResponse:
+      type: object
+      properties:
+        message: { type: string }
+        participant:
+          $ref: '#/components/schemas/ParticipantResponse'
 
-  # =====================================================
-  # ADMIN
-  # =====================================================
-  /admin/trips:
-    get:
-      summary: "[Admin] List All Trips"
-      operationId: adminListTrips
-      tags: [Admin]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: page
-          in: query
-          schema: { type: integer, default: 0 }
-        - name: size
-          in: query
-          schema: { type: integer, default: 20 }
-        - name: status
-          in: query
-          schema:
-            $ref: '#/components/schemas/TripStatus'
-      responses:
-        '200':
-          description: Trips
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TripListResponse'
+    VoteSummaryResponse:
+      type: object
+      properties:
+        dayPlanId: { type: string, format: uuid }
+        dayNumber: { type: integer }
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        currentUserVote: { type: string, nullable: true }
+        votingEnabled: { type: boolean }
+        votingFrozen: { type: boolean }
+        votingDeadline: { type: string, format: date-time }
 
-  /admin/trips/{tripId}:
-    delete:
-      summary: "[Admin] Delete Trip"
-      operationId: adminDeleteTrip
-      tags: [Admin]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '204':
-          description: Deleted
+    ActivityVoteSummaryResponse:
+      type: object
+      properties:
+        activityId: { type: string, format: uuid }
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        currentUserVote: { type: string, nullable: true }
+
+    CommentResponse:
+      type: object
+      properties:
+        id: { type: string }
+        activityId: { type: string }
+        userId: { type: string }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }

@@ -41,7 +41,7 @@ class EmailServiceTest {
 
     @BeforeEach
     void setUp() {
-        emailService = new EmailService(mailSender, stringTemplateEngine(), emailLogRepository);
+        emailService = new EmailService(mailSender, stringTemplateEngine(), emailLogRepository, "no-reply@trippy.app");
     }
 
     @Test

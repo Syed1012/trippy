@@ -94,6 +94,15 @@ public class AiService {
     @Value("${spring.ai.openai.chat.options.model:llama-3.3-70b-versatile}")
     private String model;
 
+    @Value("${trippy.ai.groq.api-key:${GROQ_API_KEY:}}")
+    private String groqApiKey;
+
+    @Value("${trippy.ai.groq.base-url:https://api.groq.com/openai}")
+    private String groqBaseUrl;
+
+    @Value("${trippy.ai.groq.model:llama-3.3-70b-versatile}")
+    private String groqModel;
+
     @Value("${trippy.weather.openweather-api-key:}")
     private String openWeatherApiKey;
 
@@ -1303,12 +1312,20 @@ public class AiService {
 
     private String callGroqDirect(String prompt) {
         try {
-            String endpoint = baseUrl.endsWith("/")
-                    ? baseUrl + "v1/chat/completions"
-                    : baseUrl + "/v1/chat/completions";
+            String actualBaseUrl = (groqBaseUrl == null || groqBaseUrl.isBlank()) ? "https://api.groq.com/openai" : groqBaseUrl;
+            String endpoint = actualBaseUrl.endsWith("/")
+                    ? actualBaseUrl + "v1/chat/completions"
+                    : actualBaseUrl + "/v1/chat/completions";
+
+            String actualKey = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
+            if (actualKey == null || actualKey.isBlank()) {
+                throw new IllegalStateException("Groq API key is not configured (GROQ_API_KEY is empty).");
+            }
+
+            String actualModel = (groqModel == null || groqModel.isBlank()) ? "llama-3.3-70b-versatile" : groqModel;
 
             Map<String, Object> payload = Map.of(
-                    "model", model,
+                    "model", actualModel,
                     "messages", List.of(
                             Map.of("role", "system", "content", "You are Trippy AI, a helpful travel planning assistant."),
                             Map.of("role", "user", "content", prompt)
@@ -1318,7 +1335,7 @@ public class AiService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .timeout(ITINERARY_TIMEOUT)
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + actualKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                     .build();

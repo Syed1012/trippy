@@ -250,9 +250,10 @@ class TripServiceTest {
     class GetTripDetail {
 
         @Test
-        @DisplayName("returns trip detail for public trip without membership check")
+        @DisplayName("returns trip detail for a published (non-DRAFT) public trip without membership check")
         void publicTripAccessible() {
             trip.setVisibility(TripVisibility.PUBLIC);
+            trip.setStatus(TripStatus.PLANNED);
             when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
             when(participantRepository.findByTripId(TRIP_ID))
                     .thenReturn(List.of(ownerParticipant()));
@@ -264,8 +265,23 @@ class TripServiceTest {
         }
 
         @Test
-        @DisplayName("private trip requires participant membership")
-        void privateTripRequiresMembership() {
+        @DisplayName("DRAFT public trip is not visible to non-participants")
+        void publicDraftTripHiddenFromNonMembers() {
+            trip.setVisibility(TripVisibility.PUBLIC);
+            trip.setStatus(TripStatus.DRAFT);
+            UUID nonMember = UUID.randomUUID();
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(participantRepository.findByTripIdAndUserId(TRIP_ID, nonMember))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> tripService.getTripDetail(TRIP_ID, nonMember))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        @DisplayName("draft private trip requires participant membership")
+        void draftPrivateTripRequiresMembership() {
+            trip.setStatus(TripStatus.DRAFT);
             trip.setVisibility(TripVisibility.PRIVATE);
             UUID nonMember = UUID.randomUUID();
             when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
@@ -277,12 +293,55 @@ class TripServiceTest {
         }
 
         @Test
+        @DisplayName("planned private trip is accessible to non-members by direct link")
+        void plannedPrivateTripAccessibleToNonMembers() {
+            trip.setStatus(TripStatus.PLANNED);
+            trip.setVisibility(TripVisibility.PRIVATE);
+            UUID nonMember = UUID.randomUUID();
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            TripDetailResponse response = tripService.getTripDetail(TRIP_ID, nonMember);
+            assertThat(response).isNotNull();
+            assertThat(response.visibility()).isEqualTo("PRIVATE");
+        }
+
+        @Test
         @DisplayName("throws TripNotFoundException for unknown trip")
         void throwsForUnknownTrip() {
             when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> tripService.getTripDetail(TRIP_ID, USER_ID))
                     .isInstanceOf(TripNotFoundException.class);
+        }
+    }
+
+    // =========================================================================
+    // getSharedTripDetail
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getSharedTripDetail")
+    class GetSharedTripDetail {
+
+        @Test
+        @DisplayName("returns shared trip detail for a published (non-DRAFT) trip")
+        void sharedTripAccessible() {
+            trip.setStatus(TripStatus.PLANNED);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            TripDetailResponse response = tripService.getSharedTripDetail(TRIP_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.id()).isEqualTo(TRIP_ID);
+        }
+
+        @Test
+        @DisplayName("throws ForbiddenException for a DRAFT trip")
+        void sharedDraftTripForbidden() {
+            trip.setStatus(TripStatus.DRAFT);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            assertThatThrownBy(() -> tripService.getSharedTripDetail(TRIP_ID))
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -21,6 +22,7 @@ import {
   X,
   Save,
   Plane,
+  Bus,
   Sun,
   Coffee,
   Utensils,
@@ -40,12 +42,13 @@ import {
   Lock,
   Vote,
   Settings,
-  Search,
   Mail,
   UserPlus,
   Check,
   MessageCircle,
   Send,
+  Search,
+  User,
   Eye,
   EyeOff,
   TreePalm,
@@ -56,12 +59,23 @@ import {
   Landmark,
   CloudSun,
   Snowflake,
+  RefreshCw,
+  Star,
+  Zap,
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GlassCard, Button, Badge, Avatar } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier } from "@/lib/api";
+import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
+import { useRightRail } from "@/lib/right-rail";
+import { useAIGeneration } from "@/lib/ai-generation";
+import { type AISuggestion, buildDaySuggestions } from "@/lib/ai-suggestions";
+import { type DayWeather, fetchDayWeather } from "@/lib/weather";
+import DayMap from "@/components/trips/DayMap";
 
 const statusVariant: Record<string, "default" | "success" | "warning" | "accent" | "danger"> = {
   DRAFT: "default",
@@ -96,6 +110,210 @@ function getCategoryIcon(category?: string) {
   return categoryIcons[category.toLowerCase()] ?? categoryIcons.default;
 }
 
+/* ─── AI-polished read-only category badges ──────────────────────── */
+const CAT_COLORS: Record<string, string> = {
+  food: "bg-orange-100 text-orange-700 border-orange-200",
+  sightseeing: "bg-blue-100 text-blue-700 border-blue-200",
+  transport: "bg-slate-100 text-slate-600 border-slate-200",
+  shopping: "bg-pink-100 text-pink-700 border-pink-200",
+  activity: "bg-green-100 text-green-700 border-green-200",
+  other: "bg-gray-100 text-gray-600 border-gray-200",
+  morning: "bg-amber-100 text-amber-700 border-amber-200",
+  breakfast: "bg-orange-100 text-orange-700 border-orange-200",
+  lunch: "bg-orange-100 text-orange-700 border-orange-200",
+  dinner: "bg-orange-100 text-orange-700 border-orange-200",
+  evening: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  default: "bg-gray-100 text-gray-600 border-gray-200",
+};
+
+const CAT_EMOJIS: Record<string, string> = {
+  food: "🍽️", sightseeing: "👁️", transport: "🚌", shopping: "🛍️",
+  activity: "🌿", morning: "☀️", breakfast: "☕", lunch: "🍴",
+  dinner: "🍽️", evening: "🌙", other: "📌", default: "📌",
+};
+
+function formatStartTime(st?: string): string {
+  if (!st) return "";
+  // Strip trailing ":00" seconds if present (e.g., "09:00:00" → "09:00")
+  const stripped = st.replace(/^(\d{1,2}:\d{2}):\d{2}$/, "$1");
+  return stripped;
+}
+
+/* ── Polished Read-Only Activity Card (matches AI preview style) ── */
+function ReadOnlyActivityCard({
+  activity,
+  destination,
+  isLast,
+}: {
+  activity: Activity;
+  destination: string;
+  isLast: boolean;
+}) {
+  const cat = activity.category?.toLowerCase() || "default";
+  const catLabel = cat === "default" ? "" : cat.toUpperCase();
+  const emoji = CAT_EMOJIS[cat] || CAT_EMOJIS.default;
+  const colorCls = CAT_COLORS[cat] || CAT_COLORS.default;
+  const displayTime = formatStartTime(activity.startTime) || formatStartTime(activity.time);
+
+  return (
+    <div className="group relative flex gap-4">
+      {/* Timeline spine with time marker */}
+      <div className="flex flex-col items-center shrink-0 w-16">
+        {displayTime ? (
+          <span className="text-[10px] font-black text-accent-600 bg-accent-500/10 border border-accent-200 px-2 py-1 rounded-lg text-center leading-tight whitespace-nowrap z-10">
+            {displayTime}
+          </span>
+        ) : (
+          <div className="w-3 h-3 rounded-full bg-accent-400 border-2 border-white shadow-sm z-10 mt-1" />
+        )}
+        {!isLast && (
+          <div className="w-0.5 flex-1 bg-gradient-to-b from-accent-200 to-accent-100 my-1 min-h-[24px]" />
+        )}
+      </div>
+
+      {/* Activity card */}
+      <div className={`flex-1 min-w-0 ${isLast ? "pb-2" : "pb-4"}`}>
+        <div className="rounded-xl border border-border/50 bg-white hover:border-accent-300/60 hover:shadow-sm transition-all px-4 py-3">
+          <div className="flex items-start gap-3">
+            {/* Category emoji */}
+            <span className="text-xl leading-none mt-0.5 shrink-0">{emoji}</span>
+            <div className="flex-1 min-w-0">
+              {/* Title + Category badge */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-foreground leading-tight">{activity.title}</p>
+                {catLabel && (
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${colorCls}`}>
+                    {catLabel}
+                  </span>
+                )}
+              </div>
+
+              {/* Description */}
+              {activity.description && (
+                <p className="text-[12px] text-muted mt-1 leading-relaxed">{activity.description}</p>
+              )}
+
+              {/* Tips/Notes */}
+              {activity.notes && (
+                <p className="text-[11px] text-accent-600/70 mt-2 leading-relaxed italic border-l-2 border-accent-200 pl-2">
+                  💡 {activity.notes}
+                </p>
+              )}
+
+              {/* Meta row: location, Open in Maps, cost */}
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                {activity.location && (
+                  <span className="text-[11px] text-muted flex items-center gap-1 font-medium">
+                    <MapPin size={10} className="text-accent-400" />
+                    {activity.location}
+                  </span>
+                )}
+                {activity.location && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${activity.location}, ${destination}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 transition-colors"
+                  >
+                    <MapPin size={9} /> Open in Maps
+                  </a>
+                )}
+                {activity.estimatedCost && parseFloat(activity.estimatedCost) > 0 && (
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                    <DollarSign size={9} /> {activity.estimatedCost}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getWeatherIcon(condition: string | undefined): string {
+  if (!condition) return "🌤️";
+  const c = condition.toLowerCase();
+  if (c.includes("clear")) return "☀️";
+  if (c.includes("mainly clear")) return "🌤️";
+  if (c.includes("partly cloudy")) return "⛅";
+  if (c.includes("overcast") || c.includes("cloud")) return "☁️";
+  if (c.includes("fog")) return "🌫️";
+  if (c.includes("drizzle")) return "🌦️";
+  if (c.includes("thunderstorm")) return "⛈️";
+  if (c.includes("snow")) return "🌨️";
+  if (c.includes("rain")) return "🌧️";
+  if (c.includes("warm") || c.includes("summer")) return "☀️";
+  if (c.includes("cold") || c.includes("winter") || c.includes("frost")) return "🌨️";
+  if (c.includes("mild") || c.includes("spring")) return "🌸";
+  if (c.includes("cool") || c.includes("autumn")) return "🍂";
+  return "🌤️";
+}
+
+function formatTemperature(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  return `${Math.round(value)}°C`;
+}
+
+function DayContextBlocks({ day }: { day: DayPlan }) {
+  const transport = day.transportRecommendations?.filter((item) =>
+    Boolean((item.from || item.to) && (item.estimatedDuration || item.notes))
+  ) ?? [];
+
+  if (transport.length === 0) return null;
+
+  return (
+    <div className="bg-[#f9f9f7] px-5 py-4">
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Bus size={14} className="text-emerald-600" />
+          <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Transit</span>
+        </div>
+        <div className="mt-1.5 space-y-2">
+          {transport.slice(0, 3).map((item, idx) => (
+            <div key={`${item.from}-${item.to}-${idx}`} className="text-[11px] leading-relaxed">
+              <p className="font-bold text-foreground/80">
+                {item.from || "Start"} → {item.to || "Next stop"}
+              </p>
+              <p className="text-muted">
+                {[item.mode || "Route", item.estimatedDuration].filter(Boolean).join(" · ")}
+              </p>
+              {item.notes && <p className="text-muted">{item.notes}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function processItineraryDays(days: DayPlan[]): DayPlan[] {
+  return days.map((day) => {
+    let weather = day.weather;
+    let transportRecommendations = day.transportRecommendations;
+    const activities = (day.activities || []).filter((act) => {
+      if (act.title === "__METADATA__") {
+        try {
+          const meta = JSON.parse(act.description || "{}");
+          if (meta.weather) weather = meta.weather;
+          if (meta.transportRecommendations) transportRecommendations = meta.transportRecommendations;
+        } catch (e) {
+          console.error("Failed to parse AI metadata activity", e);
+        }
+        return false; // exclude __METADATA__ from normal activities list
+      }
+      return true;
+    });
+    return {
+      ...day,
+      activities,
+      weather,
+      transportRecommendations,
+    };
+  });
+}
+
 /* ─── Currency options ────────────────────────────────────────────── */
 const currencies = [
   { code: "USD", symbol: "$" },
@@ -118,6 +336,215 @@ const categoryOptions = [
   { key: "evening", label: "Evening", icon: Moon },
   { key: "default", label: "Other", icon: MapPin },
 ];
+
+/* ─── Smart itinerary helpers (quick-add, templates, auto-time) ───── */
+
+/** One-tap activity starters shown under the quick-add bar. */
+const ACTIVITY_TEMPLATES: {
+  key: string;
+  label: string;
+  icon: typeof Coffee;
+  title: string;
+  category: string;
+  durationMin: number;
+}[] = [
+  { key: "breakfast", label: "Breakfast", icon: Coffee, title: "Breakfast", category: "breakfast", durationMin: 60 },
+  { key: "sightseeing", label: "Sightseeing", icon: Camera, title: "Sightseeing", category: "sightseeing", durationMin: 120 },
+  { key: "lunch", label: "Lunch", icon: Utensils, title: "Lunch", category: "lunch", durationMin: 60 },
+  { key: "transfer", label: "Transfer", icon: Navigation, title: "Transfer", category: "transport", durationMin: 45 },
+  { key: "dinner", label: "Dinner", icon: Utensils, title: "Dinner", category: "dinner", durationMin: 90 },
+  { key: "free", label: "Free time", icon: Compass, title: "Free time", category: "default", durationMin: 60 },
+  { key: "nightlife", label: "Nightlife", icon: Moon, title: "Nightlife", category: "evening", durationMin: 120 },
+];
+
+/** Whole-day starter kits offered when a day is empty. */
+const DAY_SCAFFOLDS: {
+  key: string;
+  label: string;
+  icon: typeof Plane;
+  title: string;
+  items: { title: string; category: string; start: string; dur: number }[];
+}[] = [
+  {
+    key: "arrival", label: "Arrival day", icon: Plane, title: "Arrival & settle in",
+    items: [
+      { title: "Arrive & airport transfer", category: "transport", start: "12:00", dur: 90 },
+      { title: "Hotel check-in", category: "default", start: "14:30", dur: 30 },
+      { title: "Explore the neighborhood", category: "sightseeing", start: "16:30", dur: 120 },
+      { title: "Welcome dinner", category: "dinner", start: "19:30", dur: 90 },
+    ],
+  },
+  {
+    key: "explore", label: "Explore day", icon: Compass, title: "City exploring",
+    items: [
+      { title: "Breakfast", category: "breakfast", start: "08:30", dur: 60 },
+      { title: "Morning sightseeing", category: "sightseeing", start: "10:00", dur: 150 },
+      { title: "Lunch", category: "lunch", start: "13:00", dur: 60 },
+      { title: "Afternoon landmarks", category: "sightseeing", start: "14:30", dur: 150 },
+      { title: "Dinner", category: "dinner", start: "19:30", dur: 90 },
+    ],
+  },
+  {
+    key: "beach", label: "Beach day", icon: TreePalm, title: "Beach & relax",
+    items: [
+      { title: "Slow breakfast", category: "breakfast", start: "09:00", dur: 60 },
+      { title: "Beach time", category: "sightseeing", start: "10:30", dur: 180 },
+      { title: "Seaside lunch", category: "lunch", start: "13:30", dur: 75 },
+      { title: "Sunset drinks", category: "evening", start: "18:30", dur: 90 },
+    ],
+  },
+  {
+    key: "departure", label: "Departure day", icon: Plane, title: "Departure",
+    items: [
+      { title: "Breakfast & pack", category: "breakfast", start: "09:00", dur: 75 },
+      { title: "Last-minute souvenirs", category: "sightseeing", start: "10:30", dur: 90 },
+      { title: "Hotel checkout", category: "default", start: "12:00", dur: 30 },
+      { title: "Airport transfer", category: "transport", start: "13:30", dur: 90 },
+    ],
+  },
+];
+
+function hhmmToMin(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function minToHHMM(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Split an activity's stored "HH:MM - HH:MM" (or single time) into start/end. */
+function activityTimes(a: Activity): { start?: string; end?: string } {
+  const parts = (a.time ?? "").split("-").map((s) => s.trim());
+  return { start: parts[0] || a.startTime || undefined, end: parts[1] || a.endTime || undefined };
+}
+
+function startMinutes(a: Activity): number | null {
+  const { start } = activityTimes(a);
+  return start ? hhmmToMin(start) : null;
+}
+
+/** Suggest the next sensible start time: after the last activity, else 09:00. */
+function nextDefaultStart(activities: Activity[]): string {
+  for (let i = activities.length - 1; i >= 0; i--) {
+    const { start, end } = activityTimes(activities[i]);
+    const ref = end || start;
+    const mins = ref ? hhmmToMin(ref) : null;
+    if (mins != null) return minToHHMM(mins + (end ? 30 : 90));
+  }
+  return "09:00";
+}
+
+function makeActivity(partial: Partial<Activity>): Activity {
+  return {
+    activityId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: "",
+    time: "",
+    description: "",
+    location: "",
+    category: "default",
+    estimatedCost: "",
+    ...partial,
+  };
+}
+
+/** Keep a day's activities in chronological order (untimed items sink to the end). */
+function sortByTime(acts: Activity[]): Activity[] {
+  return [...acts].sort((a, b) => (startMinutes(a) ?? 1e9) - (startMinutes(b) ?? 1e9));
+}
+
+/** Guess an activity category from free text. */
+function detectCategory(text: string): string {
+  const t = text.toLowerCase();
+  const has = (...words: string[]) => words.some((w) => t.includes(w));
+  if (has("breakfast", "brunch", "coffee", "café", "cafe", "espresso")) return "breakfast";
+  if (has("lunch")) return "lunch";
+  if (has("dinner", "supper")) return "dinner";
+  if (has("bar", "club", "nightlife", "drinks", "pub", "cocktail")) return "evening";
+  if (has("flight", "fly", "airport", "train", "bus", "taxi", "transfer", "drive", "ferry", "check-in", "check in", "checkout", "hotel"))
+    return "transport";
+  if (has("museum", "tour", "see ", "visit", "sightsee", "gallery", "landmark", "temple", "church", "castle", "palace", "park", "beach", "hike", "explore", "walk", "market"))
+    return "sightseeing";
+  return "default";
+}
+
+/**
+ * Turn one line of natural language into an activity.
+ * e.g. "9am Breakfast at Café Central $12" →
+ *   { time:"09:00", title:"Breakfast", location:"Café Central", estimatedCost:"12", category:"breakfast" }
+ * If no time is given, the next sensible slot is chosen automatically.
+ */
+function parseQuickAdd(raw: string, activities: Activity[]): Activity | null {
+  let s = raw.trim();
+  if (!s) return null;
+  const original = s;
+
+  // 1) Cost: "$12", "12$", "12 usd", "€10"
+  let estimatedCost = "";
+  const costMatch = s.match(/(?:[$€£₹¥]\s?(\d+(?:\.\d+)?))|(\d+(?:\.\d+)?)\s?(?:usd|eur|gbp|inr|jpy|dollars?|euros?)\b/i);
+  if (costMatch) {
+    estimatedCost = costMatch[1] ?? costMatch[2] ?? "";
+    s = s.replace(costMatch[0], " ").trim();
+  }
+
+  // 2) Time: "9am", "9:30", "14:00", "at 2 pm"
+  let start: string | undefined;
+  const tm = s.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b|\b(\d{1,2}):(\d{2})\b/i);
+  if (tm) {
+    let h: number;
+    let min: number;
+    if (tm[3]) {
+      h = parseInt(tm[1], 10);
+      min = tm[2] ? parseInt(tm[2], 10) : 0;
+      const pm = tm[3].toLowerCase() === "pm";
+      if (pm && h !== 12) h += 12;
+      if (!pm && h === 12) h = 0;
+    } else {
+      h = parseInt(tm[4], 10);
+      min = parseInt(tm[5], 10);
+    }
+    if (h <= 23 && min <= 59) {
+      start = minToHHMM(h * 60 + min);
+      s = s.replace(tm[0], " ").trim();
+    }
+  }
+
+  // 3) Location: trailing "at <place>" or "@ <place>"
+  let location = "";
+  const locMatch = s.match(/(?:\bat\s+|@\s*)(.+)$/i);
+  if (locMatch) {
+    location = locMatch[1].replace(/\s+/g, " ").trim();
+    s = s.replace(locMatch[0], " ").trim();
+  }
+
+  // 4) Whatever is left is the title
+  let title = s.replace(/\s{2,}/g, " ").replace(/^[\s,·-]+|[\s,·-]+$/g, "").trim();
+  const category = detectCategory(original);
+  if (!title) {
+    title = ACTIVITY_TEMPLATES.find((t) => t.category === category)?.title || "Activity";
+  }
+
+  return makeActivity({
+    title,
+    location: location || undefined,
+    estimatedCost: estimatedCost || undefined,
+    category,
+    time: start || nextDefaultStart(activities),
+  });
+}
+
+/** Add N days to a "YYYY-MM-DD" (or ISO) date without timezone drift. */
+function isoDatePlus(startDate: string, days: number): string {
+  const base = new Date(startDate);
+  const utc = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
 
 /* ─── Time Picker Popup (fixed overlay) ───────────────────────────── */
 const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
@@ -255,6 +682,12 @@ function ActivityRow({
   const [showEndPicker, setShowEndPicker] = useState(false);
   const startBtnRef = useRef<HTMLButtonElement>(null);
   const endBtnRef = useRef<HTMLButtonElement>(null);
+  // Progressive disclosure: keep the card compact, reveal detail fields on demand.
+  // Open by default when there's already content or a live vote to show.
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(
+    Boolean(activity.description?.trim() || activity.location?.trim() || (votingEnabled && !votingFrozen)),
+  );
+  const hasDetail = Boolean(activity.location?.trim() || activity.description?.trim());
 
   // Parse time range: "09:00 - 11:00" or just "09:00"
   const timeParts = (activity.time ?? "").split("-").map((s) => s.trim());
@@ -265,8 +698,6 @@ function ActivityRow({
     const combined = end ? `${start} - ${end}` : start;
     onUpdate({ ...activity, time: combined });
   }
-
-  const currencySymbol = currencies.find((c) => c.code === currency)?.symbol ?? "$";
 
   return (
     <motion.div
@@ -279,7 +710,7 @@ function ActivityRow({
       {/* Top accent bar */}
       <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-2xl bg-gradient-to-r from-accent-400/60 via-accent-500/30 to-transparent" />
 
-      <div className="p-4 space-y-3">
+      <div className="p-3.5 sm:p-4 space-y-2.5">
         {/* Row 1: Category icon + Title + Remove */}
         <div className="flex items-center gap-3">
           {/* Category picker button */}
@@ -348,7 +779,7 @@ function ActivityRow({
           </button>
         </div>
 
-        {/* Row 2: Time picker buttons + Cost with currency dropdown */}
+        {/* Row 2: Time picker buttons + Cost + Details toggle */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Start time */}
           <button
@@ -394,67 +825,103 @@ function ActivityRow({
             )}
           </AnimatePresence>
 
-          {/* Cost with inline currency dropdown */}
-          <div className="flex items-center gap-1 rounded-xl bg-shore-50 border border-border/80 px-2 py-1.5 ml-auto">
-            <div className="relative flex items-center">
-              <select
-                value={currency}
-                onChange={(e) => onCurrencyChange(e.target.value)}
-                className="bg-transparent text-[11px] font-bold text-accent-600 focus:outline-none cursor-pointer pr-4 appearance-none"
-              >
-                {currencies.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.symbol} {c.code}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={10} className="pointer-events-none absolute right-0 text-accent-500" />
+          {/* Right group: cost + details toggle */}
+          <div className="ml-auto flex items-center gap-2">
+            {/* Cost with inline currency dropdown */}
+            <div className="flex items-center gap-1 rounded-xl bg-shore-50 border border-border/80 px-2 py-1.5">
+              <div className="relative flex items-center">
+                <select
+                  value={currency}
+                  onChange={(e) => onCurrencyChange(e.target.value)}
+                  className="bg-transparent text-[11px] font-bold text-accent-600 focus:outline-none cursor-pointer pr-4 appearance-none"
+                >
+                  {currencies.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.symbol} {c.code}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={10} className="pointer-events-none absolute right-0 text-accent-500" />
+              </div>
+              <div className="w-px h-4 bg-border/60 mx-0.5" />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={activity.estimatedCost ?? ""}
+                onChange={(e) => onUpdate({ ...activity, estimatedCost: e.target.value })}
+                placeholder="0.00"
+                className="w-14 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/40 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
             </div>
-            <div className="w-px h-4 bg-border/60 mx-0.5" />
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={activity.estimatedCost ?? ""}
-              onChange={(e) => onUpdate({ ...activity, estimatedCost: e.target.value })}
-              placeholder="0.00"
-              className="w-16 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/40 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
+
+            {/* Details toggle (progressive disclosure) */}
+            <button
+              onClick={() => setDetailsOpen((o) => !o)}
+              title="Location, notes & voting"
+              className={cn(
+                "relative flex items-center gap-1 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition-all cursor-pointer",
+                detailsOpen
+                  ? "border-accent-300 bg-accent-50 text-accent-700"
+                  : "border-border/80 bg-shore-50 text-muted hover:border-accent-300 hover:text-accent-600"
+              )}
+            >
+              <span>Details</span>
+              {!detailsOpen && hasDetail && (
+                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-accent-500" />
+              )}
+              {detailsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
           </div>
         </div>
 
-        {/* Row 3: Location */}
-        <div className="flex items-center gap-2 rounded-xl bg-shore-50/60 border border-border/50 px-3 py-2">
-          <MapPin size={12} className="text-muted/60 shrink-0" />
-          <input
-            type="text"
-            value={activity.location ?? ""}
-            onChange={(e) => onUpdate({ ...activity, location: e.target.value })}
-            placeholder="Add a location..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted/40 focus:outline-none"
-          />
-        </div>
+        {/* Collapsible detail fields */}
+        <AnimatePresence initial={false}>
+          {detailsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="space-y-2.5 pt-0.5">
+                {/* Location */}
+                <div className="flex items-center gap-2 rounded-xl bg-shore-50/60 border border-border/50 px-3 py-2">
+                  <MapPin size={12} className="text-muted/60 shrink-0" />
+                  <input
+                    type="text"
+                    value={activity.location ?? ""}
+                    onChange={(e) => onUpdate({ ...activity, location: e.target.value })}
+                    placeholder="Add a location..."
+                    className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted/40 focus:outline-none"
+                  />
+                </div>
 
-        {/* Row 4: Description / notes */}
-        <textarea
-          value={activity.description ?? ""}
-          onChange={(e) => onUpdate({ ...activity, description: e.target.value })}
-          placeholder="Add notes or description..."
-          rows={1}
-          className="w-full resize-none rounded-xl bg-shore-50/40 border border-border/40 px-3 py-2 text-xs text-foreground placeholder:text-muted/40 focus:border-accent-300 focus:outline-none focus:ring-1 focus:ring-accent-100 transition-colors"
-        />
+                {/* Description / notes */}
+                <textarea
+                  value={activity.description ?? ""}
+                  onChange={(e) => onUpdate({ ...activity, description: e.target.value })}
+                  placeholder="Add notes or description..."
+                  rows={2}
+                  className="w-full resize-none rounded-xl bg-shore-50/40 border border-border/40 px-3 py-2 text-xs text-foreground placeholder:text-muted/40 focus:border-accent-300 focus:outline-none focus:ring-1 focus:ring-accent-100 transition-colors"
+                />
 
-        {/* Activity-level voting */}
-        <ActivityVotingBar
-          activity={activity}
-          tripId={tripId}
-          votingEnabled={votingEnabled}
-          votingFrozen={votingFrozen}
-          onVoteUpdate={onActivityVoteUpdate}
-        />
+                {/* Activity-level voting */}
+                <ActivityVotingBar
+                  activity={activity}
+                  tripId={tripId}
+                  votingEnabled={votingEnabled}
+                  votingFrozen={votingFrozen}
+                  onVoteUpdate={onActivityVoteUpdate}
+                />
 
-        {/* Activity comments */}
-        <ActivityComments activityId={activity.activityId} tripId={tripId} isParticipant={isParticipant} />
+                {/* Activity comments */}
+                <ActivityComments activityId={activity.activityId} tripId={tripId} isParticipant={isParticipant} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -779,10 +1246,188 @@ function ActivityVotingBar({
   );
 }
 
+/* ─── Per-day weather badge with hover timeline ───────────────────── */
+function WeatherBadge({ destination, dateIso }: { destination?: string; dateIso?: string | null }) {
+  const [data, setData] = useState<DayWeather | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hover, setHover] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!destination || !dateIso) return;
+
+    const target = new Date(dateIso);
+    const todayDate = new Date();
+    target.setHours(0, 0, 0, 0);
+    todayDate.setHours(0, 0, 0, 0);
+    const diffTime = target.getTime() - todayDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays > 10) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    // Loading starts true; only flip it from inside the async callbacks so we
+    // never call setState synchronously in the effect body.
+    fetchDayWeather(destination, dateIso)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [destination, dateIso]);
+
+  function openCard() {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const width = 264;
+    const left = Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12));
+    setPos({ top: r.bottom + 8, left });
+    setHover(true);
+  }
+
+  if (!destination || !dateIso) return null;
+
+  // Do not show weather for days that are more than 10 days away
+  const target = new Date(dateIso);
+  const todayDate = new Date();
+  target.setHours(0, 0, 0, 0);
+  todayDate.setHours(0, 0, 0, 0);
+  const diffTime = target.getTime() - todayDate.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays > 10) return null;
+  if (loading && !data) {
+    return <div className="h-7 w-16 shrink-0 animate-pulse rounded-full bg-shore-100" />;
+  }
+  if (!data || data.tempC == null) return null;
+
+  // Timeline rows — for today, from the current hour to day end; downsampled to ~8.
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = dateIso === today;
+  const nowHour = new Date().getHours();
+  let rows = data.hourly;
+  if (isToday) {
+    const upcoming = rows.filter((h) => h.hour >= nowHour);
+    if (upcoming.length > 0) rows = upcoming;
+  }
+  if (rows.length > 8) {
+    const step = Math.ceil(rows.length / 8);
+    rows = rows.filter((_, i) => i % step === 0);
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="group/weather relative shrink-0"
+      onMouseEnter={openCard}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div className="flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-sky-700 cursor-default transition-colors group-hover/weather:border-sky-300">
+        <span className="text-sm leading-none">{data.icon}</span>
+        <span className="text-[11px] font-bold whitespace-nowrap">{Math.round(data.tempC)}°C</span>
+      </div>
+
+      {hover && pos && typeof document !== "undefined" && createPortal(
+        <div
+          style={{ top: pos.top, left: pos.left, width: 264 }}
+          className="pointer-events-none fixed z-[60] rounded-2xl border border-border bg-white p-4 shadow-2xl"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <span className="text-2xl leading-none">{data.icon}</span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-foreground leading-tight">{data.condition}</p>
+              <p className="text-[10px] text-muted">
+                {new Date(dateIso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              </p>
+            </div>
+            <div className="ml-auto text-right shrink-0">
+              <p className="text-lg font-black text-foreground leading-none">{Math.round(data.tempC)}°</p>
+              {data.high != null && data.low != null && (
+                <p className="text-[10px] text-muted mt-0.5">H {data.high}° · L {data.low}°</p>
+              )}
+            </div>
+          </div>
+
+          {/* Hourly timeline */}
+          {rows.length > 0 ? (
+            <div className="mt-3 border-t border-border/60 pt-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-muted mb-1.5">
+                {isToday ? "Rest of today" : "Through the day"}
+              </p>
+              <div className="space-y-1">
+                {rows.map((h) => (
+                  <div key={h.iso} className="flex items-center gap-2 text-[11px]">
+                    <span className="w-12 shrink-0 text-muted">{h.label}</span>
+                    <span className="text-sm leading-none">{h.icon}</span>
+                    <span className="w-8 shrink-0 font-bold text-foreground">{h.temp}°</span>
+                    <span className="truncate text-muted">{h.condition}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 border-t border-border/60 pt-2.5 text-[11px] text-muted">
+              Hourly forecast opens closer to the date.
+            </p>
+          )}
+
+          {/* Advice */}
+          {data.advice && (
+            <p className="mt-2.5 rounded-lg bg-shore-50 px-2.5 py-1.5 text-[10px] leading-snug text-muted">
+              {data.advice}
+            </p>
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+/* ─── Natural-language quick-add bar ──────────────────────────────── */
+function QuickAddBar({ onAdd }: { onAdd: (text: string) => void }) {
+  const [text, setText] = useState("");
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+  return (
+    <div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); submit(); }}
+        className="flex items-center gap-2 rounded-xl border border-accent-200 bg-gradient-to-r from-accent-50/70 to-shore-50/60 px-3 py-2 transition-all focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100"
+      >
+        <Zap size={14} className="shrink-0 text-accent-500" />
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Quick add — e.g. 9am Breakfast at Café Central $12"
+          className="flex-1 bg-transparent text-xs font-medium text-foreground placeholder:text-muted/50 focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!text.trim()}
+          className="shrink-0 rounded-lg bg-accent-500 px-2.5 py-1 text-[11px] font-bold text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+        >
+          Add
+        </button>
+      </form>
+      <p className="mt-1 pl-1 text-[10px] text-muted/70">
+        Add a time, place or price and Trippy sorts it into the timeline — or tap a starter below.
+      </p>
+    </div>
+  );
+}
+
 function DayCard({
   day,
   tripId,
   tripStartDate,
+  destination,
   expanded,
   onToggle,
   onUpdateDay,
@@ -790,10 +1435,13 @@ function DayCard({
   onCurrencyChange,
   onVoteUpdate,
   isParticipant,
+  readOnly = false,
+  isAiTrip = false,
 }: {
   day: DayPlan;
   tripId: string;
   tripStartDate?: string;
+  destination?: string;
   expanded: boolean;
   onToggle: () => void;
   onUpdateDay: (d: DayPlan) => void;
@@ -801,6 +1449,8 @@ function DayCard({
   onCurrencyChange: (c: string) => void;
   onVoteUpdate: (dayNumber: number, summary: VoteSummary) => void;
   isParticipant: boolean;
+  readOnly?: boolean;
+  isAiTrip?: boolean;
 }) {
   const dayDate = tripStartDate
     ? new Date(new Date(tripStartDate).getTime() + (day.dayNumber - 1) * 86400000).toLocaleDateString("en-US", {
@@ -809,23 +1459,84 @@ function DayCard({
         day: "numeric",
       })
     : null;
+  // ISO date for this day, used for the weather lookup.
+  const dayIso = day.date
+    ? day.date.slice(0, 10)
+    : tripStartDate
+      ? isoDatePlus(tripStartDate, day.dayNumber - 1)
+      : null;
 
+  // Day-map: lazy-loaded, only the activities that carry a location, in planned order.
+  const [mapOpen, setMapOpen] = useState(false);
+  const mapStops = day.activities
+    .filter((a) => a.location?.trim())
+    .map((a) => ({ title: a.title?.trim() || "Untitled activity", location: a.location!.trim(), time: activityTimes(a).start }));
+
+  const weatherCondition = day.weather?.condition;
+  const hasWeather = weatherCondition && !weatherCondition.includes("unavailable");
+  const weatherTemp = formatTemperature(day.weather?.temperatureCelsius);
+  const weatherIcon = getWeatherIcon(weatherCondition);
+
+  // Add a blank activity, pre-seeding a sensible start time so the user only types a title.
   function addActivity() {
-    const newActivity: Activity = {
-      activityId: `temp-${Date.now()}-${Math.random()}`,
-      title: "",
-      time: "",
-      description: "",
-      location: "",
-      category: "default",
-      estimatedCost: "",
-    };
-    onUpdateDay({ ...day, activities: [...day.activities, newActivity] });
+    onUpdateDay({
+      ...day,
+      activities: [...day.activities, makeActivity({ time: nextDefaultStart(day.activities) })],
+    });
+  }
+
+  // Natural-language quick add: "9am Breakfast at Café Central $12".
+  function addQuick(text: string) {
+    const activity = parseQuickAdd(text, day.activities);
+    if (!activity) return;
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
+  // One-tap starter: adds a pre-categorised activity, auto-timed after the last one.
+  function addFromTemplate(tpl: (typeof ACTIVITY_TEMPLATES)[number]) {
+    const start = nextDefaultStart(day.activities);
+    const end = minToHHMM((hhmmToMin(start) ?? 540) + tpl.durationMin);
+    const activity = makeActivity({ title: tpl.title, category: tpl.category, time: `${start} - ${end}` });
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
+  // Whole-day starter kit for an empty day.
+  function applyScaffold(scaffold: (typeof DAY_SCAFFOLDS)[number]) {
+    const activities = scaffold.items.map((it) =>
+      makeActivity({
+        title: it.title,
+        category: it.category,
+        time: `${it.start} - ${minToHHMM((hhmmToMin(it.start) ?? 540) + it.dur)}`,
+      }),
+    );
+    onUpdateDay({
+      ...day,
+      title: day.title?.trim() ? day.title : scaffold.title,
+      activities,
+    });
+  }
+
+  function timeToMinutes(t: string): number {
+    if (!t) return Infinity;
+    const startPart = t.split("-")[0]?.trim() || "";
+    const m24 = startPart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (m24) return parseInt(m24[1]) * 60 + parseInt(m24[2]);
+    const m12 = startPart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (m12) {
+      let h = parseInt(m12[1]);
+      const min = parseInt(m12[2]);
+      const ampm = m12[4] || m12[3];
+      if (ampm && ampm.toUpperCase() === "PM" && h !== 12) h += 12;
+      if (ampm && ampm.toUpperCase() === "AM" && h === 12) h = 0;
+      return h * 60 + min;
+    }
+    return Infinity;
   }
 
   function updateActivity(idx: number, updated: Activity) {
     const acts = [...day.activities];
     acts[idx] = updated;
+    acts.sort((a, b) => timeToMinutes(a.time || "") - timeToMinutes(b.time || ""));
     onUpdateDay({ ...day, activities: acts });
   }
 
@@ -869,40 +1580,53 @@ function DayCard({
 
       {/* Day header */}
       <div className="p-5">
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onToggle}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
-          className="flex w-full items-center gap-4 text-left cursor-pointer"
-        >
+        <div className="flex w-full items-center gap-3">
           <div
-            className={cn(
-              "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
-              expanded
-                ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
-                : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
-            )}
+            role="button"
+            tabIndex={0}
+            onClick={onToggle}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+            className="flex flex-1 min-w-0 items-center gap-4 text-left cursor-pointer"
           >
-            <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
-            <span className="text-lg">{day.dayNumber}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={day.title ?? ""}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  onUpdateDay({ ...day, title: e.target.value });
-                }}
-                onClick={(e) => e.stopPropagation()}
-                placeholder={`Day ${day.dayNumber} — Give it a title`}
+            {isAiTrip ? (
+              <div
+                className="w-11 h-11 rounded-xl bg-gradient-to-br from-trippy-500 to-trippy-600 text-white flex flex-col items-center justify-center font-black shadow-md shadow-trippy-500/25 shrink-0"
+              >
+                <span className="text-[9px] font-bold opacity-80 leading-none">DAY</span>
+                <span className="text-base leading-none">{day.dayNumber}</span>
+              </div>
+            ) : (
+              <div
                 className={cn(
-                  "flex-1 bg-transparent text-sm font-bold placeholder:text-muted/50 focus:outline-none",
-                  expanded ? "text-foreground" : "text-foreground"
+                  "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl font-black leading-none transition-all",
+                  expanded
+                    ? "bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_12px_24px_-10px_rgba(231,111,81,0.7)]"
+                    : "bg-gradient-to-br from-shore-100 to-shore-200 text-trippy-500",
                 )}
-              />
+              >
+                <span className="text-[8px] font-bold uppercase tracking-wider opacity-70">Day</span>
+                <span className="text-lg">{day.dayNumber}</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+              {readOnly ? (
+                <p className="flex-1 text-sm font-bold text-foreground">
+                  {day.title || `Day ${day.dayNumber}`}
+                </p>
+              ) : (
+                <input
+                  type="text"
+                  value={day.title ?? ""}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onUpdateDay({ ...day, title: e.target.value });
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder={`Day ${day.dayNumber} — Give it a title`}
+                  className="flex-1 bg-transparent text-sm font-bold text-foreground placeholder:text-muted/50 focus:outline-none"
+                />
+              )}
             </div>
             <div className="flex items-center gap-3 mt-0.5">
               {dayDate && (
@@ -920,14 +1644,23 @@ function DayCard({
               )}
             </div>
           </div>
-          <div
+        </div>
+
+        {/* Weather badge beside the title */}
+        <WeatherBadge destination={destination} dateIso={dayIso} />
+
+        {/* Expand / collapse */}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={expanded ? "Collapse day" : "Expand day"}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-xl transition-colors",
-              expanded ? "bg-accent-100 text-accent-600" : "bg-shore-100 text-muted"
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors cursor-pointer",
+              expanded ? "bg-accent-100 text-accent-600" : "bg-shore-100 text-muted hover:text-accent-600",
             )}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
+          </button>
         </div>
         {/* Voting bar - outside the toggle to avoid button-in-button */}
         <VotingBar day={day} tripId={tripId} onVoteUpdate={onVoteUpdate} />
@@ -943,45 +1676,134 @@ function DayCard({
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="px-5 pb-5 space-y-3">
+            {/* Transit block at the top of the day content */}
+            <DayContextBlocks day={day} />
+
+            <div className={readOnly ? "px-5 pb-5 space-y-0" : "px-5 pb-5 space-y-3"}>
+              {/* Smart quick-add + one-tap starters */}
+              {!readOnly && isParticipant && (
+                <div className="space-y-2.5">
+                  <QuickAddBar onAdd={addQuick} />
+                  <div className="flex flex-wrap gap-1.5">
+                    {ACTIVITY_TEMPLATES.map((tpl) => {
+                      const TplIcon = tpl.icon;
+                      return (
+                        <button
+                          key={tpl.key}
+                          onClick={() => addFromTemplate(tpl)}
+                          className="flex items-center gap-1.5 rounded-full border border-border/70 bg-white px-2.5 py-1 text-[11px] font-semibold text-muted transition-all hover:-translate-y-0.5 hover:border-accent-300 hover:bg-accent-50/50 hover:text-accent-700 cursor-pointer"
+                        >
+                          <TplIcon size={12} className="text-accent-500" />
+                          {tpl.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {/* Activities list */}
-              <AnimatePresence>
-                {day.activities.map((activity, idx) => (
-                  <ActivityRow
+              {readOnly ? (
+                /* Polished read-only cards matching the AI preview */
+                day.activities.map((activity, idx) => (
+                  <ReadOnlyActivityCard
                     key={activity.activityId}
                     activity={activity}
-                    currency={currency}
-                    onCurrencyChange={onCurrencyChange}
-                    onUpdate={(a) => updateActivity(idx, a)}
-                    onRemove={() => removeActivity(idx)}
-                    tripId={tripId}
-                    votingEnabled={day.votingEnabled ?? false}
-                    votingFrozen={day.votingFrozen ?? false}
-                    onActivityVoteUpdate={handleActivityVoteUpdate}
-                    isParticipant={isParticipant}
+                    destination={destination || ""}
+                    isLast={idx === day.activities.length - 1}
                   />
-                ))}
-              </AnimatePresence>
+                ))
+              ) : (
+                <AnimatePresence>
+                  {day.activities.map((activity, idx) => (
+                    <ActivityRow
+                      key={activity.activityId}
+                      activity={activity}
+                      currency={currency}
+                      onCurrencyChange={onCurrencyChange}
+                      onUpdate={(a) => updateActivity(idx, a)}
+                      onRemove={() => removeActivity(idx)}
+                      tripId={tripId}
+                      votingEnabled={day.votingEnabled ?? false}
+                      votingFrozen={day.votingFrozen ?? false}
+                      onActivityVoteUpdate={handleActivityVoteUpdate}
+                      isParticipant={isParticipant}
+                    />
+                  ))}
+                </AnimatePresence>
+              )}
 
-              {/* Empty state */}
+              {/* Empty state — offer whole-day starter kits */}
               {day.activities.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-shore-100 mb-3">
-                    <Plane size={20} className="text-muted/50" />
-                  </div>
-                  <p className="text-sm text-muted/70">No activities yet</p>
-                  <p className="text-xs text-muted/50 mt-0.5">Add activities or let AI plan this day</p>
+                <div className="rounded-2xl border border-dashed border-border bg-shore-50/40 px-4 py-5 text-center">
+                  <p className="text-sm font-semibold text-foreground">Start this day in one tap</p>
+                  <p className="mt-0.5 text-xs text-muted/70">
+                    Pick a starter kit, quick-add above, or let AI plan it.
+                  </p>
+                  {isParticipant && (
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      {DAY_SCAFFOLDS.map((scaffold) => {
+                        const ScIcon = scaffold.icon;
+                        return (
+                          <button
+                            key={scaffold.key}
+                            onClick={() => applyScaffold(scaffold)}
+                            className="flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent-300 hover:text-accent-700 hover:shadow-md cursor-pointer"
+                          >
+                            <ScIcon size={13} className="text-accent-500" />
+                            {scaffold.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Add activity button */}
-              {isParticipant && (
+              {/* Add activity button (only in edit mode) */}
+              {!readOnly && isParticipant && (
                 <button
                   onClick={addActivity}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-xs font-medium text-muted transition-all hover:border-accent-400 hover:text-accent-600 hover:bg-accent-50/50 cursor-pointer"
                 >
-                  <Plus size={14} /> Add activity
+                  <Plus size={14} /> Add a blank activity
                 </button>
+              )}
+
+              {/* Day map — pins + road route, lazily mounted on open */}
+              {mapStops.length > 0 && (
+                <div className="pt-1">
+                  <button
+                    onClick={() => setMapOpen((o) => !o)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
+                      mapOpen
+                        ? "border-accent-300 bg-accent-50 text-accent-700"
+                        : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
+                    )}
+                  >
+                    <Map size={15} className="text-accent-500" />
+                    {mapOpen ? "Hide day map" : "Show day map"}
+                    <span className="text-[11px] font-medium text-muted">
+                      · {mapStops.length} location{mapStops.length !== 1 ? "s" : ""} routed
+                    </span>
+                    <span className="ml-auto">
+                      {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+                    </span>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {mapOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.2 }}
+                        className="pt-3"
+                      >
+                        <DayMap destination={destination ?? ""} stops={mapStops} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
             </div>
           </motion.div>
@@ -991,192 +1813,486 @@ function DayCard({
   );
 }
 
-/* ─── AI Generation Modal (dummy) ────────────────────────────────── */
-function AIGeneratePanel({
-  open,
-  onClose,
-  tripTitle,
-  destination,
-  numDays,
-  onGenerate,
-}: {
-  open: boolean;
-  onClose: () => void;
-  tripTitle: string;
-  destination: string;
-  numDays: number;
-  onGenerate: (days: DayPlan[]) => void;
-}) {
-  const [generating, setGenerating] = useState(false);
-  const [style, setStyle] = useState<"adventure" | "relaxed" | "cultural" | "foodie">("adventure");
+/* ─── AI Itinerary Studio (immersive right sidebar — design preview) ─── */
+// Resizable rail sizing (px)
+const AI_MIN_W = 360;
+const AI_MAX_W = 760;
+const AI_DEFAULT_W = 460;
+const AI_RAIL_GAP = 32; // breathing room between content and the floating panel
+const AI_MIN_RESERVE = 64; // space kept for the collapsed tab
+const AI_RIGHT_GAP = 16; // panel distance from the right viewport edge (right-4)
 
-  async function handleGenerate() {
-    setGenerating(true);
-    // Simulate AI generation delay
-    await new Promise((r) => setTimeout(r, 2500));
+const AI_VIBES: Record<
+  AISuggestion["vibe"],
+  { icon: typeof Star; gradient: string; chip: string; bar: string; glow: string }
+> = {
+  "Top Pick": {
+    icon: Star,
+    gradient: "from-accent-400 to-accent-600",
+    chip: "bg-accent-500/12 text-accent-700 border-accent-400/40",
+    bar: "from-accent-400 to-accent-600",
+    glow: "rgba(231,111,81,0.32)",
+  },
+  "Adventurer": {
+    icon: Zap,
+    gradient: "from-sky-400 to-blue-600",
+    chip: "bg-sky-500/12 text-sky-700 border-sky-400/40",
+    bar: "from-sky-400 to-blue-600",
+    glow: "rgba(56,152,236,0.3)",
+  },
+  "Hidden Gem": {
+    icon: Heart,
+    gradient: "from-emerald-400 to-teal-600",
+    chip: "bg-emerald-500/12 text-emerald-700 border-emerald-400/40",
+    bar: "from-emerald-400 to-teal-600",
+    glow: "rgba(45,212,160,0.3)",
+  },
+};
 
-    // Generate dummy itinerary
-    const dummyDays: DayPlan[] = Array.from({ length: numDays }, (_, i) => ({
-      dayPlanId: `ai-day-${i + 1}-${Date.now()}`,
-      dayNumber: i + 1,
-      title: getDummyDayTitle(i, destination, style),
-      activities: getDummyActivities(i, destination, style),
-    }));
-
-    setGenerating(false);
-    onGenerate(dummyDays);
-    onClose();
-  }
-
-  const styles = [
-    { key: "adventure" as const, label: "Adventure", emoji: "🏔️" },
-    { key: "relaxed" as const, label: "Relaxed", emoji: "🏖️" },
-    { key: "cultural" as const, label: "Cultural", emoji: "🏛️" },
-    { key: "foodie" as const, label: "Foodie", emoji: "🍽️" },
-  ];
-
+/* Rotating status line for the AI loading state */
+function AILoadingMessages({ messages }: { messages: string[] }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % messages.length), 900);
+    return () => clearInterval(t);
+  }, [messages.length]);
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+    <div className="text-center">
+      <p className="text-sm font-bold text-foreground">Crafting your itinerary</p>
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={i}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.3 }}
+          className="mt-1 text-xs text-muted"
         >
-          <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-          <motion.div
-            className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl bg-surface border border-border shadow-2xl"
-            initial={{ opacity: 0, scale: 0.9, y: 30 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 30 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
-          >
-            {/* Header */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 px-6 py-5">
-              <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-accent-500/10 blur-2xl" />
-              <div className="pointer-events-none absolute -left-4 bottom-0 h-20 w-20 rounded-full bg-white/5" />
-              <button
-                onClick={onClose}
-                className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white cursor-pointer"
-              >
-                <X size={14} />
-              </button>
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm">
-                  <Wand2 size={18} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">AI Itinerary Builder</h3>
-                  <p className="text-xs text-white/60">Generate a full plan with one click</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-5">
-              <div className="rounded-xl bg-shore-50 border border-border p-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <MapPin size={13} className="text-accent-500" />
-                  <span className="font-medium">{destination}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Calendar size={13} className="text-accent-500" />
-                  <span className="text-muted">{numDays} day{numDays !== 1 ? "s" : ""}</span>
-                </div>
-              </div>
-
-              {/* Style selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted uppercase tracking-wider">
-                  Travel style
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {styles.map((s) => (
-                    <button
-                      key={s.key}
-                      onClick={() => setStyle(s.key)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-xl border-2 p-3 text-left transition-all cursor-pointer",
-                        style === s.key
-                          ? "border-accent-500 bg-accent-50 shadow-sm"
-                          : "border-border bg-white hover:border-accent-300"
-                      )}
-                    >
-                      <span className="text-lg">{s.emoji}</span>
-                      <span className={cn(
-                        "text-sm font-medium",
-                        style === s.key ? "text-accent-600" : "text-foreground"
-                      )}>
-                        {s.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Generate button */}
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2.5 rounded-2xl py-3.5 text-sm font-bold text-white transition-all cursor-pointer",
-                  "bg-gradient-to-r from-accent-500 to-accent-600 shadow-lg shadow-accent-500/20",
-                  "hover:shadow-xl hover:-translate-y-0.5",
-                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                )}
-              >
-                {generating ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Crafting your itinerary...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    Generate {numDays}-Day Itinerary
-                  </>
-                )}
-              </button>
-
-              {generating && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center text-xs text-muted"
-                >
-                  AI is planning activities, meals, and sightseeing for each day...
-                </motion.div>
-              )}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          {messages[i]}
+        </motion.p>
+      </AnimatePresence>
+    </div>
   );
 }
 
-/* ─── Dummy data generators ───────────────────────────────────────── */
-function getDummyDayTitle(dayIdx: number, destination: string, style: string): string {
-  const titles: Record<string, string[]> = {
-    adventure: ["Arrival & First Exploration", "Mountain Trek & Scenic Views", "River Rafting Day", "Cycling the Countryside", "Summit Challenge", "Forest Trail & Waterfalls", "Final Adventure"],
-    relaxed: ["Settle In & Stroll", "Beach & Spa Morning", "Leisurely Brunch & Gardens", "Art Gallery & Café Hopping", "Sunset Cruise", "Local Market & Cooking Class", "Farewell Day"],
-    cultural: ["Historic Old Town Walk", "Museum & Heritage Tour", "Local Traditions Workshop", "Architecture & Landmarks", "Traditional Music & Dance", "Sacred Sites Visit", "Cultural Wrap-up"],
-    foodie: ["Street Food Discovery", "Market & Cooking Class", "Fine Dining Experience", "Wine & Cheese Tour", "Bakery & Dessert Trail", "Farm-to-Table Visit", "Farewell Feast"],
-  };
-  const list = titles[style] ?? titles.adventure;
-  return list[dayIdx % list.length];
-}
+function AIItinerarySidebar({
+  open,
+  minimized,
+  width,
+  onClose,
+  onMinimize,
+  onExpand,
+  onResize,
+  onDragChange,
+  tripId,
+  destination,
+  numDays,
+  currencySymbol,
+  onApply,
+  onRemove,
+  addedKeys,
+}: {
+  open: boolean;
+  minimized: boolean;
+  width: number;
+  onClose: () => void;
+  onMinimize: () => void;
+  onExpand: () => void;
+  onResize: (px: number) => void;
+  onDragChange: (value: boolean) => void;
+  tripId: string;
+  destination: string;
+  numDays: number;
+  currencySymbol: string;
+  onApply: (dayNumber: number, suggestion: AISuggestion) => void;
+  onRemove: (dayNumber: number, suggestion: AISuggestion) => void;
+  addedKeys: Set<string>;
+}) {
+  const { addToast } = useToast();
+  const { states, regenerateDay: regenerate } = useAIGeneration();
+  const days = Math.max(1, numDays);
+  const [activeDay, setActiveDay] = useState(1);
+  const [regenning, setRegenning] = useState(false);
 
-function getDummyActivities(dayIdx: number, destination: string, style: string): Activity[] {
-  const base: Activity[] = [
-    { activityId: `ai-${dayIdx}-1-${Date.now()}`, time: "08:00", title: "Breakfast at hotel", category: "breakfast", location: "Hotel", estimatedCost: "15" },
-    { activityId: `ai-${dayIdx}-2-${Date.now()}`, time: "09:30", title: style === "adventure" ? "Hiking trail exploration" : style === "cultural" ? "Guided museum tour" : style === "foodie" ? "Local market visit" : "Morning yoga session", category: "sightseeing", location: destination, estimatedCost: style === "adventure" ? "25" : "20" },
-    { activityId: `ai-${dayIdx}-3-${Date.now()}`, time: "12:30", title: "Lunch at local restaurant", category: "lunch", location: `${destination} city center`, estimatedCost: "30" },
-    { activityId: `ai-${dayIdx}-4-${Date.now()}`, time: "14:00", title: style === "adventure" ? "Rock climbing" : style === "cultural" ? "Heritage site visit" : style === "foodie" ? "Wine tasting" : "Spa treatment", category: "sightseeing", location: destination, estimatedCost: "40" },
-    { activityId: `ai-${dayIdx}-5-${Date.now()}`, time: "19:00", title: "Dinner", category: "dinner", location: destination, estimatedCost: "45" },
+  // Generation lives in the dashboard-level provider, so it keeps running while
+  // the user navigates away and is ready when they return to this trip.
+  const genState = states[tripId];
+  const phase: "loading" | "ready" = genState?.status === "ready" ? "ready" : "loading";
+  const suggestions = genState?.suggestions ?? {};
+
+  // A suggestion is "added" when the day already has an activity with that title
+  // (matched by title so it survives the itinerary save round-trip).
+  const isAdded = (dayNumber: number, title: string) =>
+    addedKeys.has(`${dayNumber}::${title.trim().toLowerCase()}`);
+
+  async function regenerateDay() {
+    setRegenning(true);
+    try {
+      await regenerate(tripId, activeDay);
+    } finally {
+      setRegenning(false);
+    }
+  }
+
+  function choose(s: AISuggestion) {
+    if (isAdded(activeDay, s.title)) {
+      onRemove(activeDay, s);
+      addToast(`Removed “${s.title}” from Day ${activeDay}`, "info");
+    } else {
+      onApply(activeDay, s);
+      addToast(`Added “${s.title}” to Day ${activeDay}`, "success");
+    }
+  }
+
+  // Drag the left edge to resize the rail (content reflows live, Copilot-style).
+  function startDrag(e: React.PointerEvent) {
+    e.preventDefault();
+    onDragChange(true);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "ew-resize";
+    const move = (ev: PointerEvent) => {
+      onResize(window.innerWidth - ev.clientX - AI_RIGHT_GAP);
+    };
+    const up = () => {
+      onDragChange(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  const daySuggestions = suggestions[activeDay] ?? (phase === "ready" ? buildDaySuggestions(activeDay, destination) : []);
+  // Days that have at least one added suggestion (drives the tab checks + progress).
+  const chosenCount = Array.from({ length: days }, (_, i) => i + 1).filter((d) =>
+    (suggestions[d] ?? []).some((sg) => isAdded(d, sg.title)),
+  ).length;
+  const city = destination.split(",")[0]?.trim() || "your destination";
+  const loadingMessages = [
+    `Scanning the best of ${city}…`,
+    "Balancing sights, food & downtime…",
+    "Pricing activities & routes…",
+    "Polishing your day-by-day plan…",
   ];
-  return base;
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <AnimatePresence>
+      {/* Minimized vertical tab */}
+      {open && minimized && (
+        <motion.div
+          key="ai-tab"
+          className="fixed right-0 top-1/2 z-40 -translate-y-1/2"
+          initial={{ x: "110%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "110%" }}
+          transition={{ type: "spring", stiffness: 320, damping: 34 }}
+        >
+          <button
+            onClick={onExpand}
+            title="Expand AI suggestions"
+            className="group flex flex-col items-center gap-3 rounded-l-2xl border border-r-0 border-border bg-surface/95 py-5 pl-3 pr-2.5 shadow-[-18px_0_50px_-30px_rgba(20,47,43,0.55)] backdrop-blur-xl transition-all hover:pr-4 cursor-pointer"
+          >
+            <span className="lux-ring flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]">
+              <Wand2 size={16} />
+            </span>
+            <span className="text-[11px] font-black uppercase tracking-[0.16em] text-foreground [writing-mode:vertical-rl]">
+              AI suggestions
+            </span>
+            {chosenCount > 0 && (
+              <span className="rounded-full bg-accent-500 px-1.5 py-0.5 text-[9px] font-black text-white">
+                {chosenCount}
+              </span>
+            )}
+            <ChevronLeft
+              size={16}
+              className="text-muted transition group-hover:-translate-x-0.5 group-hover:text-accent-600"
+            />
+          </button>
+        </motion.div>
+      )}
+
+      {/* Full panel */}
+      {open && !minimized && (
+        <motion.aside
+          key="ai-panel"
+          style={{ width }}
+          className="fixed right-4 top-[4.75rem] bottom-4 z-40 flex flex-col overflow-hidden rounded-[1.75rem] border border-border bg-surface/95 text-foreground shadow-[0_40px_90px_-42px_rgba(20,47,43,0.62)] backdrop-blur-2xl"
+          initial={{ x: "112%", opacity: 0.5 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: "112%", opacity: 0.4 }}
+          transition={{ type: "spring", stiffness: 320, damping: 36 }}
+        >
+          {/* Drag-to-resize handle (left edge) */}
+          <div
+            onPointerDown={startDrag}
+            title="Drag to resize"
+            className="group/handle absolute inset-y-0 left-0 z-30 flex w-4 cursor-ew-resize items-center justify-center"
+          >
+            <span className="h-14 w-1.5 rounded-full bg-border transition-all group-hover/handle:h-20 group-hover/handle:bg-accent-400" />
+          </div>
+
+          {/* Warm ambient accents */}
+          <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-accent-400/15 blur-3xl" />
+          <div className="pointer-events-none absolute top-1/3 -left-24 h-64 w-64 rounded-full bg-trippy-400/10 blur-3xl" />
+
+          {/* Header */}
+          <div className="relative z-10 shrink-0 border-b border-border/70 px-5 pt-5 pb-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="lux-ring relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_16px_32px_-14px_rgba(231,111,81,0.9)]">
+                  <Wand2 size={19} />
+                </div>
+                <div>
+                  <h3 className="font-display text-lg font-black leading-tight">AI Itinerary Studio</h3>
+                  <p className="text-[11px] text-muted">
+                    {destination} · {days} day{days !== 1 ? "s" : ""} · 3 ideas each
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={onMinimize}
+                  title="Minimize to side"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-shore-100 text-muted transition hover:bg-shore-200 hover:text-foreground cursor-pointer"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={onClose}
+                  title="Close"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-shore-100 text-muted transition hover:bg-shore-200 hover:text-foreground cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {phase === "loading" ? (
+            /* Loading phase */
+            <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-8">
+              <div className="relative flex h-28 w-28 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-accent-500/15" />
+                <span className="absolute inset-2 rounded-full border-2 border-dashed border-accent-200 animate-[spin_9s_linear_infinite]" />
+                <div className="lux-ring flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_0_40px_-6px_rgba(231,111,81,0.7)]">
+                  <Sparkles size={26} />
+                </div>
+              </div>
+              <AILoadingMessages messages={loadingMessages} />
+              <div className="w-full max-w-xs space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-16 animate-pulse rounded-2xl bg-shore-200/60"
+                    style={{ animationDelay: `${i * 150}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Day tabs */}
+              <div className="relative z-10 shrink-0 border-b border-border/70 bg-shore-50/50 px-4 py-3">
+                <div className="no-scrollbar flex gap-2 overflow-x-auto">
+                  {Array.from({ length: days }, (_, i) => i + 1).map((d) => {
+                    const active = d === activeDay;
+                    const done = (suggestions[d] ?? []).some((sg) => isAdded(d, sg.title));
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => setActiveDay(d)}
+                        className={cn(
+                          "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer",
+                          active ? "text-white" : "text-muted hover:text-foreground",
+                        )}
+                      >
+                        {active && (
+                          <motion.span
+                            layoutId="ai-day-pill"
+                            className="absolute inset-0 rounded-full bg-gradient-to-r from-accent-500 to-accent-600 shadow-[0_10px_20px_-10px_rgba(231,111,81,0.9)]"
+                            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                          />
+                        )}
+                        <span className="relative z-10">Day {d}</span>
+                        {done && (
+                          <Check
+                            size={12}
+                            className={cn("relative z-10", active ? "text-white" : "text-accent-500")}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Suggestions */}
+              <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                    Day {activeDay} · pick your vibe
+                  </p>
+                  <button
+                    onClick={regenerateDay}
+                    disabled={regenning}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
+                  >
+                    <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
+                    {regenning ? "Reimagining…" : "Regenerate"}
+                  </button>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`${activeDay}-${regenning}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                    className="space-y-4"
+                  >
+                    {daySuggestions.map((s, idx) => {
+                      const vibe = AI_VIBES[s.vibe];
+                      const VibeIcon = vibe.icon;
+                      const isChosen = isAdded(activeDay, s.title);
+                      return (
+                        <motion.div
+                          key={s.id}
+                          initial={{ opacity: 0, y: 16 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.08, type: "spring", stiffness: 260, damping: 24 }}
+                          className={cn(
+                            "group relative overflow-hidden rounded-2xl border p-4 pl-5 backdrop-blur-sm transition-all",
+                            isChosen
+                              ? "border-accent-400 bg-accent-50 shadow-[0_18px_40px_-26px_rgba(231,111,81,0.55)]"
+                              : "border-border bg-surface/80 shadow-[0_16px_36px_-26px_rgba(20,47,43,0.42)] hover:-translate-y-0.5 hover:shadow-[0_24px_48px_-24px_rgba(231,111,81,0.4)]",
+                          )}
+                        >
+                          {/* left vibe accent bar */}
+                          <div className={cn("absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b", vibe.bar)} />
+                          {/* corner glow */}
+                          <div
+                            className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full opacity-50 blur-2xl transition-opacity group-hover:opacity-90"
+                            style={{ background: vibe.glow }}
+                          />
+
+                          {/* header row */}
+                          <div className="relative flex items-center justify-between">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider",
+                                vibe.chip,
+                              )}
+                            >
+                              <VibeIcon size={11} /> {s.vibe}
+                            </span>
+                            <span className="text-[10px] font-bold text-muted">Option {idx + 1}/3</span>
+                          </div>
+
+                          {/* title */}
+                          <h4 className="relative mt-3 text-[15px] font-extrabold leading-snug text-foreground">
+                            {s.title}
+                          </h4>
+
+                          {/* meta chips */}
+                          <div className="relative mt-3 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+                              <Clock size={11} className="text-accent-500" /> {s.startTime}–{s.endTime}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75">
+                              <DollarSign size={11} className="text-emerald-600" /> ~{currencySymbol}
+                              {s.cost}
+                            </span>
+                            <a
+                              href={s.mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-shore-100/80 px-2.5 py-1 text-[11px] font-semibold text-foreground/75 transition hover:bg-accent-50 hover:text-accent-700"
+                            >
+                              <MapPin size={11} className="text-sky-600" /> Maps
+                              <ArrowUpRight size={10} />
+                            </a>
+                          </div>
+
+                          {/* specific place / location */}
+                          {s.location && (
+                            <p className="relative mt-2 flex items-start gap-1.5 text-[11px] font-medium text-foreground/70">
+                              <MapPin size={12} className="mt-0.5 shrink-0 text-accent-500" />
+                              <span className="min-w-0">{s.location}</span>
+                            </p>
+                          )}
+
+                          {/* notes */}
+                          <p className="relative mt-3 text-xs leading-relaxed text-muted">{s.notes}</p>
+
+                          {/* CTA */}
+                          <button
+                            onClick={() => choose(s)}
+                            title={isChosen ? "Tap to remove from this day" : undefined}
+                            className={cn(
+                              "group/cta relative mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold transition-all cursor-pointer",
+                              isChosen
+                                ? "border border-emerald-400/50 bg-emerald-50 text-emerald-700 hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                                : cn(
+                                    "bg-gradient-to-r text-white shadow-[0_14px_28px_-16px_rgba(20,47,43,0.6)] hover:-translate-y-0.5",
+                                    vibe.gradient,
+                                  ),
+                            )}
+                          >
+                            {isChosen ? (
+                              <>
+                                <Check size={14} className="group-hover/cta:hidden" />
+                                <X size={14} className="hidden group-hover/cta:inline" />
+                                <span className="group-hover/cta:hidden">Added to Day {activeDay}</span>
+                                <span className="hidden group-hover/cta:inline">Remove from Day {activeDay}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus size={14} /> Add as Day {activeDay} plan
+                              </>
+                            )}
+                          </button>
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              {/* Footer progress */}
+              <div className="relative z-10 shrink-0 border-t border-border/70 bg-shore-50/50 px-5 py-4">
+                <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-muted">
+                  <span>
+                    {chosenCount} of {days} days chosen
+                  </span>
+                  <span>{Math.round((chosenCount / days) * 100)}%</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-shore-200">
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-r from-accent-400 to-accent-600"
+                    animate={{ width: `${(chosenCount / days) * 100}%` }}
+                    transition={{ type: "spring", stiffness: 200, damping: 28 }}
+                  />
+                </div>
+                <button
+                  onClick={onClose}
+                  className="mt-3 w-full rounded-xl border border-border bg-surface py-2.5 text-xs font-bold text-foreground transition hover:bg-shore-50 cursor-pointer"
+                >
+                  Done for now
+                </button>
+              </div>
+            </>
+          )}
+        </motion.aside>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
 }
 
 /* ─── Voting Settings Panel (admin only) ──────────────────────────── */
@@ -1347,66 +2463,86 @@ function VotingSettingsPanel({
 }
 
 /* ─── Invite Modal ────────────────────────────────────────────────── */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function InviteModal({
   tripId,
-  existingParticipantIds,
   onClose,
   onInvited,
   currentUserName,
 }: {
   tripId: string;
-  existingParticipantIds: string[];
   onClose: () => void;
   onInvited: () => void;
   currentUserName: string;
 }) {
   const { addToast } = useToast();
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<UserPublicProfile[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [inviting, setInviting] = useState<string | null>(null);
-  const [invited, setInvited] = useState<Set<string>>(new Set());
+  const { user } = useAuth();
+  const [email, setEmail] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [sending, setSending] = useState(false);
+  const [sentEmails, setSentEmails] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSearch(value: string) {
-    setQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) {
-      setResults([]);
+  // Search states
+  const [searchResults, setSearchResults] = useState<UserPublicProfile[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const trimmedEmail = email.trim();
+  const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
+
+  // Debounced search for platform users based on input value
+  useEffect(() => {
+    const query = email.trim();
+    // If empty or already looks like a complete exact email matching pattern, don't show search dropdown
+    if (query.length < 2 || EMAIL_PATTERN.test(query)) {
+      setSearchResults([]);
       return;
     }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const users = await usersApi.search(value.trim());
-        // Filter out existing participants
-        setResults(users.filter((u) => !existingParticipantIds.includes(u.id)));
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-  }
 
-  async function handleInvite(userId: string, email?: string) {
-    setInviting(userId);
+    setSearching(true);
+    const timer = setTimeout(() => {
+      usersApi
+        .search(query, 5)
+        .then((res) => {
+          // Filter out the logged-in user from matching results
+          const filtered = res.filter((u) => u.id !== user?.userId && u.email !== user?.email);
+          setSearchResults(filtered);
+        })
+        .catch(() => {
+          setSearchResults([]);
+        })
+        .finally(() => {
+          setSearching(false);
+        });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [email, user]);
+
+  async function handleSend() {
+    if (!isValidEmail) {
+      setError("Enter a valid email address");
+      return;
+    }
+    setError(null);
+    setSending(true);
     try {
-      await participantsApi.invite(
+      await participantsApi.inviteByEmail(
         tripId,
-        userId,
-        email,
+        trimmedEmail,
         inviteMessage.trim() || undefined,
         currentUserName || undefined,
       );
-      setInvited((prev) => new Set([...prev, userId]));
-      addToast("Invitation sent!", "success");
+      setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+      setEmail("");
+      setSearchResults([]);
+      addToast("Invitation sent successfully!", "success");
       onInvited();
     } catch {
       addToast("Failed to send invitation", "error");
     } finally {
-      setInviting(null);
+      setSending(false);
     }
   }
 
@@ -1435,22 +2571,82 @@ function InviteModal({
           </button>
         </div>
 
-        {/* Search input */}
-        <div className="px-6 py-4 space-y-3">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search by name or email..."
-              autoFocus
-              className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
-            />
-            {searching && (
-              <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-accent-500" />
+        {/* Content Body */}
+        <div className="px-6 py-4 space-y-4">
+          <p className="text-xs text-muted">
+            We&apos;ll email them a summary of this trip. Enter an email address or search for a registered user on the platform.
+          </p>
+
+          <div className="space-y-2">
+            <div className="relative">
+              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Enter email or search by name..."
+                autoFocus
+                className="w-full rounded-xl border border-border bg-shore-50 pl-9 pr-8 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors"
+              />
+              {searching ? (
+                <Loader2 size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+              ) : email && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("");
+                    setSearchResults([]);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground cursor-pointer p-0.5 rounded-full hover:bg-black/5"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Suggestions list */}
+            {searchResults.length > 0 && (
+              <div className="border border-border rounded-2xl overflow-hidden max-h-40 overflow-y-auto bg-white divide-y divide-border shadow-sm">
+                <div className="px-3 py-1.5 bg-shore-50 text-[10px] font-semibold text-muted uppercase tracking-wider">
+                  Matching platform users
+                </div>
+                {searchResults.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => {
+                      if (user.email) {
+                        setEmail(user.email);
+                      }
+                      setSearchResults([]);
+                    }}
+                    className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
+                  >
+                    <div className="h-7 w-7 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-xs overflow-hidden shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={user.avatarUrl || generateAvatarUrl(user.displayName)} alt={user.displayName} className="h-full w-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-foreground truncate">{user.displayName}</p>
+                      <p className="text-[10px] text-muted truncate">{user.email}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          
           <textarea
             value={inviteMessage}
             onChange={(e) => setInviteMessage(e.target.value)}
@@ -1459,66 +2655,39 @@ function InviteModal({
             maxLength={300}
             className="w-full rounded-xl border border-border bg-shore-50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted/60 focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100 transition-colors resize-none"
           />
+          
+          <button
+            onClick={handleSend}
+            disabled={!isValidEmail || sending}
+            className={cn(
+              "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
+              "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
+              (!isValidEmail || sending) && "opacity-60 cursor-not-allowed",
+            )}
+          >
+            {sending ? (
+              <><Loader2 size={14} className="animate-spin" /> Sending</>
+            ) : (
+              <><UserPlus size={14} /> Send Invite</>
+            )}
+          </button>
         </div>
 
-        {/* Results */}
-        <div className="px-6 pb-6 max-h-72 overflow-y-auto space-y-2">
-          {results.length === 0 && query.trim().length >= 2 && !searching && (
-            <p className="text-sm text-muted text-center py-4">No users found</p>
-          )}
-          {results.map((user) => {
-            const isInvited = invited.has(user.id);
-            const initials = (user.displayName ?? "U")
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2);
-
-            return (
+        {/* Sent list */}
+        {sentEmails.length > 0 && (
+          <div className="px-6 pb-6 max-h-48 overflow-y-auto space-y-2">
+            <p className="text-xs font-medium text-muted uppercase tracking-wide">Sent this session</p>
+            {sentEmails.map((sent) => (
               <div
-                key={user.id}
-                className="flex items-center gap-3 rounded-xl border border-border bg-white p-3 transition-all hover:border-accent-300"
+                key={sent}
+                className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-shore-100 text-xs font-bold text-trippy-600 border border-border">
-                  {initials}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{user.displayName}</p>
-                  {user.email && (
-                    <p className="text-[11px] text-muted flex items-center gap-1 truncate">
-                      <Mail size={10} /> {user.email}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleInvite(user.id, user.email)}
-                  disabled={isInvited || inviting === user.id}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all cursor-pointer",
-                    isInvited
-                      ? "bg-green-100 text-green-700 border border-green-300"
-                      : "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-                    (inviting === user.id) && "opacity-60"
-                  )}
-                >
-                  {isInvited ? (
-                    <><Check size={12} /> Invited</>
-                  ) : inviting === user.id ? (
-                    <><Loader2 size={12} className="animate-spin" /> Sending</>
-                  ) : (
-                    <><UserPlus size={12} /> Invite</>
-                  )}
-                </button>
+                <Check size={14} className="text-green-600 shrink-0" />
+                <p className="text-sm text-foreground truncate flex-1">{sent}</p>
               </div>
-            );
-          })}
-          {query.trim().length < 2 && (
-            <p className="text-xs text-muted text-center py-4">
-              Type at least 2 characters to search for users
-            </p>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -1919,16 +3088,145 @@ export default function TripDetailPage() {
   const { user } = useAuth();
   const tripId = tripIdFromSlug(params.id as string);
 
+  const searchParams = useSearchParams();
+  const isFromAi = searchParams.get("from") === "ai";
+
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const [preferences, setPreferences] = useState<TripPreference | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
+  const [editVisibility, setEditVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
+
+  useEffect(() => {
+    if (trip) {
+      setEditTitle(trip.title);
+      setEditDesc(trip.description || "");
+      setEditStartDate(trip.startDate || "");
+      setEditEndDate(trip.endDate || "");
+      setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
+    }
+  }, [trip]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
   const [itineraryDays, setItineraryDays] = useState<DayPlan[]>([]);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiMinimized, setAiMinimized] = useState(false);
+  const [aiSession, setAiSession] = useState(0);
+  const [panelWidth, setPanelWidth] = useState(AI_DEFAULT_W);
+  const { setReserve, setDragging } = useRightRail();
+  const { ensureStarted: startAIGeneration, hydrate: hydrateAIGeneration } = useAIGeneration();
+
+  // Release the reserved rail space when leaving the trip page.
+  useEffect(() => () => setReserve(0), [setReserve]);
+
+  function openAI() {
+    // AI Suggestions is host-only; ignore any stray trigger from a non-owner.
+    if (!isOwner) return;
+    setAiPanelOpen(true);
+    setAiMinimized(false);
+    setAiSession((n) => n + 1);
+    setReserve(panelWidth + AI_RAIL_GAP);
+    // Kick off (or reuse) a background generation for this trip. It keeps running
+    // in the dashboard-level provider even if the user collapses and navigates away.
+    if (trip) {
+      startAIGeneration({
+        tripId: trip.tripId,
+        destination: trip.destination,
+        days: numDays > 0 ? numDays : 5,
+        existingItinerary: itineraryDays
+          .filter((d) => d.activities.length > 0 || Boolean(d.title?.trim()))
+          .map((d) => ({
+            dayNumber: d.dayNumber,
+            title: d.title,
+            activities: d.activities.map((a) => ({
+              time: a.time,
+              title: a.title,
+              estimatedCost: a.estimatedCost,
+            })),
+          })),
+      });
+    }
+  }
+  function closeAI() {
+    setAiPanelOpen(false);
+    setAiMinimized(false);
+    setReserve(0);
+  }
+  function minimizeAI() {
+    setAiMinimized(true);
+    setReserve(AI_MIN_RESERVE);
+  }
+  function expandAI() {
+    setAiMinimized(false);
+    setReserve(panelWidth + AI_RAIL_GAP);
+  }
+  function resizeAI(w: number) {
+    const clamped = Math.min(AI_MAX_W, Math.max(AI_MIN_W, w));
+    setPanelWidth(clamped);
+    setReserve(clamped + AI_RAIL_GAP);
+  }
+  // Add an AI suggestion into the working itinerary and persist it immediately,
+  // so generated plans survive a logout without needing a manual Save. The full
+  // set of fields (time range, location, cost) is carried over from the suggestion.
+  function applySuggestion(dayNumber: number, s: AISuggestion) {
+    const time = s.startTime && s.endTime ? `${s.startTime} - ${s.endTime}` : (s.startTime || "");
+    const activity: Activity = {
+      activityId: `ai-rec-${dayNumber}-${Date.now()}`,
+      time,
+      title: s.title,
+      description: s.notes || undefined,
+      location: s.location || undefined,
+      estimatedCost: s.cost ? String(Math.round(s.cost)) : undefined,
+      category: "sightseeing",
+    };
+    const exists = itineraryDays.some((d) => d.dayNumber === dayNumber);
+    // Day title is intentionally left untouched — "Day N" is enough; the day
+    // title is optional and no longer derived from the first suggestion.
+    const nextDays = exists
+      ? itineraryDays.map((d) =>
+          d.dayNumber === dayNumber
+            ? { ...d, activities: [...d.activities, activity] }
+            : d,
+        )
+      : [
+          ...itineraryDays,
+          { dayPlanId: `day-${dayNumber}-${Date.now()}`, dayNumber, title: "", activities: [activity] },
+        ].sort((a, b) => a.dayNumber - b.dayNumber);
+
+    setItineraryDays(nextDays);
+    setExpandedDays((prev) => new Set(prev).add(dayNumber));
+    setHasUnsavedChanges(true);
+    // Auto-save in the background so the AI-generated plan is stored right away.
+    void persistItinerary(nextDays, { silent: true });
+  }
+
+  // Remove a previously-added AI suggestion from a day (matched by title), so the
+  // AI Studio shows "Add" again. Kept in sync with the itinerary via title match.
+  function removeSuggestion(dayNumber: number, s: AISuggestion) {
+    const key = s.title.trim().toLowerCase();
+    const nextDays = itineraryDays.map((d) =>
+      d.dayNumber === dayNumber
+        ? { ...d, activities: d.activities.filter((a) => (a.title ?? "").trim().toLowerCase() !== key) }
+        : d,
+    );
+    setItineraryDays(nextDays);
+    setHasUnsavedChanges(true);
+    void persistItinerary(nextDays, { silent: true });
+  }
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currency, setCurrency] = useState("USD");
   const [saving, setSaving] = useState(false);
+  // Serialize itinerary saves so rapid changes (e.g. adding several AI
+  // suggestions in a row) can't race — the latest pending state always wins.
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef<DayPlan[] | null>(null);
   const [votingSettingsOpen, setVotingSettingsOpen] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
   const [isOwnerOrEditor, setIsOwnerOrEditor] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
@@ -1940,10 +3238,12 @@ export default function TripDetailPage() {
     (data: TripDetail) => {
       if (user?.userId && data.participants) {
         const me = data.participants.find((p) => p.userId === user.userId);
+        setIsOwner(me?.role === "OWNER");
         setIsOwnerOrEditor(me?.role === "OWNER" || me?.role === "EDITOR");
         setIsParticipant(!!me && (me.status === "ACCEPTED" || me.role === "OWNER"));
         setIsPendingApproval(!!me && me.status === "PENDING_APPROVAL");
       } else {
+        setIsOwner(false);
         setIsParticipant(false);
         setIsPendingApproval(false);
       }
@@ -1975,11 +3275,32 @@ export default function TripDetailPage() {
 
   const refreshTrip = useCallback(async () => {
     if (!tripId) return;
-    const data = await tripsApi.get(tripId);
-    await enrichParticipants(data);
+    const data = user?.userId ? await tripsApi.get(tripId) : await tripsApi.getShared(tripId);
+    if (user?.userId) {
+      await enrichParticipants(data);
+    }
     setTrip(data);
     applyParticipantFlags(data);
-  }, [tripId, enrichParticipants, applyParticipantFlags]);
+  }, [tripId, user?.userId, enrichParticipants, applyParticipantFlags]);
+
+  // Generate a cover image in the background for trips that don't have one yet.
+  useEffect(() => {
+    if (!trip || trip.coverImageUrl || !isOwnerOrEditor) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = await ensureTripCoverImage(trip.tripId, trip.destination);
+        if (cancelled || !url) return;
+        setTrip((prev) => (prev ? { ...prev, coverImageUrl: url } : prev));
+      } catch {
+        // Keep the gradient hero on failure.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip?.tripId, trip?.coverImageUrl, trip?.destination, isOwnerOrEditor]);
 
   async function handleApproveRequest(requesterUserId: string) {
     if (!tripId) return;
@@ -2041,21 +3362,42 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (!tripId) return;
     setLoading(true);
-    tripsApi
-      .get(tripId)
+    const loadTrip = user?.userId ? tripsApi.get(tripId) : tripsApi.getShared(tripId);
+    const loadItinerary = user?.userId
+      ? itineraryApi.get(tripId)
+      : itineraryApi.getShared(tripId);
+
+    loadTrip
       .then(async (data) => {
         // Fetch participant display names from user-service
-        await enrichParticipants(data);
+        if (user?.userId) {
+          await enrichParticipants(data);
+        }
         setTrip(data);
+        if (user?.userId) {
+          preferencesApi.getForTrip(tripId)
+            .then((pref) => setPreferences(pref))
+            .catch(() => {});
+        }
 
         // Check if current user is owner/editor
         applyParticipantFlags(data);
 
         // Fetch itinerary from backend
         try {
-          const itinerary = await itineraryApi.get(tripId);
+          const itinerary = await loadItinerary;
           if (itinerary.days.length > 0) {
-            setItineraryDays(itinerary.days);
+            const processedDays = processItineraryDays(itinerary.days);
+            setItineraryDays(processedDays);
+            // Restore the itinerary's saved currency (persisted per activity).
+            const savedCurrency = processedDays
+              .flatMap((d) => d.activities)
+              .find((a) => a.currency)?.currency;
+            if (savedCurrency) setCurrency(savedCurrency);
+            // Auto-expand all days when arriving from AI trip save
+            if (isFromAi) {
+              setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
+            }
           } else {
             // Initialize empty days based on trip dates
             const numDays = getNumDays(data.startDate, data.endDate);
@@ -2097,6 +3439,23 @@ export default function TripDetailPage() {
 
   const numDays = getNumDays(trip?.startDate, trip?.endDate);
 
+  // Keys of AI suggestions already present in the itinerary ("day::title"), so the
+  // AI Studio can mark them Added and revert to Add when removed from the itinerary.
+  const addedSuggestionKeys = new Set<string>();
+  for (const d of itineraryDays) {
+    for (const a of d.activities) {
+      if (a.title?.trim()) addedSuggestionKeys.add(`${d.dayNumber}::${a.title.trim().toLowerCase()}`);
+    }
+  }
+
+  // Pull in any recommendations generated earlier (survives reloads / navigation)
+  // so reopening the AI panel shows them instantly instead of regenerating.
+  useEffect(() => {
+    if (trip?.tripId && trip.destination) {
+      hydrateAIGeneration(trip.tripId, trip.destination, numDays > 0 ? numDays : 5);
+    }
+  }, [trip?.tripId, trip?.destination, numDays, hydrateAIGeneration]);
+
   const members = (trip?.participants ?? []).filter(
     (p) => p.status === "ACCEPTED" || p.role === "OWNER"
   );
@@ -2121,13 +3480,6 @@ export default function TripDetailPage() {
     setHasUnsavedChanges(true);
   }
 
-  function handleAIGenerate(days: DayPlan[]) {
-    setItineraryDays(days);
-    setExpandedDays(new Set([1]));
-    setHasUnsavedChanges(true);
-    addToast("AI itinerary generated! Review and customize as needed.", "success");
-  }
-
   function addDay() {
     const nextNum = itineraryDays.length + 1;
     setItineraryDays((prev) => [
@@ -2138,15 +3490,15 @@ export default function TripDetailPage() {
     setHasUnsavedChanges(true);
   }
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const payload = {
-        dayPlans: itineraryDays.map((day) => ({
-          dayNumber: day.dayNumber,
-          date: day.date ?? undefined,
-          title: day.title || undefined,
-          activities: day.activities.map((a) => {
+  // Build the trip-service payload from the working itinerary days.
+  function buildItineraryPayload(days: DayPlan[]): UpdateItineraryRequest {
+    return {
+      dayPlans: days.map((day) => ({
+        dayNumber: day.dayNumber,
+        date: day.date ?? undefined,
+        title: day.title || undefined,
+        activities: [
+          ...day.activities.map((a) => {
             // Parse time "09:00 - 11:00" into startTime/endTime
             const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
             const startTime = timeParts[0] || a.startTime || undefined;
@@ -2154,6 +3506,7 @@ export default function TripDetailPage() {
             // Map frontend "default" category to backend "OTHER"
             const rawCat = (a.category ?? "OTHER").toUpperCase();
             const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
+            const costNum = a.estimatedCost != null && a.estimatedCost !== "" ? Number(a.estimatedCost) : NaN;
             return {
               title: a.title || "Untitled activity",
               description: a.description || undefined,
@@ -2161,20 +3514,111 @@ export default function TripDetailPage() {
               startTime,
               endTime,
               category,
-              notes: undefined,
+              notes: a.notes || undefined,
+              estimatedCost: Number.isFinite(costNum) ? costNum : undefined,
+              currency: currency || undefined,
             };
           }),
-        })),
-      };
-      const result = await itineraryApi.update(tripId, payload);
-      setItineraryDays(result.days);
+          ...((day.transportRecommendations?.length || day.weather) ? [{
+            title: "__METADATA__",
+            description: JSON.stringify({
+              transportRecommendations: day.transportRecommendations,
+              weather: day.weather
+            }),
+            location: undefined,
+            startTime: undefined,
+            endTime: undefined,
+            category: "OTHER",
+            notes: undefined
+          }] : [])
+        ],
+      })),
+    };
+  }
+
+  // Persist the itinerary. Saves are serialized (see savingRef/pendingSaveRef) so
+  // rapid changes can't race; a silent save skips the spinner/toast (auto-save).
+  async function persistItinerary(days: DayPlan[], opts?: { silent?: boolean }): Promise<boolean> {
+    if (savingRef.current) {
+      pendingSaveRef.current = days;
+      return false;
+    }
+    savingRef.current = true;
+    if (!opts?.silent) setSaving(true);
+    try {
+      const result = await itineraryApi.update(tripId, buildItineraryPayload(days));
+      setItineraryDays(processItineraryDays(result.days));
       setHasUnsavedChanges(false);
-      addToast("Itinerary saved successfully", "success");
+      // The backend may auto-promote DRAFT → PLANNED (or back) based on the
+      // itinerary; refresh so the status badge reflects it without a reload.
+      void refreshTrip();
+      if (!opts?.silent) addToast("Itinerary saved successfully", "success");
+      return true;
     } catch {
       addToast("Failed to save itinerary", "error");
+      return false;
+    } finally {
+      savingRef.current = false;
+      if (!opts?.silent) setSaving(false);
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        void persistItinerary(pending, { silent: true });
+      }
+    }
+  }
+
+  async function handleSave() {
+    await persistItinerary(itineraryDays);
+  }
+
+  async function saveInlineEdits() {
+    if (!tripId) return;
+    setSaving(true);
+    try {
+      const updated = await tripsApi.update(tripId, {
+        title: editTitle,
+        description: editDesc || undefined,
+        startDate: editStartDate || undefined,
+        endDate: editEndDate || undefined,
+        visibility: editVisibility,
+      });
+      setTrip((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: updated.title,
+              description: updated.description,
+              startDate: updated.startDate,
+              endDate: updated.endDate,
+              visibility: updated.visibility,
+            }
+          : null
+      );
+
+      // Save itinerary too if it has unsaved changes
+      if (hasUnsavedChanges) {
+        await persistItinerary(itineraryDays, { silent: true });
+      }
+
+      setIsEditing(false);
+      addToast("Trip updated successfully", "success");
+    } catch {
+      addToast("Failed to update trip details", "error");
     } finally {
       setSaving(false);
     }
+  }
+
+  function cancelInlineEdits() {
+    if (trip) {
+      setEditTitle(trip.title);
+      setEditDesc(trip.description || "");
+      setEditStartDate(trip.startDate || "");
+      setEditEndDate(trip.endDate || "");
+      setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
+    }
+    setIsEditing(false);
   }
 
   function handleVoteUpdate(dayNumber: number, summary: VoteSummary) {
@@ -2219,7 +3663,7 @@ export default function TripDetailPage() {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
         <p className="text-muted">{error || "Trip not found"}</p>
-        <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+        <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
           <ArrowLeft size={16} /> Back to trips
         </Button>
       </div>
@@ -2236,15 +3680,33 @@ export default function TripDetailPage() {
     0
   );
 
+  const totalActivities = itineraryDays.reduce((sum, day) => sum + day.activities.length, 0);
+
+  const hasAiMetadata = itineraryDays.some((d) => d.weather || (d.transportRecommendations && d.transportRecommendations.length > 0));
+  const isAiTrip = (isFromAi || hasAiMetadata) && trip?.status === "PLANNED";
+
   return (
     <div className="space-y-8 pb-12">
       {/* Back link */}
       <Link
-        href="/dashboard"
+        href={user?.userId ? "/dashboard" : "/"}
         className="inline-flex items-center gap-2 text-sm text-muted hover:text-foreground transition-colors"
       >
         <ArrowLeft size={16} /> Back to trips
       </Link>
+
+      {!user?.userId && (
+        <GlassCard className="!p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted">
+              You are viewing a shared trip in read-only mode. Sign in to join and collaborate.
+            </p>
+            <Button size="sm" onClick={() => router.push(`/login?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}>
+              Sign in to join
+            </Button>
+          </div>
+        </GlassCard>
+      )}
 
       {/* Pending approval banner */}
       {isPendingApproval && (
@@ -2263,33 +3725,134 @@ export default function TripDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800 p-8 shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] sm:p-10"
+        className={cn(
+          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10 transition-all duration-300",
+          isAiTrip
+            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-80 flex flex-col justify-end bg-black")
+            : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
+        )}
       >
+        {/* AI-generated cover as a softly blurred backdrop (fades in when loaded) */}
+        {trip.coverImageUrl && (
+          isAiTrip ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={trip.coverImageUrl}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-100 scale-105 blur-[2px]"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-black/30 bg-gradient-to-t from-black/80 via-black/20 to-black/10" />
+            </>
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={trip.coverImageUrl}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover opacity-0 blur-[3px] transition-opacity duration-1000"
+                onLoad={(e) => { e.currentTarget.style.opacity = "0.7"; }}
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-trippy-900/78 via-trippy-800/68 to-trippy-900/85" />
+            </>
+          )
+        )}
+
         {/* Immersive texture + warm mesh */}
-        <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
-        <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
-        <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
-          <Plane size={90} className="rotate-12 text-white" />
-        </div>
+        {!isAiTrip && (
+          <>
+            <div className="pointer-events-none absolute inset-0 bg-[url('/trippy-landing-background.png')] bg-cover bg-center opacity-[0.14] mix-blend-luminosity" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_120%_at_0%_0%,rgba(231,111,81,0.30),transparent_55%)]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+            <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-white/8 blur-2xl" />
+            <div className="pointer-events-none absolute right-8 bottom-4 opacity-10 lux-float">
+              <Plane size={90} className="rotate-12 text-white" />
+            </div>
+          </>
+        )}
 
         <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
             <div className="flex items-center gap-3 mb-2">
               <Badge variant={statusVariant[trip.status] ?? "default"}>
                 {statusLabel[trip.status] ?? trip.status}
               </Badge>
-              {trip.visibility === "PUBLIC" && (
+              {trip.visibility === "PUBLIC" ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-medium text-white/70">
                   <Globe size={10} /> Public
                 </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-medium text-white/70">
+                  <Lock size={10} /> Private
+                </span>
               )}
             </div>
-            <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">{trip.title}</h1>
-            {trip.description && (
-              <p className="mt-2 text-sm text-white/60 max-w-xl">{trip.description}</p>
+
+            {isEditing ? (
+              <div className="space-y-4 w-full">
+                {/* Editable Title */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1">Trip Name</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="font-display text-2xl font-black tracking-tight text-white bg-white/10 border border-white/20 rounded-xl px-3 py-1.5 focus:outline-none focus:border-white/45 w-full"
+                  />
+                </div>
+                {/* Editable Description */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1">Description</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    className="text-sm text-white bg-white/10 border border-white/20 rounded-xl px-3 py-1.5 focus:outline-none focus:border-white/45 w-full resize-none"
+                    rows={2}
+                  />
+                </div>
+                {/* Editable Visibility */}
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/60 block mb-1.5">Visibility</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditVisibility("PRIVATE")}
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                        editVisibility === "PRIVATE"
+                          ? "bg-white text-trippy-600 border-white shadow-sm"
+                          : "bg-white/10 border-white/20 text-white/70 hover:bg-white/20 hover:text-white"
+                      }`}
+                    >
+                      <Lock size={12} /> Private
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditVisibility("PUBLIC")}
+                      className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                        editVisibility === "PUBLIC"
+                          ? "bg-white text-trippy-600 border-white shadow-sm"
+                          : "bg-white/10 border-white/20 text-white/70 hover:bg-white/20 hover:text-white"
+                      }`}
+                    >
+                      <Globe size={12} /> Public
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
+                  {trip.title}
+                </h1>
+                {trip.description && (
+                  <p className="mt-2 text-sm text-white/60 max-w-xl">
+                    {trip.description}
+                  </p>
+                )}
+              </>
             )}
 
             {/* Quick stats */}
@@ -2298,19 +3861,40 @@ export default function TripDetailPage() {
                 <MapPin size={14} className="text-accent-400" />
                 <span className="text-sm font-medium">{trip.destination}</span>
               </div>
-              {trip.startDate && trip.endDate && (
-                <div className="flex items-center gap-2 text-white/80">
+              
+              {isEditing ? (
+                <div className="flex items-center gap-2 text-white/85 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5">
                   <Calendar size={14} className="text-accent-400" />
-                  <span className="text-sm">
-                    {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    {" — "}
-                    {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
-                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60">
-                    {numDays} day{numDays !== 1 ? "s" : ""}
-                  </span>
+                  <input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    className="bg-transparent text-xs outline-none text-white w-28 [color-scheme:dark]"
+                  />
+                  <span className="text-white/40 text-xs">—</span>
+                  <input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    className="bg-transparent text-xs outline-none text-white w-28 [color-scheme:dark]"
+                  />
                 </div>
+              ) : (
+                trip.startDate && trip.endDate && (
+                  <div className="flex items-center gap-2 text-white/80">
+                    <Calendar size={14} className="text-accent-400" />
+                    <span className="text-sm">
+                      {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {" — "}
+                      {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60">
+                      {numDays} day{numDays !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                )
               )}
+
               <div className="flex items-center gap-2 text-white/80">
                 <Users size={14} className="text-accent-400" />
                 <span className="text-sm">{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
@@ -2325,25 +3909,108 @@ export default function TripDetailPage() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap gap-2">
-            <Link href={`/dashboard/chat/${trip.tripId}`}>
-              <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
-                <MessageSquare size={14} /> Chat
-              </Button>
-            </Link>
-            {isOwnerOrEditor && (
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {isEditing ? (
               <>
-                <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setEditModalOpen(true)}>
-                  <Edit size={14} /> Edit
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={saveInlineEdits}
+                  disabled={saving}
+                  className="bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Save Changes
                 </Button>
-                <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
-                  <Trash2 size={14} /> Delete
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={cancelInlineEdits}
+                  disabled={saving}
+                  className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                >
+                  Cancel
                 </Button>
+              </>
+            ) : (
+              <>
+                {user?.userId && (
+                  <Link href={`/dashboard/chat/${trip.tripId}`}>
+                    <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                      <MessageSquare size={14} /> Chat
+                    </Button>
+                  </Link>
+                )}
+                {isOwnerOrEditor && (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      onClick={() => {
+                        if (isAiTrip) {
+                          setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
+                          setIsEditing(true);
+                        } else {
+                          setEditModalOpen(true);
+                        }
+                      }}
+                    >
+                      <Edit size={14} /> Edit
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
+                      <Trash2 size={14} /> Delete
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>
         </div>
       </motion.div>
+
+      {/* AI trip stats bar */}
+      {isAiTrip && (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            {
+              icon: <Sparkles size={16} className="text-purple-500" />,
+              label: "Activities",
+              value: `${totalActivities} planned`,
+              bg: "bg-purple-50 border-purple-100",
+            },
+            {
+              icon: <DollarSign size={16} className="text-amber-500" />,
+              label: "Budget",
+              value: preferences?.budgetTier
+                ? preferences.budgetTier.charAt(0) + preferences.budgetTier.slice(1).toLowerCase()
+                : "Moderate",
+              bg: "bg-amber-50 border-amber-100",
+            },
+            {
+              icon: <Calendar size={16} className="text-accent-500" />,
+              label: "Duration",
+              value: `${numDays} day${numDays !== 1 ? "s" : ""}`,
+              bg: "bg-accent-500/5 border-accent-200",
+            },
+          ].map((s, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all ${s.bg}`}
+            >
+              <div className="shrink-0">{s.icon}</div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                  {s.label}
+                </p>
+                <p className="text-sm font-bold text-foreground truncate">
+                  {s.value}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ─── Team Section ──────────────────────────────────────────── */}
       {members.length > 0 && (
@@ -2391,12 +4058,8 @@ export default function TripDetailPage() {
                           ? "bg-gradient-to-br from-accent-100 to-accent-200 text-accent-700 border-accent-300"
                           : "bg-shore-100 text-trippy-600 border-border"
                       )}>
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">
@@ -2511,12 +4174,8 @@ export default function TripDetailPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold border-2 bg-shore-100 text-trippy-600 border-border">
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
@@ -2583,12 +4242,8 @@ export default function TripDetailPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold border-2 bg-blue-50 text-blue-600 border-blue-200">
-                        {p.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.avatarUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          initials
-                        )}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.avatarUrl || generateAvatarUrl(name)} alt={name} className="w-full h-full rounded-full object-cover" />
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
@@ -2665,9 +4320,10 @@ export default function TripDetailPage() {
                 Voting
               </button>
             )}
-            {isParticipant && (
+            {/* AI Suggestions — host (trip owner) only */}
+            {isOwner && (
               <button
-                onClick={() => setAiPanelOpen(true)}
+                onClick={openAI}
                 className={cn(
                   "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
                   "bg-gradient-to-r from-trippy-600 to-trippy-700 text-white shadow-md shadow-trippy-500/20",
@@ -2675,7 +4331,7 @@ export default function TripDetailPage() {
                 )}
               >
                 <Sparkles size={14} />
-                AI Generate
+                AI Suggestions
               </button>
             )}
           </div>
@@ -2702,6 +4358,7 @@ export default function TripDetailPage() {
                 day={day}
                 tripId={tripId}
                 tripStartDate={trip.startDate}
+                destination={trip.destination}
                 expanded={expandedDays.has(day.dayNumber)}
                 onToggle={() => toggleDay(day.dayNumber)}
                 onUpdateDay={updateDay}
@@ -2709,11 +4366,13 @@ export default function TripDetailPage() {
                 onCurrencyChange={(c) => { setCurrency(c); setHasUnsavedChanges(true); }}
                 onVoteUpdate={handleVoteUpdate}
                 isParticipant={isParticipant}
+                readOnly={!isParticipant || (isAiTrip && !isEditing)}
+                isAiTrip={isAiTrip}
               />
             ))}
 
             {/* Add day button */}
-            {isParticipant && (
+            {isParticipant && (!isAiTrip || isEditing) && (
               <button
                 onClick={addDay}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-5 text-sm font-medium text-muted transition-all hover:border-accent-400 hover:text-accent-600 hover:bg-accent-50/30 cursor-pointer"
@@ -2731,7 +4390,7 @@ export default function TripDetailPage() {
             <h3 className="text-lg font-bold">No itinerary yet</h3>
             <p className="text-sm text-muted mt-1 max-w-sm">
               {numDays > 0
-                ? `You have ${numDays} days to plan. Add days manually or let AI create a complete itinerary for you.`
+                ? `You have ${numDays} days to plan. Add days manually${isOwner ? " or let AI create a complete itinerary for you" : ""}.`
                 : "Set your trip dates first, then plan your day-by-day adventure here."}
             </p>
             <div className="flex items-center gap-3 mt-5">
@@ -2740,26 +4399,41 @@ export default function TripDetailPage() {
                   <Plus size={14} /> Add first day
                 </Button>
               )}
-              <button
-                onClick={() => setAiPanelOpen(true)}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
-              >
-                <Sparkles size={14} /> Generate with AI
-              </button>
+              {/* AI Suggestions — host (trip owner) only */}
+              {isOwner && (
+                <button
+                  onClick={openAI}
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
+                >
+                  <Sparkles size={14} /> Suggest with AI
+                </button>
+              )}
             </div>
           </GlassCard>
         )}
       </motion.section>
 
-      {/* AI Generate Panel */}
-      <AIGeneratePanel
-        open={aiPanelOpen}
-        onClose={() => setAiPanelOpen(false)}
-        tripTitle={trip.title}
-        destination={trip.destination}
-        numDays={numDays > 0 ? numDays : 5}
-        onGenerate={handleAIGenerate}
-      />
+      {/* AI Itinerary Studio — host (trip owner) only */}
+      {isOwner && (
+        <AIItinerarySidebar
+          key={aiSession}
+          open={aiPanelOpen}
+          minimized={aiMinimized}
+          width={panelWidth}
+          onClose={closeAI}
+          onMinimize={minimizeAI}
+          onExpand={expandAI}
+          onResize={resizeAI}
+          onDragChange={setDragging}
+          tripId={tripId}
+          destination={trip.destination}
+          numDays={numDays > 0 ? numDays : 5}
+          currencySymbol={currencies.find((c) => c.code === currency)?.symbol ?? "$"}
+          onApply={applySuggestion}
+          onRemove={removeSuggestion}
+          addedKeys={addedSuggestionKeys}
+        />
+      )}
 
       {/* Edit Trip Modal */}
       <AnimatePresence>
@@ -2791,7 +4465,6 @@ export default function TripDetailPage() {
         {inviteOpen && (
           <InviteModal
             tripId={tripId}
-            existingParticipantIds={trip.participants?.map((p) => p.userId) ?? []}
             onClose={() => setInviteOpen(false)}
             onInvited={() => {
               // Refresh trip data to show new participant

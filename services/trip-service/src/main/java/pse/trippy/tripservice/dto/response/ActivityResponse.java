@@ -1,5 +1,6 @@
 package pse.trippy.tripservice.dto.response;
 
+import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.UUID;
 
@@ -12,6 +13,8 @@ public record ActivityResponse(
         LocalTime endTime,
         String category,
         String notes,
+        BigDecimal estimatedCost,
+        String currency,
         int orderIndex,
         long upvotes,
         long downvotes,

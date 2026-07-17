@@ -1,17 +1,20 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MapPin, Calendar, Users, Sparkles, Loader2, Check,
   DollarSign, Send, ArrowRightLeft, Plus, Trash2,
   Lightbulb, Undo2, ChevronDown, ChevronUp, Pencil,
-  Bus, Clock, ArrowLeft,
+  Bus, Clock, ArrowLeft, Lock, Globe,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
 import Button from "@/components/ui/Button";
 import { getAccessToken } from "@/lib/api";
+import { ROUTES } from "@/lib/routes";
+import { updateAiTripRouteState } from "@/lib/ai-trip-route-state";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface AiItineraryDay {
@@ -88,8 +91,13 @@ interface TripFullScreenViewProps {
   userPrompt?: string;
   userDates?: { start: string; end?: string };
   onClose: () => void;
-  onSave: () => void;
+  onSave: (trip: GeneratedTrip) => void;
   saved: boolean;
+  isSaving?: boolean;
+  saveError?: string;
+  visibility?: "PRIVATE" | "PUBLIC";
+  onVisibilityChange?: (visibility: "PRIVATE" | "PUBLIC") => void;
+  sid?: string;
 }
 
 const CAT_COLORS: Record<string, string> = {
@@ -111,6 +119,8 @@ const CAT_ICONS: Record<string, string> = {
 /* ── Main Component ────────────────────────────────────────────────── */
 export default function TripFullScreenView({
   trip, userPrompt, userDates, onClose, onSave, saved,
+  isSaving = false, saveError = "", visibility = "PRIVATE", onVisibilityChange,
+  sid,
 }: TripFullScreenViewProps) {
   const [draftTrip, setDraftTrip] = useState<GeneratedTrip>(trip);
   const [itineraryVersion, setItineraryVersion] = useState(0);
@@ -149,6 +159,13 @@ export default function TripFullScreenView({
   }
 
   useEffect(() => { setDraftTrip(trip); }, [trip]);
+
+  // Sync state changes to storage cache so page refresh does not trigger regeneration
+  useEffect(() => {
+    if (sid && draftTrip.aiItinerary?.length) {
+      updateAiTripRouteState(sid, draftTrip);
+    }
+  }, [draftTrip, sid]);
 
   // Fetch city image
   useEffect(() => {
@@ -371,9 +388,9 @@ export default function TripFullScreenView({
             >
               <ArrowLeft size={15} />
             </button>
-            <button onClick={onClose} className="cursor-pointer">
+            <Link href={ROUTES.home} className="cursor-pointer" aria-label="Trippy home">
               <Logo size="sm" className="min-w-0 [&>span]:text-xl" />
-            </button>
+            </Link>
           </div>
           {prevItinerary && (
             <button
@@ -640,7 +657,8 @@ export default function TripFullScreenView({
               <div className="flex gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
                 {draftTrip.aiItinerary.map(day => {
                   const isExp = expandedDays.has(day.dayNumber);
-                  const hasWeather = day.weather?.condition && !day.weather.condition.includes("unavailable");
+                  const isFarAway = day.date ? (new Date(day.date).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000 > 10 : false;
+                  const hasWeather = !isFarAway && day.weather?.condition && !day.weather.condition.includes("unavailable");
                   return (
                     <button
                       key={day.dayNumber}
@@ -674,7 +692,8 @@ export default function TripFullScreenView({
                   ? new Date(day.date).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" })
                   : "";
                 const weatherCondition = day.weather?.condition;
-                const hasWeather = weatherCondition && !weatherCondition.includes("unavailable");
+                const isFarAway = day.date ? (new Date(day.date).getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000 > 10 : false;
+                const hasWeather = !isFarAway && weatherCondition && !weatherCondition.includes("unavailable");
                 const weatherTemp = formatTemperature(day.weather?.temperatureCelsius);
                 const weatherIcon = getWeatherIcon(weatherCondition);
 
@@ -960,9 +979,50 @@ export default function TripFullScreenView({
           ) : null}
 
           {/* Save bar */}
-          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6">
-            <Button className="w-full text-sm py-3.5 shadow-lg shadow-trippy-500/20" onClick={onSave} disabled={saved}>
-              {saved ? <><Check size={16} /> Trip Saved to Dashboard</> : <><Sparkles size={16} /> Save This Trip</>}
+          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
+            {onVisibilityChange && (
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onVisibilityChange("PRIVATE")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer ${
+                    visibility === "PRIVATE"
+                      ? "bg-trippy-500 text-white shadow-sm"
+                      : "bg-white border border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Lock size={11} /> Private
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onVisibilityChange("PUBLIC")}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer ${
+                    visibility === "PUBLIC"
+                      ? "bg-trippy-500 text-white shadow-sm"
+                      : "bg-white border border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Globe size={11} /> Public
+                </button>
+              </div>
+            )}
+            {saveError && (
+              <p className="text-center text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {saveError}
+              </p>
+            )}
+            <Button
+              className="w-full text-sm py-3.5 shadow-lg shadow-trippy-500/20"
+              onClick={() => onSave(draftTrip)}
+              disabled={saved || isSaving}
+            >
+              {isSaving ? (
+                <><Loader2 size={16} className="animate-spin" /> Saving…</>
+              ) : saved ? (
+                <><Check size={16} /> Trip Saved to Dashboard</>
+              ) : (
+                <><Sparkles size={16} /> Save This Trip</>
+              )}
             </Button>
           </div>
         </div>

@@ -24,6 +24,7 @@ import {
   preferencesApi,
   hasTripPreferences,
   ApiError,
+  ensureTripCoverImage,
   type Trip,
   type CreateTripRequest,
   type TripPreferenceInput,
@@ -91,6 +92,8 @@ export default function DashboardPage() {
   const createTripWithPreferences = useCallback(
     async (data: CreateTripRequest, preferences: TripPreferenceInput) => {
       const trip = await tripsApi.create(data);
+      // Kick off cover-image generation in the background — never blocks or fails creation.
+      void ensureTripCoverImage(trip.tripId, trip.destination, preferences).catch(() => {});
       let prefsSaved = true;
       if (hasTripPreferences(preferences)) {
         try {
@@ -233,6 +236,22 @@ export default function DashboardPage() {
 
   const tripCount = filteredTrips.length;
 
+  const sortedFilteredTrips = [...filteredTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
+  const sortedPublicTrips = [...publicTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
   // Hero personalization + at-a-glance stats.
   const greetingName = user?.displayName?.trim().split(/\s+/)[0] ?? "";
   const now = new Date();
@@ -242,7 +261,6 @@ export default function DashboardPage() {
   const heroStats = [
     { icon: Plane, label: "Trips", value: trips.length },
     { icon: Calendar, label: "Upcoming", value: upcomingCount },
-    { icon: Globe2, label: "Explore", value: publicTrips.length },
   ];
 
   return (
@@ -489,68 +507,6 @@ export default function DashboardPage() {
         </motion.div>
       </section>
 
-      {/* ── Public / Explore Trips (shown above user content) ────── */}
-      {!searchQuery && publicTrips.length > 0 && (
-        <motion.section
-          className="mb-10"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-trippy-500 to-trippy-700 text-white shadow-[0_14px_28px_-16px_rgba(18,60,105,0.9)]">
-              <Globe2 size={18} />
-            </div>
-            <div>
-              <h2 className="text-xl font-extrabold tracking-tight">Explore public trips</h2>
-              <p className="text-xs text-muted">Discover adventures shared by the community</p>
-            </div>
-          </div>
-
-          {publicLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={20} className="animate-spin text-accent-500" />
-            </div>
-          ) : (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {publicTrips.map((trip, i) => (
-                <motion.div
-                  key={trip.tripId}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.35, delay: i * 0.06 }}
-                  onClick={() =>
-                    router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)
-                  }
-                  className="cursor-pointer"
-                >
-                  <TripCard
-                    title={trip.title}
-                    destination={trip.destination}
-                    startDate={trip.startDate ?? "TBD"}
-                    endDate={trip.endDate ?? "TBD"}
-                    status={
-                      trip.status === "ONGOING"
-                        ? "ACTIVE"
-                        : (trip.status as
-                            | "DRAFT"
-                            | "PLANNED"
-                            | "ACTIVE"
-                            | "COMPLETED"
-                            | "CANCELLED")
-                    }
-                    participantCount={trip.participantCount}
-                    coverImageUrl={trip.coverImageUrl}
-                    onJoin={() => setJoinModalTripId(trip.tripId)}
-                    joinLoading={joiningTripId === trip.tripId}
-                    joinRequested={requestedTripIds.has(trip.tripId)}
-                  />
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </motion.section>
-      )}
 
       {/* ── Content ─────────────────────────────────────────────── */}
       <AnimatePresence mode="wait">
@@ -645,7 +601,7 @@ export default function DashboardPage() {
 
             {/* ── Trip grid ───────────────────────────────────────── */}
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredTrips.map((trip, i) => (
+              {sortedFilteredTrips.map((trip, i) => (
                 <motion.div
                   key={trip.tripId}
                   initial={{ opacity: 0, y: 16 }}
@@ -719,6 +675,69 @@ export default function DashboardPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Public / Explore Trips (shown below user content) ────── */}
+      {!searchQuery && sortedPublicTrips.length > 0 && (
+        <motion.section
+          className="mt-12"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-trippy-500 to-trippy-700 text-white shadow-[0_14px_28px_-16px_rgba(18,60,105,0.9)]">
+              <Globe2 size={18} />
+            </div>
+            <div>
+              <h2 className="text-xl font-extrabold tracking-tight">Explore public trips</h2>
+              <p className="text-xs text-muted">Discover adventures shared by the community</p>
+            </div>
+          </div>
+
+          {publicLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={20} className="animate-spin text-accent-500" />
+            </div>
+          ) : (
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {sortedPublicTrips.map((trip, i) => (
+                <motion.div
+                  key={trip.tripId}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: i * 0.06 }}
+                  onClick={() =>
+                    router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)
+                  }
+                  className="cursor-pointer"
+                >
+                  <TripCard
+                    title={trip.title}
+                    destination={trip.destination}
+                    startDate={trip.startDate ?? "TBD"}
+                    endDate={trip.endDate ?? "TBD"}
+                    status={
+                      trip.status === "ONGOING"
+                        ? "ACTIVE"
+                        : (trip.status as
+                            | "DRAFT"
+                            | "PLANNED"
+                            | "ACTIVE"
+                            | "COMPLETED"
+                            | "CANCELLED")
+                    }
+                    participantCount={trip.participantCount}
+                    coverImageUrl={trip.coverImageUrl}
+                    onJoin={() => setJoinModalTripId(trip.tripId)}
+                    joinLoading={joiningTripId === trip.tripId}
+                    joinRequested={requestedTripIds.has(trip.tripId)}
+                  />
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </motion.section>
+      )}
     </>
   );
 }

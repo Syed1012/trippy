@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   DollarSign,
-  LayoutDashboard,
   Route,
   Search,
   SlidersHorizontal,
@@ -20,16 +19,24 @@ import {
   Stamp,
   Globe,
   Utensils,
+  MapPin,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
+import Navbar from "@/components/layout/Navbar";
+import Footer from "@/components/layout/Footer";
 import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
+import { tripsApi, participantsApi, type Trip } from "@/lib/api";
+import { tripSlug } from "@/lib/utils";
+import TripCard from "@/components/trips/TripCard";
+import { useToast } from "@/lib/toast";
 
 const HERO_IDEAS = [
   "a 7-day food trip through Kyoto",
@@ -44,8 +51,6 @@ const TRIP_TYPE_FILTERS = ["Beach", "Adventure", "City", "Nature", "Culture", "W
 const NO_PREFERENCE_LABEL = "No preference";
 
 const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "Luxury"];
-
-const VISIBILITY_OPTIONS = ["Public", "Private"];
 
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
@@ -103,14 +108,14 @@ function useTypingEffect(words: string[], typingSpeed = 62, pause = 1500) {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const { addToast } = useToast();
   const requestIdRef = useRef(0);
   const typedIdea = useTypingEffect(HERO_IDEAS);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [tripVisibility, setTripVisibility] = useState("");
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
@@ -120,12 +125,93 @@ export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [aiBuilderRequest, setAiBuilderRequest] = useState<AIBuilderRequest | undefined>(undefined);
 
+  const [mounted, setMounted] = useState(false);
+  const [publicTrips, setPublicTrips] = useState<Trip[]>([]);
+  const [publicLoading, setPublicLoading] = useState(true);
+
+  // Join modal & request states
+  const [joinModalTripId, setJoinModalTripId] = useState<string | null>(null);
+  const [joinMessage, setJoinMessage] = useState("");
+  const [joiningTripId, setJoiningTripId] = useState<string | null>(null);
+  const [requestedTripIds, setRequestedTripIds] = useState<Set<string>>(new Set());
+
+  const [myTrips, setMyTrips] = useState<Trip[]>([]);
+  const [myLoading, setMyLoading] = useState(true);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    setPublicLoading(true);
+    tripsApi
+      .listPublic(0, 6)
+      .then((data) => {
+        setPublicTrips(data.content || []);
+        const requested = (data.content || [])
+          .filter((trip) => trip.currentUserStatus === "PENDING_APPROVAL")
+          .map((trip) => trip.tripId);
+        if (requested.length > 0) {
+          setRequestedTripIds(new Set(requested));
+        }
+      })
+      .catch(() => {
+        setPublicTrips([]);
+      })
+      .finally(() => {
+        setPublicLoading(false);
+      });
+
+    if (isAuthenticated) {
+      setMyLoading(true);
+      tripsApi
+        .list(0, 6)
+        .then((data) => {
+          setMyTrips(data.content || []);
+        })
+        .catch(() => {
+          setMyTrips([]);
+        })
+        .finally(() => {
+          setMyLoading(false);
+        });
+    } else {
+      setMyTrips([]);
+      setMyLoading(false);
+    }
+  }, [mounted, isAuthenticated]);
+
+  async function handleJoinTrip(tripId: string) {
+    if (!isAuthenticated) {
+      setJoinModalTripId(null);
+      setShowAuthModal(true);
+      return;
+    }
+    setJoiningTripId(tripId);
+    try {
+      const res = await participantsApi.requestJoin(
+        tripId,
+        user?.displayName || undefined,
+        joinMessage.trim() || undefined,
+      );
+      addToast(res.message || "Join request sent! Awaiting owner approval.", "success");
+      setRequestedTripIds((prev) => new Set(prev).add(tripId));
+      setJoinModalTripId(null);
+      setJoinMessage("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to send join request";
+      addToast(msg, "error");
+    } finally {
+      setJoiningTripId(null);
+    }
+  }
+
   const hasTicketData = Boolean(
     searchQuery.trim() ||
       startDate ||
       activeFilters.length > 0 ||
       heroBudget ||
-      tripVisibility ||
       dietPreference ||
       pacePreference,
   );
@@ -144,7 +230,6 @@ export default function LandingPage() {
       endDate: endDate || startDate,
       filters: activeFilters,
       budget: heroBudget || undefined,
-      visibility: tripVisibility || undefined,
       diet: dietPreference || undefined,
       pace: pacePreference || undefined,
     });
@@ -168,7 +253,7 @@ export default function LandingPage() {
     stashPendingTrip();
 
     if (isAuthenticated) {
-      router.push("/dashboard");
+      router.push(ROUTES.dashboard);
     } else {
       setShowAuthModal(true);
     }
@@ -177,7 +262,7 @@ export default function LandingPage() {
   const handleAuthSuccess = () => {
     // The pending trip is already stashed; the dashboard picks it up on mount.
     setShowAuthModal(false);
-    router.push("/dashboard");
+    router.push(ROUTES.dashboard);
   };
 
   const nextRequestId = () => {
@@ -257,29 +342,37 @@ export default function LandingPage() {
     setEndDate(value);
   };
 
+  const sortedPublicTrips = [...publicTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
+  const sortedMyTrips = [...myTrips]
+    .sort((a, b) => {
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    })
+    .slice(0, 6);
+
   return (
-    <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f]">
+    <div className="relative isolate min-h-screen overflow-x-hidden bg-[#f8efe1] text-[#18211f] flex flex-col">
       <AmbientBackground />
 
-      <header className="sticky top-0 z-50 border-b border-white/30 bg-white/18 px-4 shadow-[0_1px_0_rgba(20,47,43,0.04)] backdrop-blur-2xl lg:px-8">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
-          <Link href="/" aria-label="Trippy home">
-            <Logo size="md" />
-          </Link>
+      {isAuthenticated ? (
+        <Navbar variant="landing" />
+      ) : (
+        <header className="sticky top-0 z-50 border-b border-white/30 bg-white/18 px-4 shadow-[0_1px_0_rgba(20,47,43,0.04)] backdrop-blur-2xl lg:px-8">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between">
+            <Link href={ROUTES.home} aria-label="Trippy home">
+              <Logo size="md" />
+            </Link>
 
-          <div className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <Link href="/dashboard">
-                <Button
-                  size="sm"
-                  className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
-                >
-                  <LayoutDashboard size={14} />
-                  Dashboard
-                </Button>
-              </Link>
-            ) : (
-              <Link href="/login">
+            <div className="flex items-center gap-2">
+              <Link href={ROUTES.login}>
                 <Button
                   size="sm"
                   className="!rounded-xl !border-white/75 !bg-white/62 px-4 !text-[#17312d] shadow-[0_14px_34px_-24px_rgba(20,47,43,0.86)] backdrop-blur-xl hover:!border-white hover:!bg-white/82"
@@ -287,10 +380,10 @@ export default function LandingPage() {
                   Log in
                 </Button>
               </Link>
-            )}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main className="relative z-10">
         <section className="relative isolate overflow-hidden">
@@ -308,10 +401,7 @@ export default function LandingPage() {
                 Where are you going next?
               </motion.h1>
 
-              <motion.p variants={revealItem} className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#5f6f69] sm:text-lg">
-                Build the trip your way and let AI suggest as you go — or hand it over
-                and let AI plan the whole thing.
-              </motion.p>
+
 
               <motion.form
                 variants={revealItem}
@@ -319,7 +409,7 @@ export default function LandingPage() {
                   event.preventDefault();
                   startCreateTripFlow();
                 }}
-                className="relative z-30 mx-auto mt-8 w-full max-w-5xl rounded-[1.35rem] border border-white/80 bg-white/78 p-2.5 shadow-[0_34px_96px_-58px_rgba(20,47,43,0.82)] backdrop-blur-xl"
+                className="relative z-30 mx-auto mt-16 w-full max-w-5xl rounded-[1.35rem] border border-white/80 bg-white/78 p-2.5 shadow-[0_34px_96px_-58px_rgba(20,47,43,0.82)] backdrop-blur-xl"
               >
                 <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_250px]">
                   <label
@@ -418,14 +508,6 @@ export default function LandingPage() {
                   onChange={setHeroBudget}
                 />
                 <PlannerChoiceGroup
-                  icon={<Globe size={12} />}
-                  label="Visibility"
-                  value={tripVisibility}
-                  selected={Boolean(tripVisibility)}
-                  options={[NO_PREFERENCE_LABEL, ...VISIBILITY_OPTIONS]}
-                  onChange={setTripVisibility}
-                />
-                <PlannerChoiceGroup
                   icon={<Utensils size={12} />}
                   label="Diet"
                   value={dietPreference}
@@ -452,7 +534,6 @@ export default function LandingPage() {
                     endDate={endDate || startDate}
                     filters={activeFilters}
                     budget={heroBudget}
-                    visibility={tripVisibility}
                     diet={dietPreference}
                     pace={pacePreference}
                     ready={ticketReady}
@@ -464,6 +545,184 @@ export default function LandingPage() {
             </motion.div>
           </div>
         </section>
+
+        {/* Explore Public Trips Section */}
+        {mounted && (
+          <section className="relative py-20 lg:py-28">
+            <div className="mx-auto max-w-7xl px-4 lg:px-8">
+              {isAuthenticated ? (
+                <div className="space-y-16">
+                  {/* Your trips */}
+                  <div>
+                    <div className="mb-8 flex items-center gap-3 border-b border-[#e2d6c1] pb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-400 to-accent-600 text-white shadow-[0_14px_28px_-16px_rgba(231,111,81,0.9)]">
+                        <MapPin size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-extrabold tracking-tight text-[#17211f]">Your trips</h2>
+                        <p className="text-xs text-[#5f6f69]">
+                          {myTrips.length} trip{myTrips.length !== 1 ? "s" : ""} in your collection
+                        </p>
+                      </div>
+                    </div>
+
+                    {myLoading ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {[...Array(3)].map((_, idx) => (
+                          <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                        ))}
+                      </div>
+                    ) : sortedMyTrips.length > 0 ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {sortedMyTrips.map((trip) => (
+                          <div
+                            key={trip.tripId}
+                            onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                            className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                          >
+                            <TripCard
+                              title={trip.title}
+                              destination={trip.destination}
+                              startDate={trip.startDate ?? "TBD"}
+                              endDate={trip.endDate ?? "TBD"}
+                              status={
+                                trip.status === "ONGOING"
+                                  ? "ACTIVE"
+                                  : (trip.status as
+                                      | "DRAFT"
+                                      | "PLANNED"
+                                      | "ACTIVE"
+                                      | "COMPLETED"
+                                      | "CANCELLED")
+                              }
+                              participantCount={trip.participantCount}
+                              coverImageUrl={trip.coverImageUrl}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                        <p className="text-sm text-[#5f6f69]">You haven't created any trips yet.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Explore public trips */}
+                  <div>
+                    <div className="mb-8 flex items-center gap-3 border-b border-[#e2d6c1] pb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-trippy-500 to-trippy-700 text-white shadow-[0_14px_28px_-16px_rgba(18,60,105,0.9)]">
+                        <Globe size={18} />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-extrabold tracking-tight text-[#17211f]">Explore public trips</h2>
+                        <p className="text-xs text-[#5f6f69]">Discover adventures shared by the community</p>
+                      </div>
+                    </div>
+
+                    {publicLoading ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {[...Array(3)].map((_, idx) => (
+                          <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                        ))}
+                      </div>
+                    ) : sortedPublicTrips.length > 0 ? (
+                      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {sortedPublicTrips.map((trip) => (
+                          <div
+                            key={trip.tripId}
+                            onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                            className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                          >
+                            <TripCard
+                              title={trip.title}
+                              destination={trip.destination}
+                              startDate={trip.startDate ?? "TBD"}
+                              endDate={trip.endDate ?? "TBD"}
+                              status={
+                                trip.status === "ONGOING"
+                                  ? "ACTIVE"
+                                  : (trip.status as
+                                      | "DRAFT"
+                                      | "PLANNED"
+                                      | "ACTIVE"
+                                      | "COMPLETED"
+                                      | "CANCELLED")
+                              }
+                              participantCount={trip.participantCount}
+                              coverImageUrl={trip.coverImageUrl}
+                              onJoin={() => setJoinModalTripId(trip.tripId)}
+                              joinLoading={joiningTripId === trip.tripId}
+                              joinRequested={requestedTripIds.has(trip.tripId)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                        <p className="text-sm text-[#5f6f69]">No public trips available to explore yet.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Unauthenticated view (only Explore Public Trips) */
+                <>
+                  <div className="max-w-2xl">
+                    <h2 className="font-display text-3xl font-black tracking-tight text-[#17211f] sm:text-4xl">
+                      Explore Public Trips
+                    </h2>
+                    <p className="mt-3 text-sm text-[#5f6f69] sm:text-base">
+                      Discover incredible journeys planned by fellow travelers on our platform.
+                    </p>
+                  </div>
+
+                  {publicLoading ? (
+                    <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {[...Array(3)].map((_, idx) => (
+                        <div key={idx} className="h-80 animate-pulse rounded-[1.5rem] bg-[#f5ebe0]/80 border border-black/5" />
+                      ))}
+                    </div>
+                  ) : sortedPublicTrips.length > 0 ? (
+                    <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {sortedPublicTrips.map((trip) => (
+                        <div
+                          key={trip.tripId}
+                          onClick={() => router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`)}
+                          className="cursor-pointer transition-transform duration-300 hover:-translate-y-1"
+                        >
+                          <TripCard
+                            title={trip.title}
+                            destination={trip.destination}
+                            startDate={trip.startDate ?? "TBD"}
+                            endDate={trip.endDate ?? "TBD"}
+                            status={
+                              trip.status === "ONGOING"
+                                ? "ACTIVE"
+                                : (trip.status as
+                                    | "DRAFT"
+                                    | "PLANNED"
+                                    | "ACTIVE"
+                                    | "COMPLETED"
+                                    | "CANCELLED")
+                            }
+                            participantCount={trip.participantCount}
+                            coverImageUrl={trip.coverImageUrl}
+                            onJoin={() => setShowAuthModal(true)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-12 text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
+                      <p className="text-sm text-[#5f6f69]">No public trips available to explore yet.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        )}
 
       </main>
       <AITripBuilderModal
@@ -477,6 +736,65 @@ export default function LandingPage() {
         onSuccess={handleAuthSuccess}
         destination={searchQuery.trim() || undefined}
       />
+
+      {/* Join Request Modal */}
+      <AnimatePresence>
+        {joinModalTripId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setJoinModalTripId(null); setJoinMessage(""); }}
+              className="absolute inset-0 bg-[#121c1a]/60 backdrop-blur-sm"
+            />
+
+            {/* Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white bg-white/95 p-6 shadow-2xl backdrop-blur-xl"
+            >
+              <h3 className="font-display text-xl font-black text-[#17211f]">
+                Join Public Trip
+              </h3>
+              <p className="mt-2 text-sm text-[#5f6f69]">
+                Introduce yourself to the organizer. Let them know why you'd like to join their trip!
+              </p>
+
+              <textarea
+                value={joinMessage}
+                onChange={(e) => setJoinMessage(e.target.value)}
+                placeholder="Hi, I'd love to join your trip! I'm interested in exploring..."
+                className="mt-4 h-28 w-full rounded-2xl border border-[#cbd7cb] bg-[#fbf9f6] p-3.5 text-sm text-[#2a2018] outline-none transition-all focus:border-[#d5653e] focus:bg-white focus:ring-2 focus:ring-[#d5653e]/10 placeholder:text-muted/65"
+              />
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setJoinModalTripId(null); setJoinMessage(""); }}
+                  className="rounded-xl border border-transparent bg-transparent hover:bg-black/5"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleJoinTrip(joinModalTripId)}
+                  disabled={joiningTripId === joinModalTripId}
+                  className="rounded-xl bg-[#2a2018] text-white hover:bg-[#3a2b1e]"
+                >
+                  {joiningTripId === joinModalTripId ? "Sending..." : "Send Request"}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <Footer />
     </div>
   );
 }

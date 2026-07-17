@@ -2,7 +2,6 @@ package pse.trippy.notificationservice.service;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -17,11 +16,11 @@ import pse.trippy.notificationservice.model.enums.EmailStatus;
 import pse.trippy.notificationservice.logging.LogSanitizer;
 import pse.trippy.notificationservice.repository.EmailLogRepository;
 
+import org.springframework.beans.factory.annotation.Value;
 import java.util.Map;
 import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
@@ -31,6 +30,17 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
     private final EmailLogRepository emailLogRepository;
+    private final String fromAddress;
+
+    public EmailService(JavaMailSender mailSender,
+                        TemplateEngine templateEngine,
+                        EmailLogRepository emailLogRepository,
+                        @Value("${spring.mail.username:no-reply@trippy.app}") String fromAddress) {
+        this.mailSender = mailSender;
+        this.templateEngine = templateEngine;
+        this.emailLogRepository = emailLogRepository;
+        this.fromAddress = fromAddress;
+    }
 
     @Async("emailExecutor")
     public void sendTemplateEmail(String to, String subject, String templateName,
@@ -63,8 +73,14 @@ public class EmailService {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setTo(to);
+            helper.setFrom(fromAddress, "Trippy");
+            helper.setReplyTo(fromAddress);
             helper.setSubject(subject);
             helper.setText(toPlainText(htmlBody), htmlBody);
+
+            // Add headers to satisfy spam filters & prevent out-of-office loops
+            message.addHeader("Auto-Submitted", "auto-generated");
+            message.addHeader("X-Auto-Response-Suppress", "All");
 
             mailSender.send(message);
 
@@ -72,7 +88,7 @@ public class EmailService {
 
             log.info("Email sent recipient={} template={}", LogSanitizer.maskEmail(to), templateName);
 
-        } catch (MessagingException | MailException e) {
+        } catch (MessagingException | MailException | java.io.UnsupportedEncodingException e) {
             log.error("Failed to send email recipient={} template={} error={}",
                     LogSanitizer.maskEmail(to), templateName, LogSanitizer.safeError(e));
 

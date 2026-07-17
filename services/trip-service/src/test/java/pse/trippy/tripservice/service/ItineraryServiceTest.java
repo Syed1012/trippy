@@ -22,6 +22,7 @@ import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.ActivityCategory;
 import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
+import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.repository.ActivityRepository;
 import pse.trippy.tripservice.repository.ActivityVoteRepository;
 import pse.trippy.tripservice.repository.DayPlanRepository;
@@ -41,6 +42,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -183,6 +185,37 @@ class ItineraryServiceTest {
         }
     }
 
+    // =========================================================================
+    // getSharedItinerary
+    // =========================================================================
+
+    @Nested
+    @DisplayName("getSharedItinerary")
+    class GetSharedItinerary {
+
+        @Test
+        @DisplayName("returns shared itinerary for a published (non-DRAFT) trip")
+        void sharedItineraryAccessible() {
+            trip.setStatus(TripStatus.PLANNED);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(itineraryRepository.findByTripId(TRIP_ID)).thenReturn(Optional.empty());
+
+            ItineraryResponse response = itineraryService.getSharedItinerary(TRIP_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.tripId()).isEqualTo(TRIP_ID);
+        }
+
+        @Test
+        @DisplayName("throws ForbiddenException for a DRAFT trip")
+        void sharedDraftItineraryForbidden() {
+            trip.setStatus(TripStatus.DRAFT);
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+
+            assertThatThrownBy(() -> itineraryService.getSharedItinerary(TRIP_ID))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+    }
+
     @Nested
     @DisplayName("updateItinerary")
     class UpdateItinerary {
@@ -191,7 +224,7 @@ class ItineraryServiceTest {
             ActivityRequest activityReq = new ActivityRequest(
                     "Walk La Rambla", null, "La Rambla, Barcelona",
                     LocalTime.of(16, 0), LocalTime.of(18, 0),
-                    "SIGHTSEEING", null);
+                    "SIGHTSEEING", null, new java.math.BigDecimal("18.50"), "EUR");
             DayPlanRequest dayPlanReq = new DayPlanRequest(
                     1, LocalDate.of(2026, 7, 1), "Day One", List.of(activityReq));
             return new UpdateItineraryRequest(List.of(dayPlanReq));
@@ -353,6 +386,135 @@ class ItineraryServiceTest {
             assertThatThrownBy(
                     () -> itineraryService.updateItinerary(TRIP_ID, request, USER_ID))
                     .isInstanceOf(TripNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("status auto-transition on itinerary save")
+    class StatusTransition {
+
+        private ActivityRequest act(String title) {
+            return new ActivityRequest(title, null, null, null, null, "SIGHTSEEING", null, null, null);
+        }
+
+        private DayPlanRequest day(int dayNumber, ActivityRequest... activities) {
+            return new DayPlanRequest(dayNumber, LocalDate.of(2026, 7, dayNumber),
+                    "Day " + dayNumber, List.of(activities));
+        }
+
+        private UpdateItineraryRequest request(DayPlanRequest... days) {
+            return new UpdateItineraryRequest(List.of(days));
+        }
+
+        /** Stubs enough persistence for updateItinerary to run to completion. */
+        private void stubPersistence() {
+            Itinerary itinerary = Itinerary.builder().trip(trip).build();
+            itinerary.setId(UUID.randomUUID());
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(participantRepository.findByTripIdAndUserId(TRIP_ID, USER_ID))
+                    .thenReturn(Optional.of(participant(ParticipantRole.OWNER)));
+            when(itineraryRepository.findByTripId(TRIP_ID)).thenReturn(Optional.of(itinerary));
+            when(itineraryRepository.save(any(Itinerary.class))).thenReturn(itinerary);
+            when(dayPlanRepository.findByItineraryIdOrderByDayNumberAsc(itinerary.getId()))
+                    .thenReturn(Collections.emptyList());
+            lenient().when(dayPlanRepository.save(any(DayPlan.class))).thenAnswer(inv -> {
+                DayPlan d = inv.getArgument(0);
+                if (d.getId() == null) {
+                    d.setId(UUID.randomUUID());
+                }
+                return d;
+            });
+            lenient().when(activityRepository.save(any(Activity.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+        }
+
+        @Test
+        @DisplayName("promotes DRAFT → PLANNED when two days each have an activity")
+        void promotesWhenTwoDaysHaveActivities() {
+            trip.setStatus(TripStatus.DRAFT);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID,
+                    request(day(1, act("Museum")), day(2, act("Beach"))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.PLANNED);
+            verify(tripRepository).save(trip);
+        }
+
+        @Test
+        @DisplayName("promotes DRAFT → PLANNED when a single day has multiple activities")
+        void promotesWhenOneDayHasMultipleActivities() {
+            trip.setStatus(TripStatus.DRAFT);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID,
+                    request(day(1, act("Breakfast"), act("City tour"))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.PLANNED);
+            verify(tripRepository).save(trip);
+        }
+
+        @Test
+        @DisplayName("keeps DRAFT when only one day has one activity")
+        void keepsDraftWhenSingleDaySingleActivity() {
+            trip.setStatus(TripStatus.DRAFT);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID, request(day(1, act("Museum"))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.DRAFT);
+            verify(tripRepository, never()).save(any(Trip.class));
+        }
+
+        @Test
+        @DisplayName("keeps DRAFT when there are no activities on any day")
+        void keepsDraftWhenNoActivities() {
+            trip.setStatus(TripStatus.DRAFT);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID,
+                    new UpdateItineraryRequest(Collections.emptyList()), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.DRAFT);
+            verify(tripRepository, never()).save(any(Trip.class));
+        }
+
+        @Test
+        @DisplayName("does not count blank-titled activities toward the threshold")
+        void ignoresBlankTitledActivities() {
+            trip.setStatus(TripStatus.DRAFT);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID,
+                    request(day(1, act("   ")), day(2, act(""))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.DRAFT);
+            verify(tripRepository, never()).save(any(Trip.class));
+        }
+
+        @Test
+        @DisplayName("demotes PLANNED → DRAFT when the itinerary drops below the threshold")
+        void demotesWhenItineraryClearedBelowThreshold() {
+            trip.setStatus(TripStatus.PLANNED);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID, request(day(1, act("Museum"))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.DRAFT);
+            verify(tripRepository).save(trip);
+        }
+
+        @Test
+        @DisplayName("leaves ONGOING status untouched even when the itinerary qualifies")
+        void leavesOngoingUnchanged() {
+            trip.setStatus(TripStatus.ONGOING);
+            stubPersistence();
+
+            itineraryService.updateItinerary(TRIP_ID,
+                    request(day(1, act("Museum")), day(2, act("Beach"))), USER_ID);
+
+            assertThat(trip.getStatus()).isEqualTo(TripStatus.ONGOING);
+            verify(tripRepository, never()).save(any(Trip.class));
         }
     }
 }

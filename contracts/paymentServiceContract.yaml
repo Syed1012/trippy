@@ -1,542 +1,139 @@
 openapi: 3.0.3
 info:
-  title: Payment Service API Contract
+  title: Payment Service API
   description: |
-    ## Overview
-    Complete API contract for the Payment Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Confirm subscription payments (dummy verification)
-    - Handle payment method management (add/remove cards)
-    - Transaction history and receipts
-    - Refund processing
-    - Invoice generation
-
-    ## Architecture Pattern
-    **Layered Architecture**
-    - Simple payment processing flow
-    - Internal verification and confirmation (no external provider)
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Protected** | JWT (User) | Payment methods, verification, subscriptions |
-    | **Internal S2S** | Service Token | Process payments from other services |
-
-    ## Payment Flow
-    1. User selects subscription plan on frontend
-    2. Frontend calls `/payments/checkout` to request payment confirmation
-    3. Payment Service performs dummy verification and records the transaction
-    4. Payment Service updates subscription via User Service
-    5. User Service updates user's plan
-
-    ## S2S Communication (Outbound)
-    | Target Service | Purpose | Endpoint Called |
-    |----------------|---------|-----------------|
-    | **User Service** | Update subscription after payment | `PATCH /users/{userId}/subscription` |
-    | **User Service** | Get user details for invoice | `GET /users/{userId}/profile` |
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-User-Id` | Injected by Gateway | User UUID from JWT |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-
-    ## Database Schema
-    - **Schema Name**: `payment_schema`
-    - **Tables**: 
-      - `payment_methods` - Stored payment methods (id, user_id, brand, last4, expiry_month, expiry_year)
-      - `transactions` - Payment history (id, user_id, amount, currency, status, type, created_at)
-      - `subscriptions` - Subscription mapping (id, user_id, status, current_period_end)
-      - `invoices` - Generated invoices (id, transaction_id, invoice_url, pdf_url)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **PostgreSQL** | Transaction persistence |
-    | **User Service** | Subscription updates |
-
-    ## Currency
-    All payments are processed in **EUR** only.
-
-  version: 1.0.0
-  contact:
-    name: Payment Domain Team
-    email: payment-team@trippy.dev
-
+    Payment microservice for the Trippy platform. Subscription plans,
+    checkout, payment methods, transactions, and Stripe webhook handling.
+  version: 2.0.0
 servers:
   - url: http://localhost:8086
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://payment-service.internal:8086
-    description: Internal Cluster URL (K8s/Docker)
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
-  - name: Subscriptions
-    description: Subscription purchase, verification, and management
-  - name: PaymentMethods
-    description: Payment method management
+  - name: Plans
+  - name: Checkout
+  - name: Subscription
+  - name: Methods
   - name: Transactions
-    description: Transaction history and invoices
-  - name: Internal
-    description: Service-to-service APIs
+  - name: Webhook
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    TransactionId:
-      name: transactionId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-    PaymentMethodId:
-      name: paymentMethodId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: string
-          enum: ["VALIDATION_ERROR", "PAYMENT_FAILED", "CARD_DECLINED", "INSUFFICIENT_FUNDS"]
-        message:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    # =====================================================
-    # ENUMS
-    # =====================================================
-    TransactionStatus:
-      type: string
-      enum: ["PENDING", "COMPLETED", "FAILED", "REFUNDED", "CANCELLED"]
-
-    TransactionType:
-      type: string
-      enum: ["SUBSCRIPTION_PURCHASE", "SUBSCRIPTION_RENEWAL", "REFUND"]
-
-    SubscriptionPlan:
-      type: string
-      enum: ["FREE", "PREMIUM", "ENTERPRISE"]
-
-    # =====================================================
-    # PAYMENT SCHEMAS
-    # =====================================================
-    Money:
-      type: object
-      required:
-        - amount
-        - currency
-      properties:
-        amount:
-          type: number
-          format: float
-          example: 9.99
-        currency:
-          type: string
-          default: "EUR"
-          enum: ["EUR"]
-
-    PaymentMethod:
-      type: object
-      properties:
-        paymentMethodId:
-          type: string
-          format: uuid
-        brand:
-          type: string
-          enum: ["visa", "mastercard", "amex"]
-          example: "visa"
-        last4:
-          type: string
-          example: "4242"
-        expiryMonth:
-          type: integer
-          example: 12
-        expiryYear:
-          type: integer
-          example: 2026
-        isDefault:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-
-    Transaction:
-      type: object
-      properties:
-        transactionId:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        amount:
-          $ref: '#/components/schemas/Money'
-        type:
-          $ref: '#/components/schemas/TransactionType'
-        status:
-          $ref: '#/components/schemas/TransactionStatus'
-        description:
-          type: string
-          example: "Premium subscription - Monthly"
-        paymentMethodId:
-          type: string
-          format: uuid
-        verificationReference:
-          type: string
-          description: Internal confirmation reference for the dummy verification flow
-        invoiceUrl:
-          type: string
-          format: uri
-        createdAt:
-          type: string
-          format: date-time
-        completedAt:
-          type: string
-          format: date-time
-
-    SubscriptionInfo:
-      type: object
-      properties:
-        subscriptionId:
-          type: string
-          format: uuid
-        plan:
-          $ref: '#/components/schemas/SubscriptionPlan'
-        status:
-          type: string
-          enum: ["ACTIVE", "CANCELLED", "PAST_DUE", "TRIALING"]
-        currentPeriodStart:
-          type: string
-          format: date
-        currentPeriodEnd:
-          type: string
-          format: date
-        cancelAtPeriodEnd:
-          type: boolean
-        price:
-          $ref: '#/components/schemas/Money'
-
-    # =====================================================
-    # REQUEST SCHEMAS
-    # =====================================================
-    PaymentConfirmationRequest:
-      type: object
-      required:
-        - planId
-        - paymentMethodId
-      properties:
-        planId:
-          type: string
-          enum: ["premium_monthly", "premium_yearly", "enterprise_monthly", "enterprise_yearly"]
-        paymentMethodId:
-          type: string
-          format: uuid
-        promoCode:
-          type: string
-        clientReferenceId:
-          type: string
-
-    PaymentConfirmationResponse:
-      type: object
-      properties:
-        transactionId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/TransactionStatus'
-        subscription:
-          $ref: '#/components/schemas/SubscriptionInfo'
-        verificationReference:
-          type: string
-        confirmedAt:
-          type: string
-          format: date-time
-
-    AddPaymentMethodRequest:
-      type: object
-      required:
-        - brand
-        - last4
-        - expiryMonth
-        - expiryYear
-      properties:
-        brand:
-          type: string
-          enum: ["visa", "mastercard", "amex"]
-        last4:
-          type: string
-          example: "4242"
-        expiryMonth:
-          type: integer
-          minimum: 1
-          maximum: 12
-        expiryYear:
-          type: integer
-          example: 2026
-        holderName:
-          type: string
-        setAsDefault:
-          type: boolean
-          default: false
-
-    CancelSubscriptionRequest:
-      type: object
-      properties:
-        cancelImmediately:
-          type: boolean
-          default: false
-          description: If false, cancels at end of billing period
-
-    RefundRequest:
-      type: object
-      required:
-        - transactionId
-      properties:
-        transactionId:
-          type: string
-          format: uuid
-        reason:
-          type: string
-          maxLength: 500
-
-    # =====================================================
-    # PLAN SCHEMAS
-    # =====================================================
-    PlanDetails:
-      type: object
-      properties:
-        planId:
-          type: string
-        name:
-          $ref: '#/components/schemas/SubscriptionPlan'
-        displayName:
-          type: string
-          example: "Premium Monthly"
-        price:
-          $ref: '#/components/schemas/Money'
-        interval:
-          type: string
-          enum: ["month", "year"]
-        features:
-          type: array
-          items:
-            type: string
-        tripsLimit:
-          type: integer
-          description: -1 for unlimited
-        aiGenerationsLimit:
-          type: integer
-
-    # =====================================================
-    # PAGINATION
-    # =====================================================
-    PaginationMeta:
-      type: object
-      properties:
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-        totalPages:
-          type: integer
-
-    TransactionListResponse:
-      type: object
-      properties:
-        transactions:
-          type: array
-          items:
-            $ref: '#/components/schemas/Transaction'
-        pagination:
-          $ref: '#/components/schemas/PaginationMeta'
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # SUBSCRIPTIONS
-  # =====================================================
+  /payments/plans:
+    get:
+      tags: [Plans]
+      summary: List available subscription plans
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanResponse'
+
   /payments/checkout:
     post:
-      summary: Confirm Subscription Purchase
-      operationId: confirmSubscriptionPurchase
-      tags: [Subscriptions]
-      security: [BearerAuth: []]
-      description: |
-        Performs dummy verification for the selected plan and confirms
-        the subscription purchase in a single request.
+      tags: [Checkout]
+      summary: Create a checkout session
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PaymentConfirmationRequest'
+              type: object
+              required: [planId, paymentMethodId]
+              properties:
+                planId: { type: string }
+                paymentMethodId: { type: string }
       responses:
         '200':
-          description: Payment confirmed and subscription activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+
+  /payments/subscription/confirm:
+    post:
+      tags: [Subscription]
+      summary: Confirm a payment
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId, paymentMethodId]
+              properties:
+                planId: { type: string }
+                paymentMethodId: { type: string, format: uuid }
+                promoCode: { type: string }
+      responses:
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentConfirmationResponse'
-        '400':
-          description: Invalid plan or payment method
 
-  /payments/plans:
-    get:
-      summary: Get Available Plans
-      operationId: getPlans
-      tags: [Subscriptions]
-      description: Returns all available subscription plans with pricing.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Plan list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PlanDetails'
-
-  # =====================================================
-  # SUBSCRIPTION MANAGEMENT
-  # =====================================================
   /payments/subscription:
     get:
-      summary: Get My Subscription
-      operationId: getMySubscription
-      tags: [Subscriptions]
-      security: [BearerAuth: []]
-      description: Returns current subscription details from the payment ledger.
+      tags: [Subscription]
+      summary: Get current subscription
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Subscription info
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionInfo'
-        '404':
-          description: No active subscription
+                $ref: '#/components/schemas/SubscriptionResponse'
 
-    delete:
-      summary: Cancel Subscription
-      operationId: cancelSubscription
-      tags: [Subscriptions]
-      security: [BearerAuth: []]
-      description: |
-        Cancels the current subscription.
-        By default, cancels at the end of billing period.
+  /payments/subscription/cancel:
+    post:
+      tags: [Subscription]
+      summary: Cancel subscription
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CancelSubscriptionRequest'
+              type: object
+              properties:
+                cancelImmediately: { type: boolean, default: false }
       responses:
         '200':
-          description: Subscription cancelled
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionInfo'
-        '404':
-          description: No active subscription
+                $ref: '#/components/schemas/SubscriptionResponse'
 
-  /payments/subscription/reactivate:
-    post:
-      summary: Reactivate Subscription
-      operationId: reactivateSubscription
-      tags: [Subscriptions]
-      security: [BearerAuth: []]
-      description: Reactivates a subscription that was set to cancel at period end.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '200':
-          description: Subscription reactivated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SubscriptionInfo'
-        '400':
-          description: Cannot reactivate - already cancelled or no subscription
-
-  # =====================================================
-  # PAYMENT METHODS
-  # =====================================================
-  /payments/methods:
+  /payments/transactions:
     get:
-      summary: List Payment Methods
-      operationId: listPaymentMethods
-      tags: [PaymentMethods]
-      security: [BearerAuth: []]
-      description: Returns all saved payment methods for the user.
+      tags: [Transactions]
+      summary: List transactions
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Payment methods
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/PaymentMethod'
+                  $ref: '#/components/schemas/TransactionResponse'
 
+  /payments/methods:
     post:
-      summary: Add Payment Method
-      operationId: addPaymentMethod
-      tags: [PaymentMethods]
-      security: [BearerAuth: []]
-      description: |
-        Adds a new payment method for dummy verification and subscriptions.
+      tags: [Methods]
+      summary: Add a payment method
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
@@ -545,204 +142,140 @@ paths:
               $ref: '#/components/schemas/AddPaymentMethodRequest'
       responses:
         '201':
-          description: Payment method added
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaymentMethod'
-        '400':
-          description: Invalid payment method
+                $ref: '#/components/schemas/PaymentMethodResponse'
+    get:
+      tags: [Methods]
+      summary: List payment methods
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethodResponse'
 
   /payments/methods/{paymentMethodId}:
     delete:
-      summary: Remove Payment Method
-      operationId: removePaymentMethod
-      tags: [PaymentMethods]
-      security: [BearerAuth: []]
-      description: Removes a saved payment method.
+      tags: [Methods]
+      summary: Delete a payment method
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/PaymentMethodId'
+        - $ref: '#/components/parameters/XUserId'
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '204':
-          description: Payment method removed
-        '400':
-          description: Cannot remove default payment method with active subscription
-        '404':
-          description: Payment method not found
+          description: Deleted
 
-  /payments/methods/{paymentMethodId}/default:
+  /payments/webhook:
     post:
-      summary: Set Default Payment Method
-      operationId: setDefaultPaymentMethod
-      tags: [PaymentMethods]
-      security: [BearerAuth: []]
+      tags: [Webhook]
+      summary: Stripe webhook handler
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/PaymentMethodId'
-      responses:
-        '200':
-          description: Default payment method updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaymentMethod'
-        '404':
-          description: Payment method not found
-
-  # =====================================================
-  # TRANSACTIONS
-  # =====================================================
-  /payments/transactions:
-    get:
-      summary: Get Transaction History
-      operationId: getTransactions
-      tags: [Transactions]
-      security: [BearerAuth: []]
-      description: Returns paginated transaction history.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: page
-          in: query
-          schema: { type: integer, default: 0 }
-        - name: size
-          in: query
-          schema: { type: integer, default: 20 }
-        - name: status
-          in: query
-          schema:
-            $ref: '#/components/schemas/TransactionStatus'
-      responses:
-        '200':
-          description: Transaction history
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TransactionListResponse'
-
-  /payments/transactions/{transactionId}:
-    get:
-      summary: Get Transaction Details
-      operationId: getTransaction
-      tags: [Transactions]
-      security: [BearerAuth: []]
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TransactionId'
-      responses:
-        '200':
-          description: Transaction details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transaction'
-        '404':
-          description: Transaction not found
-
-  /payments/transactions/{transactionId}/invoice:
-    get:
-      summary: Get Invoice PDF
-      operationId: getInvoice
-      tags: [Transactions]
-      security: [BearerAuth: []]
-      description: Returns invoice PDF download URL.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/TransactionId'
-      responses:
-        '200':
-          description: Invoice URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  invoiceUrl:
-                    type: string
-                    format: uri
-                  pdfUrl:
-                    type: string
-                    format: uri
-        '404':
-          description: Invoice not found
-
-  # =====================================================
-  # INTERNAL S2S
-  # =====================================================
-  /payments/process:
-    post:
-      summary: "[Internal] Process Direct Payment"
-      operationId: internalProcessPayment
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: User Service (for admin subscription grants)
-        
-        Processes a payment directly without user checkout.
-        Used for backend-initiated confirmations.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required:
-                - userId
-                - amount
-                - paymentContext
-              properties:
-                userId:
-                  type: string
-                  format: uuid
-                amount:
-                  $ref: '#/components/schemas/Money'
-                paymentMethodId:
-                  type: string
-                  format: uuid
-                paymentContext:
-                  type: string
-                  enum: ["SUBSCRIPTION_PURCHASE"]
-                planId:
-                  type: string
-      responses:
-        '201':
-          description: Payment processed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transaction'
-        '400':
-          description: Payment failed
-
-  /users/{userId}/has-payment-method:
-    get:
-      summary: "[Internal] Check User Has Payment Method"
-      operationId: internalHasPaymentMethod
-      tags: [Internal]
-      security: [ServiceAuth: []]
-      description: |
-        **Consumer**: User Service
-        
-        Checks if user has a saved payment method.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+            schema: { type: string }
       responses:
         '200':
-          description: Result
           content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  hasPaymentMethod:
-                    type: boolean
-                  defaultMethodLast4:
-                    type: string
+            text/plain:
+              schema: { type: string }
+
+components:
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    PlanResponse:
+      type: object
+      properties:
+        planId: { type: string }
+        displayName: { type: string }
+        price: { type: number }
+        currency: { type: string }
+        features: { type: array, items: { type: string } }
+
+    CheckoutResponse:
+      type: object
+      properties:
+        transactionId: { type: string, format: uuid }
+        status: { type: string }
+        plan: { type: string }
+        amount:
+          type: object
+          properties:
+            value: { type: number }
+            currency: { type: string }
+        message: { type: string }
+
+    PaymentConfirmationResponse:
+      type: object
+      properties:
+        transactionId: { type: string, format: uuid }
+        status: { type: string }
+        subscription:
+          $ref: '#/components/schemas/SubscriptionResponse'
+        verificationReference: { type: string }
+        confirmedAt: { type: string, format: date-time }
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        subscriptionId: { type: string, format: uuid }
+        plan: { type: string }
+        status: { type: string }
+        currentPeriodStart: { type: string, format: date }
+        currentPeriodEnd: { type: string, format: date }
+        cancelAtPeriodEnd: { type: boolean }
+        priceAmount: { type: number }
+        currency: { type: string }
+
+    TransactionResponse:
+      type: object
+      properties:
+        transactionId: { type: string, format: uuid }
+        type: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    AddPaymentMethodRequest:
+      type: object
+      required: [brand, last4, expiryMonth, expiryYear]
+      properties:
+        brand: { type: string, maxLength: 20 }
+        last4: { type: string, minLength: 4, maxLength: 4 }
+        expiryMonth: { type: integer }
+        expiryYear: { type: integer }
+        holderName: { type: string, maxLength: 100 }
+        setAsDefault: { type: boolean, default: false }
+
+    PaymentMethodResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        brand: { type: string }
+        last4: { type: string }
+        expiryMonth: { type: integer }
+        expiryYear: { type: integer }
+        holderName: { type: string }
+        isDefault: { type: boolean }
+        createdAt: { type: string, format: date-time }

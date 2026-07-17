@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowRight,
@@ -12,10 +13,10 @@ import {
   Route,
   SlidersHorizontal,
   Stamp,
-  Globe,
   Utensils,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
 
 interface TripTicketProps {
   destination: string;
@@ -23,7 +24,6 @@ interface TripTicketProps {
   endDate: string;
   filters: string[];
   budget: string;
-  visibility: string;
   diet: string;
   pace: string;
   /** Destination + valid dates present — the ticket can be redeemed. */
@@ -109,7 +109,6 @@ export default function TripTicket({
   endDate,
   filters,
   budget,
-  visibility,
   diet,
   pace,
   ready,
@@ -117,9 +116,9 @@ export default function TripTicket({
 }: TripTicketProps) {
   const dateLabel = formatTicketDates(startDate, endDate);
   const nights = tripNights(startDate, endDate);
-  const filled = [destination, dateLabel, visibility, budget, pace, diet, filters.length > 0 ? "y" : ""]
+  const filled = [destination, dateLabel, budget, pace, diet, filters.length > 0 ? "y" : ""]
     .filter(Boolean).length;
-  const progress = Math.round((filled / 7) * 100);
+  const progress = Math.round((filled / 6) * 100);
 
   return (
     <motion.div
@@ -134,12 +133,12 @@ export default function TripTicket({
         {/* ── Main section ─────────────────────────────────────── */}
         <div className="relative flex-1 p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3 border-b border-dashed border-[#dfe0d2] pb-3">
-            <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#2a2018]">
+            <Link href={ROUTES.home} className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#2a2018]" aria-label="Trippy home">
               <span className="grid h-6 w-6 place-items-center rounded-full bg-[#2a2018] text-[#f0b091]">
                 <Compass size={12} />
               </span>
               Trippy
-            </span>
+            </Link>
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8c978f]">
               Trip pass
             </span>
@@ -162,8 +161,7 @@ export default function TripTicket({
             />
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-            <TicketField icon={<Globe size={11} />} label="Visibility" value={visibility} placeholder="—" />
+          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
             <TicketField icon={<DollarSign size={11} />} label="Budget" value={budget} placeholder="—" />
             <TicketField icon={<Route size={11} />} label="Pace" value={pace} placeholder="—" />
             <TicketField icon={<Utensils size={11} />} label="Diet" value={diet} placeholder="—" />

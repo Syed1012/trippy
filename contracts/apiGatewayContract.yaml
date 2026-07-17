@@ -1,385 +1,90 @@
 openapi: 3.0.3
 info:
-  title: API Gateway Service Contract
+  title: API Gateway Contract
   description: |
-    ## Overview
-    Complete API contract for the API Gateway microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - Request Routing to downstream microservices
-    - JWT Token Validation (signature, expiry, blacklist check)
-    - Rate Limiting (per user, per IP, per endpoint)
-    - CORS Policy Management
-    - Request/Response Logging
-    - Load Balancing (when multiple instances exist)
-    - Circuit Breaker for downstream services
-    - Request Transformation (header injection)
-
-    ## Architecture Role
-    The API Gateway is the **single entry point** for all client requests.
-    
-    ```
-    Client → API Gateway → [User Service, Trip Service, Chat Service, AI Service, Payment Service, Notification Service]
-    ```
-
-    ## JWT Validation Flow
-    1. Extract `Authorization: Bearer <token>` header
-    2. Fetch public key from User Service JWKS endpoint (cached)
-    3. Validate signature using RS256
-    4. Check token expiry (`exp` claim)
-    5. Check Redis blacklist: `EXISTS token:blacklist:{jti}`
-    6. If valid, extract claims and forward to downstream service
-    7. Inject headers: `X-User-Id`, `X-User-Role`, `X-User-Plan`
-
-    ## Route Configuration
-    | Path Pattern | Target Service | Auth Required | Rate Limit |
-    |--------------|----------------|---------------|------------|
-    | `/auth/**` | user-service | No (except logout) | 10/min |
-    | `/users/**` | user-service | Yes | 100/min |
-    | `/trips/**` | trip-service | Yes | 100/min |
-    | `/trips/**/chat/**` | chat-service | Yes | 200/min |
-    | `/ai/**` | ai-service | Yes | 20/min |
-    | `/payments/**` | payment-service | Yes | 50/min |
-    | `/notifications/**` | notification-service | Yes | 100/min |
-    | `/subscriptions/**` | user-service | Mixed | 50/min |
-    | `/admin/**` | Various | Admin Role | 100/min |
-    | `/ws/**` | chat-service | Yes (WS Auth) | N/A |
-
-    ## Headers Injected to Downstream Services
-    | Header | Source | Description |
-    |--------|--------|-------------|
-    | `X-User-Id` | JWT `sub` claim | User UUID for downstream services |
-    | `X-User-Role` | JWT `role` claim | USER or ADMIN |
-    | `X-User-Plan` | JWT `plan` claim | FREE, PREMIUM, ENTERPRISE |
-    | `X-User-Email` | JWT `email` claim | User email |
-    | `X-Correlation-ID` | Generated/Forwarded | Request tracing UUID |
-    | `X-Forwarded-For` | Client IP | Original client IP |
-    | `X-Request-Start` | Generated | Timestamp for latency tracking |
-
-    ## Rate Limiting Strategy
-    - **Storage**: Redis
-    - **Algorithm**: Sliding Window Counter
-    - **Key Format**: `ratelimit:{userId}:{endpoint}` or `ratelimit:ip:{ip}:{endpoint}`
-    - **Headers Returned**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
-
-    ## Circuit Breaker Configuration
-    - **Failure Threshold**: 5 consecutive failures
-    - **Open Duration**: 30 seconds
-    - **Half-Open**: Allow 1 request to test
-    - **Monitored**: 5xx errors, timeouts
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **Redis** | Token blacklist check, Rate limiting, Session cache |
-    | **User Service** | JWKS endpoint for public key |
-
-    ## Technology Stack
-    - Spring Cloud Gateway (Reactive)
-    - Spring Security OAuth2 Resource Server
-    - Resilience4j (Circuit Breaker)
-    - Redis (Rate Limiting, Blacklist)
-
-  version: 1.0.0
-  contact:
-    name: Platform Team
-    email: platform-team@trippy.dev
-
+    Spring Cloud Gateway configuration for the Trippy platform.
+    Routes all external traffic to the appropriate microservice. Validates JWTs
+    and injects X-User-Id, X-User-Role, X-User-Email, X-User-Plan headers for
+    downstream services.
+  version: 2.0.0
 servers:
-  - url: http://localhost:3000
-    description: Local Development
-  - url: https://api.trippy.dev
-    description: Production
+  - url: http://localhost:8080
+    description: Gateway (public entry point)
 
-tags:
-  - name: Health
-    description: Health check and readiness endpoints
-  - name: Routes
-    description: Route configuration (internal reference)
-
-components:
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    GatewayErrorResponse:
-      type: object
-      required:
-        - error
-        - message
-        - timestamp
-        - status
-      properties:
-        error:
-          type: string
-          enum:
-            - "UNAUTHORIZED"
-            - "FORBIDDEN"
-            - "RATE_LIMIT_EXCEEDED"
-            - "SERVICE_UNAVAILABLE"
-            - "BAD_GATEWAY"
-            - "GATEWAY_TIMEOUT"
-          example: "UNAUTHORIZED"
-        message:
-          type: string
-          example: "Invalid or expired token"
-        timestamp:
-          type: string
-          format: date-time
-        status:
-          type: integer
-          example: 401
-        path:
-          type: string
-          example: "/trips"
-        correlationId:
-          type: string
-          format: uuid
-
-    RateLimitResponse:
-      type: object
-      properties:
-        error:
-          type: string
-          example: "RATE_LIMIT_EXCEEDED"
-        message:
-          type: string
-          example: "Too many requests. Please try again later."
-        retryAfter:
-          type: integer
-          description: Seconds until rate limit resets
-          example: 60
-
-    HealthResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: ["UP", "DOWN", "DEGRADED"]
-          example: "UP"
-        timestamp:
-          type: string
-          format: date-time
-        services:
-          type: object
-          additionalProperties:
-            type: object
-            properties:
-              status:
-                type: string
-                enum: ["UP", "DOWN", "UNKNOWN"]
-              latency:
-                type: integer
-                description: Last known latency in ms
-
-    # =====================================================
-    # ROUTE CONFIGURATION (Internal Reference)
-    # =====================================================
-    RouteDefinition:
-      type: object
-      description: Internal route configuration schema
-      properties:
-        id:
-          type: string
-          example: "user-service-route"
-        uri:
-          type: string
-          example: "lb://user-service"
-        predicates:
-          type: array
-          items:
-            type: string
-          example: ["Path=/users/**"]
-        filters:
-          type: array
-          items:
-            type: string
-          example: ["StripPrefix=0", "AddRequestHeader=X-Gateway-Source,trippy-gateway"]
-        metadata:
-          type: object
-          properties:
-            authRequired:
-              type: boolean
-            rateLimitPerMinute:
-              type: integer
-            circuitBreakerEnabled:
-              type: boolean
-
-# =========================================================
-# PATHS - Gateway-specific endpoints
-# =========================================================
-paths:
-  /health:
-    get:
-      summary: Gateway Health Check
-      operationId: healthCheck
-      tags:
-        - Health
-      description: |
-        Returns the health status of the gateway and downstream services.
-        Used by Kubernetes liveness probe.
-      responses:
-        '200':
-          description: Gateway is healthy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthResponse'
-        '503':
-          description: Gateway is unhealthy
-
-  /health/ready:
-    get:
-      summary: Readiness Check
-      operationId: readinessCheck
-      tags:
-        - Health
-      description: |
-        Returns readiness status. Checks Redis connectivity and JWKS availability.
-        Used by Kubernetes readiness probe.
-      responses:
-        '200':
-          description: Gateway is ready to accept traffic
-        '503':
-          description: Gateway is not ready
-
-  /health/live:
-    get:
-      summary: Liveness Check
-      operationId: livenessCheck
-      tags:
-        - Health
-      description: Simple liveness check for container orchestration.
-      responses:
-        '200':
-          description: Gateway is alive
-
-# =========================================================
-# ROUTE DEFINITIONS (Documentation Reference)
-# =========================================================
-# The following section documents the route configuration.
-# Actual configuration is in application.yaml
-# =========================================================
 x-gateway-routes:
-  # =====================================================
-  # AUTH ROUTES (Mostly Public)
-  # =====================================================
-  - id: auth-public
-    description: Public authentication endpoints (no JWT required)
-    pathPattern: /auth/register, /auth/login, /auth/refresh, /auth/password/**
-    targetService: user-service
-    authRequired: false
-    rateLimitPerMinute: 10
+  - id: auth-route
+    predicates: ["/auth/**"]
+    upstream: http://localhost:8081
+    notes: User service — auth endpoints (no JWT required)
 
-  - id: auth-protected
-    description: Protected auth endpoints (logout)
-    pathPattern: /auth/logout
-    targetService: user-service
-    authRequired: true
-    rateLimitPerMinute: 20
+  - id: users-route
+    predicates: ["/users/**"]
+    upstream: http://localhost:8081
+    notes: User service — profiles, preferences, search, batch
 
-  - id: jwks
-    description: JWKS endpoint for public key (fetched by gateway itself)
-    pathPattern: /.well-known/jwks.json
-    targetService: user-service
-    authRequired: false
-    internal: true
+  - id: wellknown-route
+    predicates: ["/.well-known/**"]
+    upstream: http://localhost:8081
+    notes: JWKS public key (no JWT required)
 
-  # =====================================================
-  # USER SERVICE ROUTES
-  # =====================================================
-  - id: user-profile
-    description: User profile operations
-    pathPattern: /users/**
-    targetService: user-service
-    authRequired: true
-    rateLimitPerMinute: 100
+  - id: trips-chat-route
+    predicates: ["/trips/{tripId}/chat/**"]
+    upstream: http://localhost:8083
+    notes: Chat service — per-trip messaging (must precede trips-route)
 
-  - id: subscriptions-public
-    description: Public subscription plans listing
-    pathPattern: /subscriptions/plans
-    targetService: user-service
-    authRequired: false
-    rateLimitPerMinute: 50
+  - id: trips-route
+    predicates: ["/trips/**"]
+    upstream: http://localhost:8082
+    notes: Trip service — CRUD, itinerary, participants, voting, comments
 
-  # =====================================================
-  # TRIP SERVICE ROUTES
-  # =====================================================
-  - id: trips
-    description: Trip management endpoints
-    pathPattern: /trips/**
-    targetService: trip-service
-    authRequired: true
-    rateLimitPerMinute: 100
-    headersForwarded:
-      - X-User-Id
-      - X-User-Plan
+  - id: chats-route
+    predicates: ["/chats/**"]
+    upstream: http://localhost:8083
+    notes: Chat service — attachments, participants
 
-  # =====================================================
-  # CHAT SERVICE ROUTES
-  # =====================================================
-  - id: chat-http
-    description: Chat HTTP endpoints (history, send message)
-    pathPattern: /trips/**/chat/**
-    targetService: chat-service
-    authRequired: true
-    rateLimitPerMinute: 200
+  - id: admin-chat-route
+    predicates: ["/admin/chat/**"]
+    upstream: http://localhost:8083
+    notes: Chat moderation (ADMIN role required)
 
-  - id: chat-websocket
-    description: WebSocket connection for real-time chat
-    pathPattern: /ws/chat/**
-    targetService: chat-service
-    authRequired: true
-    protocol: websocket
-    notes: JWT validated on WebSocket handshake via query param or first message
+  - id: websocket-route
+    predicates: ["/ws/**"]
+    upstream: http://localhost:8083
+    notes: WebSocket/STOMP endpoint for real-time chat
 
-  # =====================================================
-  # AI SERVICE ROUTES
-  # =====================================================
-  - id: ai-public
-    description: AI discovery endpoints (destination suggestions)
-    pathPattern: /ai/**
-    targetService: ai-service
-    authRequired: true
-    rateLimitPerMinute: 20
-    notes: Stricter rate limit due to LLM costs
+  - id: ai-route
+    predicates: ["/ai/**"]
+    upstream: http://localhost:8084
+    notes: AI service — suggestions, recommendations, images, itinerary gen
 
-  # =====================================================
-  # PAYMENT SERVICE ROUTES
-  # =====================================================
-  - id: payments
-    description: Payment endpoints
-    pathPattern: /payments/**
-    targetService: payment-service
-    authRequired: true
-    rateLimitPerMinute: 50
+  - id: notification-route
+    predicates: ["/notifications/**"]
+    upstream: http://localhost:8085
+    notes: Notification service — in-app notifications + email (S2S)
 
-  # =====================================================
-  # NOTIFICATION SERVICE ROUTES
-  # =====================================================
-  - id: notifications
-    description: Notification preferences and history
-    pathPattern: /notifications/**
-    targetService: notification-service
-    authRequired: true
-    rateLimitPerMinute: 100
+  - id: payment-route
+    predicates: ["/payments/**"]
+    upstream: http://localhost:8086
+    notes: Payment service — plans, checkout, subscriptions
 
-  # =====================================================
-  # ADMIN ROUTES
-  # =====================================================
-  - id: admin-users
-    description: Admin user management
-    pathPattern: /admin/users/**
-    targetService: user-service
-    authRequired: true
-    requiredRole: ADMIN
-    rateLimitPerMinute: 100
+x-gateway-filters:
+  jwt-validation:
+    description: |
+      Validates the Authorization Bearer token against the JWKS endpoint
+      (JWKS_URI env, default http://localhost:8081/.well-known/jwks.json).
+      On success, strips the Authorization header and injects:
+      - X-User-Id (UUID from sub claim)
+      - X-User-Role (from role claim)
+      - X-User-Email (from email claim)
+      - X-User-Plan (from plan claim)
+    excluded-paths:
+      - /auth/**
+      - /.well-known/**
+      - /payments/webhook
 
-  - id: admin-trips
-    description: Admin trip management
-    pathPattern: /admin/trips/**
-    targetService: trip-service
-    authRequired: true
-    requiredRole: ADMIN
-    rateLimitPerMinute: 100
+x-gateway-cors:
+  allowed-origins: ["http://localhost:3000"]
+  allowed-methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+  allowed-headers: ["*"]
+  exposed-headers: ["X-Correlation-Id"]
+  allow-credentials: true

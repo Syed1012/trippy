@@ -94,7 +94,7 @@ class NotificationEventListenerTest {
         ArgumentCaptor<Map<String, Object>> varsCaptor = ArgumentCaptor.forClass(Map.class);
         verify(emailService).sendTemplateEmail(
                 eq("bob@test.com"),
-                eq("Jane invited you to Summer in Barcelona"),
+                eq("Jane invited you to Summer in Barcelona!"),
                 eq("trip-invite"),
                 varsCaptor.capture());
 
@@ -116,7 +116,7 @@ class NotificationEventListenerTest {
 
         verify(emailService).sendTemplateEmail(
                 eq("bob@test.com"),
-                eq("Jane invited you to Summer in Barcelona"),
+                eq("Jane invited you to Summer in Barcelona!"),
                 eq("trip-invite"),
                 any());
     }
@@ -297,7 +297,7 @@ class NotificationEventListenerTest {
                 eq(inviteeId),
                 eq(NotificationType.TRIP_INVITE),
                 eq("Trip Invitation"),
-                eq("Jane invited you to Summer in Barcelona"),
+                eq("Jane invited you to Summer in Barcelona (Barcelona)"),
                 eq("/dashboard/trips/223e4567-e89b-12d3-a456-426614174000"),
                 metadataCaptor.capture());
 

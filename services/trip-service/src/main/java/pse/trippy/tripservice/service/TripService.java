@@ -170,11 +170,30 @@ public class TripService {
     public TripDetailResponse getTripDetail(UUID tripId, UUID userId) {
         Trip trip = findTripOrThrow(tripId);
 
-        if (trip.getVisibility() != TripVisibility.PUBLIC) {
+        // Allow open access only to published (non-DRAFT) public trips; DRAFT
+        // trips are never visible to non-participants, even by direct link.
+        if (!isPubliclyViewable(trip)) {
             ensureParticipant(tripId, userId);
         }
 
         List<ParticipantResponse> participants = participantRepository.findByTripId(tripId).stream()
+                .map(this::toParticipantResponse)
+                .toList();
+
+        return toTripDetailResponse(trip, participants);
+    }
+
+    @Transactional(readOnly = true)
+    public TripDetailResponse getSharedTripDetail(UUID tripId) {
+        log.debug("Fetching shared trip detail: tripId={}", tripId);
+        Trip trip = findTripOrThrow(tripId);
+
+        if (!isPubliclyViewable(trip)) {
+            throw new ForbiddenException("This trip is not publicly viewable");
+        }
+
+        List<ParticipantResponse> participants = participantRepository.findByTripId(tripId).stream()
+                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED || p.getRole() == ParticipantRole.OWNER)
                 .map(this::toParticipantResponse)
                 .toList();
 
@@ -241,6 +260,14 @@ public class TripService {
         participantRepository.findByTripIdAndUserId(tripId, userId)
                 .filter(p -> p.getRole() == ParticipantRole.OWNER)
                 .orElseThrow(() -> new ForbiddenException("Only the trip owner can perform this action"));
+    }
+
+    /**
+     * Non-DRAFT trips are readable by anyone (either publicly listed or accessible via direct URL);
+     * DRAFT trips are hidden from non-participants.
+     */
+    private boolean isPubliclyViewable(Trip trip) {
+        return trip.getStatus() != TripStatus.DRAFT;
     }
 
     private void validateDates(java.time.LocalDate startDate, java.time.LocalDate endDate) {

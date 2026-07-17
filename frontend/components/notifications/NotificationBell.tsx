@@ -44,7 +44,7 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
-export default function NotificationBell() {
+export default function NotificationBell({ className }: { className?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -222,7 +222,7 @@ export default function NotificationBell() {
       {/* Bell icon with badge */}
       <button
         onClick={() => setOpen(!open)}
-        className="relative flex items-center justify-center rounded-xl p-2 text-muted hover:text-foreground hover:bg-surface transition-all"
+        className={cn("relative flex items-center justify-center rounded-xl p-2 text-muted hover:text-foreground hover:bg-surface transition-all", className)}
         aria-label="Notifications"
       >
         <Bell size={18} />

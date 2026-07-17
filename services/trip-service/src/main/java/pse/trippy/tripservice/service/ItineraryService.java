@@ -19,6 +19,7 @@ import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.ActivityCategory;
 import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
+import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.model.enums.VoteType;
 import pse.trippy.tripservice.repository.ActivityRepository;
@@ -50,13 +51,27 @@ public class ItineraryService {
     public ItineraryResponse getItinerary(UUID tripId, UUID userId) {
         Trip trip = findTripOrThrow(tripId);
 
-        // Allow read access for public trips, otherwise require participation
-        if (trip.getVisibility() != TripVisibility.PUBLIC) {
+        // Public read access only for published (non-DRAFT) public trips;
+        // everything else requires participation. DRAFT trips stay private to members.
+        if (!isPubliclyViewable(trip)) {
             ensureParticipant(tripId, userId);
         }
 
         return itineraryRepository.findByTripId(tripId)
                 .map(it -> toItineraryResponse(it, userId))
+                .orElseGet(() -> new ItineraryResponse(
+                        tripId, Collections.emptyList(), null, null));
+    }
+
+    @Transactional(readOnly = true)
+    public ItineraryResponse getSharedItinerary(UUID tripId) {
+        Trip trip = findTripOrThrow(tripId);
+        if (!isPubliclyViewable(trip)) {
+            throw new ForbiddenException("This itinerary is not publicly viewable");
+        }
+
+        return itineraryRepository.findByTripId(tripId)
+                .map(it -> toItineraryResponse(it, null))
                 .orElseGet(() -> new ItineraryResponse(
                         tripId, Collections.emptyList(), null, null));
     }
@@ -108,6 +123,8 @@ public class ItineraryService {
                         .endTime(actReq.endTime())
                         .category(parseCategory(actReq.category()))
                         .notes(actReq.notes())
+                        .estimatedCost(actReq.estimatedCost())
+                        .currency(actReq.currency())
                         .orderIndex(i)
                         .build();
                 savedActivities.add(activityRepository.save(activity));
@@ -118,10 +135,57 @@ public class ItineraryService {
         // Touch itinerary to update updatedAt
         itinerary = itineraryRepository.save(itinerary);
 
+        // A trip stays DRAFT until its itinerary is substantial enough to publish.
+        reevaluateTripStatus(trip, request);
+
         return toItineraryResponse(itinerary, userId);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * A trip is "publish-worthy" (moves from DRAFT to PLANNED) once its
+     * itinerary has real substance: at least two days each with an activity,
+     * or a single day with more than one activity. Anything less keeps it a
+     * DRAFT, which stays hidden from other platform users.
+     */
+    private static boolean qualifiesForActive(UpdateItineraryRequest request) {
+        int daysWithActivities = 0;
+        boolean anyDayHasMultiple = false;
+        for (DayPlanRequest day : request.dayPlans()) {
+            long activityCount = day.activities() == null ? 0 : day.activities().stream()
+                    .filter(a -> a.title() != null && !a.title().isBlank())
+                    .count();
+            if (activityCount >= 1) {
+                daysWithActivities++;
+            }
+            if (activityCount >= 2) {
+                anyDayHasMultiple = true;
+            }
+        }
+        return daysWithActivities >= 2 || anyDayHasMultiple;
+    }
+
+    /**
+     * Auto-manages only the DRAFT ⇄ PLANNED transition based on the itinerary.
+     * Deliberate later states (ONGOING / COMPLETED / CANCELLED) are left untouched.
+     */
+    private void reevaluateTripStatus(Trip trip, UpdateItineraryRequest request) {
+        TripStatus current = trip.getStatus();
+        if (current != TripStatus.DRAFT && current != TripStatus.PLANNED) {
+            return;
+        }
+        TripStatus target = qualifiesForActive(request) ? TripStatus.PLANNED : TripStatus.DRAFT;
+        if (current != target) {
+            trip.setStatus(target);
+            tripRepository.save(trip);
+        }
+    }
+
+    /** Non-DRAFT trips are readable by anyone (either publicly listed or accessible via direct URL); DRAFT trips never are. */
+    private boolean isPubliclyViewable(Trip trip) {
+        return trip.getStatus() != TripStatus.DRAFT;
+    }
 
     private Trip findTripOrThrow(UUID tripId) {
         return tripRepository.findById(tripId)
@@ -188,7 +252,9 @@ public class ItineraryService {
 
         long upvotes = dayPlanVoteRepository.countByDayPlanIdAndVoteType(dayPlan.getId(), VoteType.UPVOTE);
         long downvotes = dayPlanVoteRepository.countByDayPlanIdAndVoteType(dayPlan.getId(), VoteType.DOWNVOTE);
-        String currentUserVote = dayPlanVoteRepository.findByDayPlanIdAndUserId(dayPlan.getId(), userId)
+        String currentUserVote = userId == null
+                ? null
+                : dayPlanVoteRepository.findByDayPlanIdAndUserId(dayPlan.getId(), userId)
                 .map(v -> v.getVoteType().name())
                 .orElse(null);
 
@@ -210,7 +276,9 @@ public class ItineraryService {
     private ActivityResponse toActivityResponse(Activity activity, UUID userId) {
         long upvotes = activityVoteRepository.countByActivityIdAndVoteType(activity.getId(), VoteType.UPVOTE);
         long downvotes = activityVoteRepository.countByActivityIdAndVoteType(activity.getId(), VoteType.DOWNVOTE);
-        String currentUserVote = activityVoteRepository.findByActivityIdAndUserId(activity.getId(), userId)
+        String currentUserVote = userId == null
+                ? null
+                : activityVoteRepository.findByActivityIdAndUserId(activity.getId(), userId)
                 .map(v -> v.getVoteType().name())
                 .orElse(null);
 
@@ -223,6 +291,8 @@ public class ItineraryService {
                 activity.getEndTime(),
                 activity.getCategory().name(),
                 activity.getNotes(),
+                activity.getEstimatedCost(),
+                activity.getCurrency(),
                 activity.getOrderIndex(),
                 upvotes,
                 downvotes,

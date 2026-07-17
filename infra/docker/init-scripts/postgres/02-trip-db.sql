@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS trip_schema.activities (
     end_time TIME,
     category VARCHAR(20) NOT NULL DEFAULT 'OTHER',
     notes VARCHAR(1000),
+    estimated_cost NUMERIC(12,2),
+    currency VARCHAR(8),
     order_index INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT chk_activities_order_index CHECK (order_index >= 0),
     CONSTRAINT fk_activities_day_plan

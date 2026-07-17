@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
   X,
   MapPin,
@@ -27,8 +28,26 @@ import {
 import Button from "@/components/ui/Button";
 import GlassCard from "@/components/ui/GlassCard";
 import DateRangePicker from "@/components/ui/DateRangePicker";
-import TripFullScreenView from "@/components/ai/TripFullScreenView";
-import { getAccessToken } from "@/lib/api";
+import {
+  getAccessToken,
+  tripsApi,
+  itineraryApi,
+  preferencesApi,
+  hasTripPreferences,
+  ensureTripCoverImage,
+  type CreateTripRequest,
+  type TripPreferenceInput,
+  type UpdateItineraryRequest,
+  type TripType,
+  type BudgetTier,
+  type WeatherSummary,
+  type TransportRecommendation,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/lib/toast";
+import { tripSlug } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
+import { saveAiTripRouteState } from "@/lib/ai-trip-route-state";
 
 /* ── Beautiful Loading Screen ─────────────────────────────────────── */
 const LOADING_MESSAGES = [
@@ -184,6 +203,8 @@ interface AiItineraryDay {
   dayNumber: number;
   date?: string;
   title: string;
+  weather?: WeatherSummary;
+  transportRecommendations?: TransportRecommendation[];
   activities: {
     time?: string;
     title: string;
@@ -191,6 +212,8 @@ interface AiItineraryDay {
     location?: string;
     googleMapsUrl?: string;
     estimatedCost?: string;
+    category?: string;
+    tips?: string;
   }[];
 }
 
@@ -268,6 +291,66 @@ function daysBetween(startDate: string, endDate: string): number {
   const end = new Date(endDate || startDate);
   const diff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
   return Math.max(1, Number.isFinite(diff) ? diff + 1 : 1);
+}
+
+function offsetDate(baseDate: string, days: number): string {
+  const date = new Date(baseDate);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split("T")[0];
+}
+
+function parseActivityTime(time?: string): { startTime?: string; endTime?: string } {
+  if (!time) return {};
+  const parts = time.split("-").map((s) => s.trim());
+  const start = parts[0];
+  const end = parts[1];
+  const isValid = (t: string) => /^\d{1,2}:\d{2}$/.test(t);
+  return {
+    startTime: isValid(start) ? start : undefined,
+    endTime: isValid(end) ? end : undefined,
+  };
+}
+
+function mapAiCategory(category?: string): string {
+  if (!category) return "OTHER";
+  const normalized = category.toUpperCase();
+  switch (normalized) {
+    case "CULTURE":
+      return "SIGHTSEEING";
+    case "FOOD":
+      return "FOOD";
+    case "SIGHTSEEING":
+      return "SIGHTSEEING";
+    case "TRANSPORT":
+      return "TRANSPORT";
+    case "SHOPPING":
+      return "SHOPPING";
+    case "NATURE":
+    case "WELLNESS":
+    case "NIGHTLIFE":
+    case "ADVENTURE":
+      return "ACTIVITY";
+    default:
+      return "OTHER";
+  }
+}
+
+function inferTripType(filters: string[]): TripType | undefined {
+  const priority: TripType[] = ["BEACH", "MOUNTAIN", "CITY", "NATURE", "ADVENTURE", "CULTURE"];
+  const upper = filters.map((f) => f.toUpperCase());
+  for (const type of priority) {
+    if (upper.includes(type)) return type;
+  }
+  return undefined;
+}
+
+function mapBudgetToTier(budget?: string): BudgetTier | undefined {
+  if (!budget) return undefined;
+  const lower = budget.toLowerCase();
+  if (lower.includes("luxury") || lower.includes("high")) return "LUXURY";
+  if (lower.includes("budget") || lower.includes("cheap") || lower.includes("economy")) return "ECONOMY";
+  if (lower.includes("moderate") || lower.includes("mid")) return "MODERATE";
+  return undefined;
 }
 
 // Placeholder shown while real city image loads from Wikipedia API
@@ -360,8 +443,13 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [results, setResults] = useState<GeneratedTrip[]>([]);
   const [alsoExplore, setAlsoExplore] = useState<DestinationSuggestionItem[]>([]);
   const [savedTrips, setSavedTrips] = useState<Set<string>>(new Set());
-  const [fullScreenTrip, setFullScreenTrip] = useState<GeneratedTrip | null>(null);
+  const [saveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
+  const [, setIsSaving] = useState(false);
+  const [, setSaveError] = useState("");
 
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const { addToast } = useToast();
   const lastAutoRequestId = useRef<number>(0);
   const loadingStartedAt = useRef(0);
 
@@ -445,8 +533,143 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     );
   }
 
-  function handleSave(title: string) {
-    setSavedTrips((prev) => new Set(prev).add(title));
+  function openTripInRoute(trip: GeneratedTrip) {
+    const stateId = saveAiTripRouteState({
+      trip,
+      userPrompt: promptPreview,
+      userDates: {
+        start: startDate,
+        end: endDate || startDate,
+      },
+      preferenceContext: {
+        selectedFilters,
+        budget,
+        diet,
+        preferences,
+        customPreference,
+      },
+    });
+
+    if (!stateId) {
+      setError("Could not open AI trip page. Please try again.");
+      return;
+    }
+
+    onClose();
+    router.push(`${ROUTES.aiTrip}?sid=${encodeURIComponent(stateId)}`);
+  }
+
+  async function persistTrip(trip: GeneratedTrip, visibility: "PRIVATE" | "PUBLIC") {
+    if (!isAuthenticated) {
+      addToast("Please log in to save your AI trip.", "error");
+      router.push("/login");
+      return;
+    }
+
+    if (!startDate) {
+      setSaveError("Please select travel dates before saving.");
+      return;
+    }
+
+    const effectiveEndDate = endDate || startDate;
+    setIsSaving(true);
+    setSaveError("");
+
+    try {
+      const createPayload: CreateTripRequest = {
+        title: trip.title,
+        destination: trip.destination,
+        description: trip.reason || trip.highlights.join(", ") || undefined,
+        startDate,
+        endDate: effectiveEndDate,
+        visibility,
+      };
+
+      const created = await tripsApi.create(createPayload);
+
+      // Save cover image immediately using trip.image
+      if (trip.image) {
+        try {
+          await tripsApi.update(created.tripId, { coverImageUrl: trip.image });
+        } catch (e) {
+          console.error("Failed to update trip cover image", e);
+        }
+      }
+
+      if (trip.aiItinerary && trip.aiItinerary.length > 0) {
+        const itineraryPayload: UpdateItineraryRequest = {
+          dayPlans: trip.aiItinerary.map((day) => ({
+            dayNumber: day.dayNumber,
+            date: offsetDate(startDate, day.dayNumber - 1),
+            title: day.title || `Day ${day.dayNumber}`,
+            activities: [
+              ...(day.activities || []).map((act) => {
+                const { startTime, endTime } = parseActivityTime(act.time);
+                return {
+                  title: act.title,
+                  description: act.description,
+                  location: act.location,
+                  startTime,
+                  endTime,
+                  category: mapAiCategory(act.category),
+                  notes: act.tips,
+                };
+              }),
+              ...((day.transportRecommendations?.length || day.weather) ? [{
+                title: "__METADATA__",
+                description: JSON.stringify({
+                  transportRecommendations: day.transportRecommendations,
+                  weather: day.weather
+                }),
+                location: "",
+                category: "OTHER",
+                notes: ""
+              }] : [])
+            ],
+          })),
+        };
+        await itineraryApi.update(created.tripId, itineraryPayload);
+      }
+
+      const preferenceInput: TripPreferenceInput = {
+        tripType: inferTripType(selectedFilters),
+        budgetTier: mapBudgetToTier(trip.budget),
+        notes: [budget, diet, preferences, customPreference]
+          .filter(Boolean)
+          .join(". ") || undefined,
+      };
+      if (hasTripPreferences(preferenceInput)) {
+        try {
+          await preferencesApi.save(created.tripId, preferenceInput);
+        } catch (err) {
+          console.error("Failed to save AI trip preferences", err);
+        }
+      }
+
+      // Transition AI-generated trips to PLANNED status so they don't show as "Draft"
+      if (trip.aiItinerary && trip.aiItinerary.length > 0) {
+        try {
+          await tripsApi.updateStatus(created.tripId, "PLANNED");
+        } catch {
+          // Non-critical — trip is still saved, just shows as Draft
+        }
+      }
+
+      // Fire cover image generation (non-blocking) only if we don't have a pre-fetched Wikipedia image
+      if (!trip.image) {
+        void ensureTripCoverImage(created.tripId, trip.destination);
+      }
+
+      setSavedTrips((prev) => new Set(prev).add(trip.title));
+      addToast("Trip saved to your dashboard!", "success");
+      router.push(`/dashboard/trips/${tripSlug(created.title, created.tripId)}?from=ai`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save trip.";
+      setSaveError(message);
+      addToast(message, "error");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function waitForMinimumLoading() {
@@ -470,7 +693,6 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     setIsLoading(true);
     setError("");
     setReply("");
-    setFullScreenTrip(null);
 
     try {
       // Build structured payload with ALL user preferences for the AI
@@ -537,7 +759,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
 
       // Auto-open the first trip in fullscreen view
       if (mapped.length > 0) {
-        setFullScreenTrip(mapped[0]);
+        openTripInRoute(mapped[0]);
       }
     } catch (err) {
       await waitForMinimumLoading();
@@ -556,22 +778,6 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     return (
       <AnimatePresence>
         <TripLoadingScreen destination={city.trim()} />
-      </AnimatePresence>
-    );
-  }
-
-  // Full-screen split view when a trip is selected
-  if (fullScreenTrip) {
-    return (
-      <AnimatePresence>
-        <TripFullScreenView
-          trip={fullScreenTrip}
-          userPrompt={promptPreview}
-          userDates={{ start: startDate, end: endDate || startDate }}
-          onClose={onClose}
-          onSave={() => handleSave(fullScreenTrip.title)}
-          saved={savedTrips.has(fullScreenTrip.title)}
-        />
       </AnimatePresence>
     );
   }
@@ -826,8 +1032,8 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                         key={trip.title}
                         trip={trip}
                         saved={savedTrips.has(trip.title)}
-                        onSave={() => handleSave(trip.title)}
-                        onOpenFullScreen={() => setFullScreenTrip(trip)}
+                        onSave={(updatedTrip) => void persistTrip(updatedTrip, saveVisibility)}
+                        onOpenFullScreen={(updatedTrip) => openTripInRoute(updatedTrip)}
                         userPrompt={promptPreview}
                         userDates={{ start: startDate, end: endDate }}
                       />
@@ -868,8 +1074,8 @@ function TripResultCard({
 }: {
   trip: GeneratedTrip;
   saved: boolean;
-  onSave: () => void;
-  onOpenFullScreen: () => void;
+  onSave: (trip: GeneratedTrip) => void;
+  onOpenFullScreen: (trip: GeneratedTrip) => void;
   userPrompt?: string;
   userDates?: { start: string; end?: string };
 }) {
@@ -1339,10 +1545,10 @@ function TripResultCard({
         )}
 
         <div className="flex gap-2 pt-1">
-          <Button size="sm" className="flex-1 text-xs" onClick={onOpenFullScreen}>
+          <Button size="sm" className="flex-1 text-xs" onClick={() => onOpenFullScreen(draftTrip)}>
             <Sparkles size={12} /> Open Trip
           </Button>
-          <Button size="sm" variant="secondary" className="text-xs" onClick={onSave} disabled={saved}>
+          <Button size="sm" variant="secondary" className="text-xs" onClick={() => onSave(draftTrip)} disabled={saved}>
             {saved ? <><Check size={12} /> Saved</> : <><Check size={12} /> Save</>}
           </Button>
         </div>

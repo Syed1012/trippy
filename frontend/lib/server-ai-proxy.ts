@@ -28,6 +28,28 @@ export async function postToAiService(
   });
 }
 
+export async function getFromAiService(
+  incoming: Request,
+  path: string,
+  timeoutMs = 20_000,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+
+  const authorization = incoming.headers.get("authorization");
+  if (authorization) headers.Authorization = authorization;
+
+  const correlationId = incoming.headers.get("x-correlation-id");
+  if (correlationId) headers["X-Correlation-Id"] = correlationId;
+
+  return fetch(`${AI_API_BASE_URL}${path}`, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
 export async function readJson(response: Response): Promise<Record<string, unknown>> {
   return response.json().catch(() => ({}));
 }

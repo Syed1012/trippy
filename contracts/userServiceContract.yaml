@@ -1,782 +1,27 @@
 openapi: 3.0.3
 info:
-  title: User Service API Contract
+  title: User Service API
   description: |
-    ## Overview
-    Complete API contract for the User Service microservice in the Trippy platform.
-    This document serves as the blueprint for implementing this service.
-
-    ## Service Responsibilities
-    - User Registration (account creation, email verification)
-    - User Login & JWT Token Generation
-    - Refresh Token Management & Rotation
-    - Token Revocation (logout, blacklisting)
-    - User Profile Management
-    - Subscription & Quota Management
-    - User Verification (Email/Phone)
-    - User Search & Discovery
-    - Password Management
-
-    ## Authentication Architecture
-    
-    ### Responsibility Split
-    | Component | Responsibility |
-    |-----------|----------------|
-    | **User Service** | Login (credential validation), JWT generation, refresh tokens, logout/revocation |
-    | **API Gateway** | JWT validation (signature, expiry), blacklist check via Redis, request routing |
-    
-    ### JWT Token Structure
-    Tokens are signed using **RS256** (asymmetric keys). The public key is shared with API Gateway for validation.
-    
-    **Access Token Claims:**
-    ```
-    {
-      "jti": "unique-token-id",        // JWT ID (for revocation tracking)
-      "sub": "uuid-of-user",           // Subject - User UUID (primary identifier)
-      "email": "syed@example.com",     // User email
-      "displayName": "Syed M.",        // Display name (avoid extra service calls)
-      "role": "USER",                  // Role: USER, ADMIN
-      "plan": "FREE",                  // Subscription: FREE, PREMIUM, ENTERPRISE
-      "emailVerified": true,           // Verification status
-      "iat": 1706012400,               // Issued at (Unix timestamp)
-      "exp": 1706013300                // Expires at (15 minutes from iat)
-    }
-    ```
-    
-    ### Token Lifecycle
-    | Token Type | Validity | Storage | Revocation |
-    |------------|----------|---------|------------|
-    | **Access Token** | 15 minutes | Client only | Redis blacklist (jti) |
-    | **Refresh Token** | 7 days (30 if rememberMe) | Database (hashed) | Delete from DB |
-    
-    ### Logout & Token Revocation Strategy
-    1. **Logout Request** → User Service receives logout call with access token
-    2. **Blacklist Access Token** → Add `jti` to Redis with TTL = remaining token time
-    3. **Invalidate Refresh Token** → Delete from database (or mark as revoked)
-    4. **Gateway Check** → On each request, Gateway checks: `EXISTS blacklist:{jti}` in Redis
-    5. **Logout All Devices** → Delete all refresh tokens for user, blacklist current access token
-    
-    **Redis Key Format**: `token:blacklist:{jti}` with auto-expiry TTL
-    
-    ### Security Implementation
-    - **Algorithm**: RS256 (RSA Signature with SHA-256)
-    - **Key Pair**: Private key in User Service (signing), Public key in API Gateway (validation)
-    - **Framework**: Spring Security OAuth2 (free, built-in Spring Boot)
-    - **No external providers**: Self-hosted JWT issuance, no Auth0/Okta/Keycloak required
-
-    ## API Categories
-    | Category | Access | Description |
-    |----------|--------|-------------|
-    | **Public Auth** | No Auth | Registration, Login, Password Reset, Token Refresh |
-    | **Protected User** | JWT (User) | Profile, Subscription, Settings, Logout |
-    | **Internal S2S** | Service Token | Cross-service queries (Chat, Trip) |
-    | **Admin** | JWT (Admin) | User management, Subscription overrides |
-
-    ## Request Headers
-    | Header | Required | Description |
-    |--------|----------|-------------|
-    | `Authorization` | Protected endpoints | `Bearer <access_token>` |
-    | `X-Service-Token` | Internal S2S | Service-to-service auth |
-    | `X-Correlation-ID` | All requests | UUID for distributed tracing |
-    | `X-Forwarded-For` | Set by Gateway | Original client IP |
-
-    ## Database Schema
-    - **Schema Name**: `user_schema`
-    - **Tables**: 
-      - `users` - Core user data (id, email, password_hash, status, role, created_at)
-      - `user_profiles` - Extended profile (first_name, last_name, bio, avatar_url, country)
-      - `subscriptions` - Plan details (plan_type, trips_used, trips_limit, period_start/end)
-      - `refresh_tokens` - Active refresh tokens (token_hash, user_id, expires_at, device_info)
-      - `verification_tokens` - Email/phone verification codes (code, type, expires_at)
-      - `password_reset_tokens` - Password reset tokens (token_hash, expires_at)
-
-    ## External Dependencies
-    | Dependency | Purpose |
-    |------------|---------|
-    | **Redis** | Token blacklist, session cache |
-    | **PostgreSQL** | User data persistence |
-    | **SMTP Server** | Email sending (verification, password reset) |
-
-  version: 1.0.0
-  contact:
-    name: User Domain Team
-    email: user-team@trippy.dev
-
+    User microservice for the Trippy platform. Handles authentication,
+    user profiles, email verification, user search, and trip preferences.
+  version: 2.0.0
 servers:
   - url: http://localhost:8081
-    description: Local Development (Direct)
-  - url: http://localhost:3000
-    description: Local via API Gateway
-  - url: http://user-service.internal:8081
-    description: Internal Cluster URL (K8s/Docker)
-  - url: https://api.trippy.dev
-    description: Production Gateway
+    description: Direct
+  - url: http://localhost:8080
+    description: Via API Gateway
 
 tags:
-  - name: Authentication
-    description: User registration, login, logout, token management
-  - name: Profile
-    description: User profile CRUD operations
-  - name: Subscription
-    description: Subscription plans and quota management
-  - name: Verification
-    description: Email and phone verification
-  - name: Password
-    description: Password change and reset
-  - name: Search
-    description: User search and discovery
-  - name: Internal
-    description: Service-to-service APIs (not exposed via Gateway)
-  - name: Admin
-    description: Administrative operations (requires admin role)
+  - name: Auth
+  - name: Users
+  - name: Preferences
+  - name: JWKS
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT token for authenticated users
-
-    ServiceAuth:
-      type: apiKey
-      in: header
-      name: X-Service-Token
-      description: Internal service-to-service authentication token
-
-    AdminAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT token with admin role
-
-  parameters:
-    CorrelationId:
-      name: X-Correlation-ID
-      in: header
-      required: true
-      schema:
-        type: string
-        format: uuid
-      description: Unique identifier for request tracing across services
-
-    UserId:
-      name: userId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-      description: Unique user identifier
-
-  schemas:
-    # =====================================================
-    # ERROR RESPONSES
-    # =====================================================
-    ErrorResponse:
-      type: object
-      required:
-        - error
-        - message
-        - timestamp
-      properties:
-        error:
-          type: string
-          example: "VALIDATION_ERROR"
-        message:
-          type: string
-          example: "Email is already registered"
-        timestamp:
-          type: string
-          format: date-time
-        path:
-          type: string
-          example: "/auth/register"
-        details:
-          type: array
-          items:
-            type: object
-            properties:
-              field:
-                type: string
-              message:
-                type: string
-
-    # =====================================================
-    # AUTHENTICATION SCHEMAS
-    # =====================================================
-    RegisterRequest:
-      type: object
-      required:
-        - email
-        - password
-        - displayName
-      properties:
-        email:
-          type: string
-          format: email
-          example: "syed@example.com"
-        password:
-          type: string
-          format: password
-          minLength: 8
-          maxLength: 128
-          description: |
-            Password requirements:
-            - Minimum 8 characters
-            - At least 1 uppercase letter
-            - At least 1 lowercase letter
-            - At least 1 number
-            - At least 1 special character
-          example: "SecureP@ss123"
-        displayName:
-          type: string
-          minLength: 2
-          maxLength: 50
-          example: "Syed M."
-        firstName:
-          type: string
-          maxLength: 50
-          example: "Syed"
-        lastName:
-          type: string
-          maxLength: 50
-          example: "Mohammad"
-        country:
-          type: string
-          minLength: 2
-          maxLength: 2
-          description: ISO 3166-1 alpha-2 country code
-          example: "DE"
-        acceptedTerms:
-          type: boolean
-          description: User must accept terms and conditions
-          example: true
-
-    RegisterResponse:
-      type: object
-      required:
-        - userId
-        - email
-        - message
-      properties:
-        userId:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-        message:
-          type: string
-          example: "Registration successful. Please verify your email."
-        verificationRequired:
-          type: boolean
-          example: true
-
-    LoginRequest:
-      type: object
-      required:
-        - email
-        - password
-      properties:
-        email:
-          type: string
-          format: email
-          example: "syed@example.com"
-        password:
-          type: string
-          format: password
-          example: "SecureP@ss123"
-        rememberMe:
-          type: boolean
-          default: false
-          description: If true, refresh token has extended validity
-
-    LoginResponse:
-      type: object
-      required:
-        - accessToken
-        - refreshToken
-        - expiresIn
-        - user
-      properties:
-        accessToken:
-          type: string
-          description: JWT access token (short-lived, ~15 minutes)
-          example: "eyJhbGciOiJIUzI1NiIs..."
-        refreshToken:
-          type: string
-          description: Refresh token for obtaining new access tokens
-          example: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..."
-        tokenType:
-          type: string
-          default: "Bearer"
-        expiresIn:
-          type: integer
-          description: Access token validity in seconds
-          example: 900
-        user:
-          $ref: '#/components/schemas/UserProfile'
-
-    RefreshTokenRequest:
-      type: object
-      required:
-        - refreshToken
-      properties:
-        refreshToken:
-          type: string
-          example: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..."
-
-    TokenResponse:
-      type: object
-      required:
-        - accessToken
-        - expiresIn
-      properties:
-        accessToken:
-          type: string
-        refreshToken:
-          type: string
-          description: New refresh token (rotation)
-        expiresIn:
-          type: integer
-
-    LogoutRequest:
-      type: object
-      properties:
-        refreshToken:
-          type: string
-          description: Optional - invalidate specific refresh token
-        allDevices:
-          type: boolean
-          default: false
-          description: If true, invalidate all refresh tokens for this user
-
-    # =====================================================
-    # USER & PROFILE SCHEMAS
-    # =====================================================
-    PublicUser:
-      type: object
-      description: Minimal user info visible to other users
-      required:
-        - userId
-        - displayName
-      properties:
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-          example: "Syed M."
-        avatarUrl:
-          type: string
-          format: uri
-          example: "https://cdn.trippy.dev/avatars/default.png"
-        isVerified:
-          type: boolean
-          description: Has verified badge (verified host)
-          example: false
-        memberSince:
-          type: string
-          format: date
-          example: "2024-01-15"
-
-    UserProfile:
-      type: object
-      description: Full profile for the authenticated user
-      required:
-        - userId
-        - email
-        - displayName
-        - emailVerified
-      properties:
-        userId:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-          example: "syed@example.com"
-        displayName:
-          type: string
-          example: "Syed M."
-        firstName:
-          type: string
-          example: "Syed"
-        lastName:
-          type: string
-          example: "Mohammad"
-        avatarUrl:
-          type: string
-          format: uri
-          example: "https://cdn.trippy.dev/avatars/user123.jpg"
-        bio:
-          type: string
-          maxLength: 500
-          example: "Travel enthusiast | 20 countries visited"
-        country:
-          type: string
-          example: "DE"
-        phoneNumber:
-          type: string
-          example: "+49123456789"
-        emailVerified:
-          type: boolean
-          example: true
-        phoneVerified:
-          type: boolean
-          example: false
-        isVerifiedHost:
-          type: boolean
-          description: Verified host badge
-          example: false
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        lastLoginAt:
-          type: string
-          format: date-time
-        preferences:
-          $ref: '#/components/schemas/UserPreferences'
-
-    UserPreferences:
-      type: object
-      properties:
-        language:
-          type: string
-          default: "en"
-          example: "de"
-        timezone:
-          type: string
-          default: "UTC"
-          example: "Europe/Berlin"
-        currency:
-          type: string
-          default: "EUR"
-          example: "EUR"
-        emailNotifications:
-          type: boolean
-          default: true
-        pushNotifications:
-          type: boolean
-          default: true
-        marketingEmails:
-          type: boolean
-          default: false
-
-    UpdateProfileRequest:
-      type: object
-      properties:
-        firstName:
-          type: string
-          maxLength: 50
-        lastName:
-          type: string
-          maxLength: 50
-        displayName:
-          type: string
-          minLength: 2
-          maxLength: 50
-        bio:
-          type: string
-          maxLength: 500
-        country:
-          type: string
-          minLength: 2
-          maxLength: 2
-        phoneNumber:
-          type: string
-          pattern: '^\+[1-9]\d{1,14}$'
-          description: E.164 format
-        preferences:
-          $ref: '#/components/schemas/UserPreferences'
-
-    UploadAvatarResponse:
-      type: object
-      required:
-        - avatarUrl
-      properties:
-        avatarUrl:
-          type: string
-          format: uri
-          example: "https://cdn.trippy.dev/avatars/user123-v2.jpg"
-
-    # =====================================================
-    # SUBSCRIPTION SCHEMAS
-    # =====================================================
-    SubscriptionPlan:
-      type: string
-      enum: ["FREE", "PREMIUM", "ENTERPRISE"]
-      description: |
-        - **FREE**: 3 trips/month, basic features
-        - **PREMIUM**: 20 trips/month, AI itinerary, priority support
-        - **ENTERPRISE**: Unlimited trips, team features, API access
-
-    SubscriptionDetails:
-      type: object
-      required:
-        - subscriptionId
-        - userId
-        - planName
-        - status
-        - tripsUsed
-        - tripsLimit
-      properties:
-        subscriptionId:
-          type: string
-          format: uuid
-        userId:
-          type: string
-          format: uuid
-        planName:
-          $ref: '#/components/schemas/SubscriptionPlan'
-        status:
-          type: string
-          enum: ["ACTIVE", "CANCELLED", "EXPIRED", "PAST_DUE"]
-        tripsUsed:
-          type: integer
-          minimum: 0
-          example: 2
-        tripsLimit:
-          type: integer
-          description: -1 for unlimited
-          example: 3
-        canCreateTrip:
-          type: boolean
-          description: Quick flag - is user allowed to create a trip now?
-          example: true
-        currentPeriodStart:
-          type: string
-          format: date
-        currentPeriodEnd:
-          type: string
-          format: date
-        cancelAtPeriodEnd:
-          type: boolean
-          default: false
-        createdAt:
-          type: string
-          format: date-time
-
-    SubscriptionQuotaResponse:
-      type: object
-      description: Lightweight response for internal quota checks
-      required:
-        - userId
-        - canCreateTrip
-        - tripsRemaining
-      properties:
-        userId:
-          type: string
-          format: uuid
-        planType:
-          $ref: '#/components/schemas/SubscriptionPlan'
-        isActive:
-          type: boolean
-        canCreateTrip:
-          type: boolean
-        tripsUsed:
-          type: integer
-        tripsRemaining:
-          type: integer
-          description: -1 for unlimited
-
-    IncrementTripUsageRequest:
-      type: object
-      required:
-        - tripId
-      properties:
-        tripId:
-          type: string
-          format: uuid
-          description: ID of the trip being created
-
-    # =====================================================
-    # VERIFICATION SCHEMAS
-    # =====================================================
-    SendVerificationRequest:
-      type: object
-      required:
-        - type
-      properties:
-        type:
-          type: string
-          enum: ["EMAIL", "PHONE"]
-        phoneNumber:
-          type: string
-          description: Required if type is PHONE
-
-    VerifyCodeRequest:
-      type: object
-      required:
-        - type
-        - code
-      properties:
-        type:
-          type: string
-          enum: ["EMAIL", "PHONE"]
-        code:
-          type: string
-          minLength: 6
-          maxLength: 6
-          example: "123456"
-
-    VerificationResponse:
-      type: object
-      properties:
-        verified:
-          type: boolean
-        message:
-          type: string
-
-    # =====================================================
-    # PASSWORD SCHEMAS
-    # =====================================================
-    ChangePasswordRequest:
-      type: object
-      required:
-        - currentPassword
-        - newPassword
-      properties:
-        currentPassword:
-          type: string
-          format: password
-        newPassword:
-          type: string
-          format: password
-          minLength: 8
-
-    ForgotPasswordRequest:
-      type: object
-      required:
-        - email
-      properties:
-        email:
-          type: string
-          format: email
-
-    ResetPasswordRequest:
-      type: object
-      required:
-        - token
-        - newPassword
-      properties:
-        token:
-          type: string
-          description: Password reset token from email
-        newPassword:
-          type: string
-          format: password
-          minLength: 8
-
-    # =====================================================
-    # INTERNAL S2S SCHEMAS
-    # =====================================================
-    InternalUserProfile:
-      type: object
-      description: User profile for Chat Service integration
-      required:
-        - userId
-        - displayName
-        - status
-      properties:
-        userId:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-          example: "Alice W."
-        avatarUrl:
-          type: string
-          format: uri
-        status:
-          type: string
-          enum: ["ONLINE", "OFFLINE", "AWAY", "DO_NOT_DISTURB"]
-          description: Current availability status for chat
-        isVerifiedHost:
-          type: boolean
-
-    BatchUsersRequest:
-      type: object
-      required:
-        - userIds
-      properties:
-        userIds:
-          type: array
-          maxItems: 100
-          items:
-            type: string
-            format: uuid
-
-    BatchUsersResponse:
-      type: object
-      properties:
-        users:
-          type: array
-          items:
-            $ref: '#/components/schemas/InternalUserProfile'
-        notFound:
-          type: array
-          items:
-            type: string
-            format: uuid
-
-    # =====================================================
-    # ADMIN SCHEMAS
-    # =====================================================
-    AdminUserListResponse:
-      type: object
-      properties:
-        users:
-          type: array
-          items:
-            $ref: '#/components/schemas/UserProfile'
-        pagination:
-          $ref: '#/components/schemas/PaginationMeta'
-
-    PaginationMeta:
-      type: object
-      properties:
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        totalItems:
-          type: integer
-        totalPages:
-          type: integer
-
-    AdminUpdateSubscriptionRequest:
-      type: object
-      properties:
-        planName:
-          $ref: '#/components/schemas/SubscriptionPlan'
-        tripsLimit:
-          type: integer
-        status:
-          type: string
-          enum: ["ACTIVE", "CANCELLED", "EXPIRED"]
-
-# =========================================================
-# PATHS
-# =========================================================
 paths:
-  # =====================================================
-  # AUTHENTICATION ENDPOINTS (Public - No Auth Required)
-  # =====================================================
   /auth/register:
     post:
-      summary: Register New User
-      operationId: registerUser
-      tags:
-        - Authentication
-      description: |
-        Creates a new user account. Sends verification email upon success.
-
-        **Rate Limit**: 5 requests per IP per minute
+      tags: [Auth]
+      summary: Register a new user
       requestBody:
         required: true
         content:
@@ -785,36 +30,15 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: User registered successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterResponse'
-        '400':
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Email already registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Rate limit exceeded
 
   /auth/login:
     post:
-      summary: User Login
-      operationId: loginUser
-      tags:
-        - Authentication
-      description: |
-        Authenticates user and returns JWT tokens.
-
-        **Rate Limit**: 10 requests per IP per minute (increases lockout on failures)
+      tags: [Auth]
+      summary: Login
       requestBody:
         required: true
         content:
@@ -823,240 +47,73 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Login successful
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
-        '401':
-          description: Invalid credentials
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Account locked or not verified
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many failed attempts
 
   /auth/refresh:
     post:
-      summary: Refresh Access Token
-      operationId: refreshToken
-      tags:
-        - Authentication
-      description: |
-        Exchange a valid refresh token for a new access token.
-        Implements refresh token rotation for security.
+      tags: [Auth]
+      summary: Refresh access token
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RefreshTokenRequest'
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
       responses:
         '200':
-          description: Token refreshed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
-        '401':
-          description: Invalid or expired refresh token
 
   /auth/logout:
     post:
-      summary: Logout User
-      operationId: logoutUser
-      tags:
-        - Authentication
-      security:
-        - BearerAuth: []
-      description: |
-        Logs out the user by invalidating tokens.
-        
-        **Token Revocation Process:**
-        1. Extract `jti` (JWT ID) from the current access token
-        2. Add `jti` to Redis blacklist with TTL = remaining token validity
-        3. If `refreshToken` provided, delete it from database
-        4. If `allDevices: true`, delete ALL refresh tokens for this user
-        
-        **Redis Key**: `token:blacklist:{jti}`
+      tags: [Auth]
+      summary: Logout (invalidate tokens)
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: allDevices
+          in: query
+          schema: { type: boolean, default: false }
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LogoutRequest'
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
       responses:
         '204':
-          description: Logged out successfully
-        '401':
-          description: Unauthorized
+          description: Logged out
 
-  /.well-known/jwks.json:
-    get:
-      summary: Get JSON Web Key Set
-      operationId: getJwks
-      tags:
-        - Authentication
-      description: |
-        Returns the public keys used to verify JWT tokens.
-        
-        **Consumer**: API Gateway
-        
-        The API Gateway fetches this endpoint on startup (and periodically) 
-        to get the public key for JWT signature validation.
-        
-        **Response Format**: Standard JWKS (RFC 7517)
-      responses:
-        '200':
-          description: JWKS response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  keys:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        kty:
-                          type: string
-                          example: "RSA"
-                        use:
-                          type: string
-                          example: "sig"
-                        kid:
-                          type: string
-                          example: "trippy-key-1"
-                        alg:
-                          type: string
-                          example: "RS256"
-                        n:
-                          type: string
-                          description: RSA public key modulus (Base64URL)
-                        e:
-                          type: string
-                          description: RSA public key exponent (Base64URL)
-                          example: "AQAB"
-
-  # =====================================================
-  # PASSWORD MANAGEMENT (Public & Protected)
-  # =====================================================
-  /auth/password/forgot:
-    post:
-      summary: Request Password Reset
-      operationId: forgotPassword
-      tags:
-        - Password
-      description: |
-        Sends password reset email if account exists.
-        Always returns 200 to prevent email enumeration.
-
-        **Rate Limit**: 3 requests per email per hour
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ForgotPasswordRequest'
-      responses:
-        '200':
-          description: Reset email sent (if account exists)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "If an account exists, a reset link has been sent."
-
-  /auth/password/reset:
-    post:
-      summary: Reset Password with Token
-      operationId: resetPassword
-      tags:
-        - Password
-      description: Resets password using token from email link.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResetPasswordRequest'
-      responses:
-        '200':
-          description: Password reset successful
-        '400':
-          description: Invalid or expired token
-
-  /users/me/password:
-    put:
-      summary: Change Password
-      operationId: changePassword
-      tags:
-        - Password
-      security:
-        - BearerAuth: []
-      description: Change password for authenticated user.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChangePasswordRequest'
-      responses:
-        '200':
-          description: Password changed successfully
-        '400':
-          description: Current password incorrect
-        '401':
-          description: Unauthorized
-
-  # =====================================================
-  # USER PROFILE ENDPOINTS (Protected - User Auth)
-  # =====================================================
   /users/me:
     get:
-      summary: Get My Profile
-      operationId: getMyProfile
-      tags:
-        - Profile
-      security:
-        - BearerAuth: []
-      description: Returns the complete profile of the authenticated user.
+      tags: [Users]
+      summary: Get current user profile
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       responses:
         '200':
-          description: Profile retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserProfile'
-        '401':
-          description: Unauthorized
-
+                $ref: '#/components/schemas/UserProfileResponse'
     patch:
-      summary: Update My Profile
-      operationId: updateMyProfile
-      tags:
-        - Profile
-      security:
-        - BearerAuth: []
-      description: Partially update user profile fields.
+      tags: [Users]
+      summary: Update current user profile
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/XUserId'
       requestBody:
         required: true
         content:
@@ -1065,568 +122,262 @@ paths:
               $ref: '#/components/schemas/UpdateProfileRequest'
       responses:
         '200':
-          description: Profile updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserProfile'
-        '400':
-          description: Validation error
-        '401':
-          description: Unauthorized
+                $ref: '#/components/schemas/UserProfileResponse'
 
-    delete:
-      summary: Delete My Account
-      operationId: deleteMyAccount
-      tags:
-        - Profile
-      security:
-        - BearerAuth: []
-      description: |
-        Permanently deletes user account and all associated data.
-        This action is irreversible.
-
-        **Requires**: Password confirmation in request body
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - password
-              properties:
-                password:
-                  type: string
-                  format: password
-                  description: Current password for confirmation
-      responses:
-        '204':
-          description: Account deleted
-        '400':
-          description: Invalid password
-        '401':
-          description: Unauthorized
-
-  /users/me/avatar:
-    post:
-      summary: Upload Avatar
-      operationId: uploadAvatar
-      tags:
-        - Profile
-      security:
-        - BearerAuth: []
-      description: |
-        Upload a new profile avatar image.
-
-        **Accepted formats**: JPEG, PNG, WebP
-        **Max size**: 5MB
-        **Dimensions**: Min 100x100, Max 2000x2000
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-      responses:
-        '200':
-          description: Avatar uploaded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadAvatarResponse'
-        '400':
-          description: Invalid file format or size
-        '401':
-          description: Unauthorized
-
-    delete:
-      summary: Remove Avatar
-      operationId: deleteAvatar
-      tags:
-        - Profile
-      security:
-        - BearerAuth: []
-      description: Removes user avatar and resets to default.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      responses:
-        '204':
-          description: Avatar removed
-        '401':
-          description: Unauthorized
-
-  # =====================================================
-  # VERIFICATION ENDPOINTS (Protected)
-  # =====================================================
-  /users/me/verification/send:
-    post:
-      summary: Send Verification Code
-      operationId: sendVerificationCode
-      tags:
-        - Verification
-      security:
-        - BearerAuth: []
-      description: |
-        Sends a 6-digit verification code to email or phone.
-
-        **Rate Limit**: 3 requests per type per hour
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SendVerificationRequest'
-      responses:
-        '200':
-          description: Code sent
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Verification code sent to your email"
-                  expiresIn:
-                    type: integer
-                    description: Code validity in seconds
-                    example: 600
-        '429':
-          description: Too many requests
-
-  /users/me/verification/verify:
-    post:
-      summary: Verify Code
-      operationId: verifyCode
-      tags:
-        - Verification
-      security:
-        - BearerAuth: []
-      description: Validates the verification code.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VerifyCodeRequest'
-      responses:
-        '200':
-          description: Verification successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/VerificationResponse'
-        '400':
-          description: Invalid or expired code
-
-  # =====================================================
-  # SUBSCRIPTION ENDPOINTS (Protected)
-  # =====================================================
-  /users/me/subscription:
+  /users/{userId}:
     get:
-      summary: Get My Subscription
-      operationId: getMySubscription
-      tags:
-        - Subscription
-      security:
-        - BearerAuth: []
-      description: Returns current subscription details and usage.
+      tags: [Users]
+      summary: Get public profile
       parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Subscription details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionDetails'
-        '401':
-          description: Unauthorized
+                $ref: '#/components/schemas/UserPublicProfileResponse'
 
-  /subscriptions/plans:
+  /users/search:
     get:
-      summary: Get Available Plans
-      operationId: getSubscriptionPlans
-      tags:
-        - Subscription
-      description: Returns all available subscription plans with pricing.
+      tags: [Users]
+      summary: Search users by name or email
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
       responses:
         '200':
-          description: List of plans
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    planId:
-                      type: string
-                    name:
-                      $ref: '#/components/schemas/SubscriptionPlan'
-                    price:
-                      type: number
-                      format: float
-                    currency:
-                      type: string
-                      default: "EUR"
-                    features:
-                      type: array
-                      items:
-                        type: string
-                    tripsLimit:
-                      type: integer
-
-  # =====================================================
-  # USER SEARCH (Protected)
-  # =====================================================
-  /users/search:
-    get:
-      summary: Search Users
-      operationId: searchUsers
-      tags:
-        - Search
-      security:
-        - BearerAuth: []
-      description: |
-        Search for users by email or display name.
-        Used for trip invitations and friend discovery.
-
-        **Note**: Only returns public user profiles.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 3
-          description: Search query (email or name)
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 10
-            maximum: 50
-      responses:
-        '200':
-          description: Search results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/PublicUser'
-                  total:
-                    type: integer
-        '400':
-          description: Query too short
-        '401':
-          description: Unauthorized
-
-  /users/{userId}:
-    get:
-      summary: Get Public User Profile
-      operationId: getPublicUserProfile
-      tags:
-        - Search
-      security:
-        - BearerAuth: []
-      description: Returns public profile of another user.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Public profile
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PublicUser'
-        '404':
-          description: User not found
-
-  # =====================================================
-  # INTERNAL S2S ENDPOINTS (Service Auth)
-  # =====================================================
-  /users/{userId}/profile:
-    get:
-      summary: "[Internal] Get User Profile for Chat"
-      operationId: internalGetUserProfile
-      tags:
-        - Internal
-      security:
-        - ServiceAuth: []
-      description: |
-        **Consumer**: Chat Service
-
-        Returns user profile data needed for chat (display name, avatar, online status).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: User profile
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InternalUserProfile'
-        '404':
-          description: User not found
+                  $ref: '#/components/schemas/UserPublicProfileResponse'
 
   /users/batch:
     post:
-      summary: "[Internal] Batch Get User Profiles"
-      operationId: internalBatchGetUsers
-      tags:
-        - Internal
-      security:
-        - ServiceAuth: []
-      description: |
-        **Consumer**: Chat Service, Trip Service
-
-        Fetches multiple user profiles in one request (max 100).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
+      tags: [Users]
+      summary: Batch get public profiles by user IDs
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BatchUsersRequest'
+              type: array
+              items: { type: string, format: uuid }
       responses:
         '200':
-          description: Batch response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BatchUsersResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserPublicProfileResponse'
 
-  /users/{userId}/subscription/quota:
-    get:
-      summary: "[Internal] Check Subscription Quota"
-      operationId: internalCheckQuota
-      tags:
-        - Internal
-      security:
-        - ServiceAuth: []
-      description: |
-        **Consumer**: Trip Service
-
-        Called before creating a trip to verify user has available quota.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Quota status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SubscriptionQuotaResponse'
-        '404':
-          description: User not found
-
-  /users/{userId}/subscription/increment:
+  /users/verify-email:
     post:
-      summary: "[Internal] Increment Trip Usage"
-      operationId: internalIncrementTripUsage
-      tags:
-        - Internal
-      security:
-        - ServiceAuth: []
-      description: |
-        **Consumer**: Trip Service
-
-        Called after a trip is successfully created to increment the usage counter.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
+      tags: [Users]
+      summary: Verify email with token
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IncrementTripUsageRequest'
-      responses:
-        '200':
-          description: Usage incremented
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SubscriptionQuotaResponse'
-        '403':
-          description: Quota exceeded
-        '404':
-          description: User not found
-
-  /users/{userId}/exists:
-    get:
-      summary: "[Internal] Check User Exists"
-      operationId: internalCheckUserExists
-      tags:
-        - Internal
-      security:
-        - ServiceAuth: []
-      description: |
-        **Consumer**: Any Service
-
-        Quick check if a user ID is valid.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: User exists
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  exists:
-                    type: boolean
-                  isActive:
-                    type: boolean
-        '404':
-          description: User not found
-
-  # =====================================================
-  # ADMIN ENDPOINTS (Admin Auth)
-  # =====================================================
-  /admin/users:
-    get:
-      summary: "[Admin] List All Users"
-      operationId: adminListUsers
-      tags:
-        - Admin
-      security:
-        - AdminAuth: []
-      description: Paginated list of all users.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - name: page
-          in: query
-          schema:
-            type: integer
-            default: 0
-        - name: size
-          in: query
-          schema:
-            type: integer
-            default: 20
-            maximum: 100
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: ["ACTIVE", "SUSPENDED", "DELETED"]
-        - name: plan
-          in: query
-          schema:
-            $ref: '#/components/schemas/SubscriptionPlan'
-      responses:
-        '200':
-          description: User list
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminUserListResponse'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden - Not an admin
-
-  /admin/users/{userId}:
-    get:
-      summary: "[Admin] Get User Details"
-      operationId: adminGetUser
-      tags:
-        - Admin
-      security:
-        - AdminAuth: []
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: User details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserProfile'
-        '404':
-          description: User not found
-
-    patch:
-      summary: "[Admin] Update User"
-      operationId: adminUpdateUser
-      tags:
-        - Admin
-      security:
-        - AdminAuth: []
-      description: Admin can update user status, verify host badge, etc.
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
-      requestBody:
         content:
           application/json:
             schema:
               type: object
+              required: [token]
               properties:
-                isVerifiedHost:
-                  type: boolean
-                status:
-                  type: string
-                  enum: ["ACTIVE", "SUSPENDED"]
+                token: { type: string }
       responses:
         '200':
-          description: User updated
-        '404':
-          description: User not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
 
-  /admin/users/{userId}/subscription:
-    patch:
-      summary: "[Admin] Override Subscription"
-      operationId: adminUpdateSubscription
-      tags:
-        - Admin
-      security:
-        - AdminAuth: []
-      description: Manually update a user's subscription (e.g., grant premium, adjust limits).
-      parameters:
-        - $ref: '#/components/parameters/CorrelationId'
-        - $ref: '#/components/parameters/UserId'
+  /users/resend-verification:
+    post:
+      tags: [Users]
+      summary: Resend verification email
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminUpdateSubscriptionRequest'
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
       responses:
         '200':
-          description: Subscription updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionDetails'
-        '404':
-          description: User not found
+                type: object
+                properties:
+                  message: { type: string }
+
+  /users/trip-preferences:
+    post:
+      tags: [Preferences]
+      summary: Save trip-scoped travel preferences
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveTripPreferenceRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripPreferenceResponse'
+
+  /users/trip-preferences/{tripId}:
+    get:
+      tags: [Preferences]
+      summary: Get preferences for a trip
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripPreferenceResponse'
+
+  /.well-known/jwks.json:
+    get:
+      tags: [JWKS]
+      summary: JSON Web Key Set for JWT verification
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+
+components:
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema: { type: string }
+      description: Injected by API Gateway from JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        displayName: { type: string, minLength: 2, maxLength: 50 }
+
+    RegisterResponse:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string }
+        message: { type: string }
+        verificationRequired: { type: boolean }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+        rememberMe: { type: boolean, default: false }
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer }
+        tokenType: { type: string, default: Bearer }
+        user:
+          $ref: '#/components/schemas/UserProfileResponse'
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer }
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        displayName: { type: string, maxLength: 100 }
+        bio: { type: string, maxLength: 500 }
+        phoneNumber: { type: string, maxLength: 20 }
+        country: { type: string, maxLength: 100 }
+        avatarUrl: { type: string, maxLength: 2048 }
+
+    UserProfileResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        displayName: { type: string }
+        bio: { type: string }
+        phoneNumber: { type: string }
+        country: { type: string }
+        avatarUrl: { type: string }
+        role: { type: string, enum: [USER, ADMIN] }
+        plan: { type: string, enum: [FREE, PRO, PREMIUM] }
+        emailVerified: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    UserPublicProfileResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        avatarUrl: { type: string }
+        country: { type: string }
+        email: { type: string }
+
+    SaveTripPreferenceRequest:
+      type: object
+      required: [tripId]
+      properties:
+        tripId: { type: string, format: uuid }
+        tripType: { type: string, enum: [BEACH, MOUNTAIN, CITY, NATURE, ADVENTURE, CULTURE] }
+        budgetTier: { type: string, enum: [ECONOMY, MODERATE, LUXURY] }
+        preferredWeather: { type: string, enum: [WARM, MILD, COLD, ANY] }
+        notes: { type: string, maxLength: 500 }
+
+    TripPreferenceResponse:
+      type: object
+      properties:
+        preferenceId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        tripId: { type: string, format: uuid }
+        tripType: { type: string }
+        budgetTier: { type: string }
+        preferredWeather: { type: string }
+        notes: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }

@@ -305,6 +305,20 @@ export interface Itinerary {
   generatedAt?: string;
 }
 
+export interface WeatherSummary {
+  condition?: string;
+  temperatureCelsius?: number | null;
+  advice?: string;
+}
+
+export interface TransportRecommendation {
+  from?: string;
+  to?: string;
+  mode?: string;
+  estimatedDuration?: string;
+  notes?: string;
+}
+
 export interface DayPlan {
   dayPlanId: string;
   dayNumber: number;
@@ -317,6 +331,8 @@ export interface DayPlan {
   upvotes?: number;
   downvotes?: number;
   currentUserVote?: "UPVOTE" | "DOWNVOTE" | null;
+  weather?: WeatherSummary;
+  transportRecommendations?: TransportRecommendation[];
 }
 
 export interface Activity {
@@ -327,8 +343,10 @@ export interface Activity {
   location?: string;
   category?: string;
   estimatedCost?: string;
+  currency?: string;
   startTime?: string;
   endTime?: string;
+  notes?: string;
   upvotes?: number;
   downvotes?: number;
   currentUserVote?: "UPVOTE" | "DOWNVOTE" | null;
@@ -461,6 +479,7 @@ export interface CreateTripRequest {
   visibility?: string;
   status?: string;
   budgetLevel?: "ECONOMY" | "MODERATE" | "LUXURY";
+  coverImageUrl?: string;
 }
 
 export const tripsApi = {
@@ -473,6 +492,7 @@ export const tripsApi = {
       await api.get<RawTripPage>(`/trips?search=${encodeURIComponent(q)}&page=${page}&size=${size}`),
     ),
   get: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/${id}`)),
+  getShared: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/shared/${id}`)),
   create: async (data: CreateTripRequest) => normalizeTrip(await api.post<RawTrip>("/trips", data), 1),
   update: (id: string, data: Partial<CreateTripRequest>) =>
     api.patch<RawTrip>(`/trips/${id}`, data).then((trip) => normalizeTrip(trip)),
@@ -529,12 +549,145 @@ export const preferencesApi = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  AI Itinerary Recommendations (local Ollama)                        */
+/* ------------------------------------------------------------------ */
+
+export interface RecommendationOption {
+  id: string;
+  vibe: string;
+  title: string;
+  startTime?: string;
+  endTime?: string;
+  cost?: number;
+  currency?: string;
+  mapsUrl?: string;
+  notes?: string;
+  location?: string;
+}
+
+export interface DayRecommendations {
+  dayNumber: number;
+  options: RecommendationOption[];
+}
+
+export interface RecommendationResponse {
+  tripId?: string;
+  model?: string;
+  source?: string;
+  generatedAt?: string;
+  days: DayRecommendations[];
+}
+
+export interface RecommendationInput {
+  tripId?: string;
+  destination: string;
+  days: number;
+  /** When set, regenerate suggestions for only this day. */
+  dayNumber?: number;
+  preferences?: TripPreferenceInput;
+  existingItinerary?: {
+    dayNumber: number;
+    title?: string;
+    activities: { time?: string; title: string; estimatedCost?: string }[];
+  }[];
+}
+
+export const recommendationsApi = {
+  /** Generate AI itinerary suggestions via the local Ollama proxy route. */
+  async generate(input: RecommendationInput): Promise<RecommendationResponse> {
+    const token = getAccessToken();
+    const res = await fetch("/api/ai/recommendations", {
+      method: "POST",
+      headers: token
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        : { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      throw new Error(`AI recommendations failed (${res.status})`);
+    }
+    return res.json() as Promise<RecommendationResponse>;
+  },
+
+  /** Fetch the previously stored recommendations for a trip (empty days if none). */
+  async getStored(tripId: string): Promise<RecommendationResponse> {
+    const token = getAccessToken();
+    const res = await fetch(`/api/ai/recommendations/${tripId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) {
+      throw new Error(`Fetching recommendations failed (${res.status})`);
+    }
+    return res.json() as Promise<RecommendationResponse>;
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Trip cover images (local model prompt + text-to-image)             */
+/* ------------------------------------------------------------------ */
+
+export interface TripImageResult {
+  tripId?: string;
+  imageUrl: string | null;
+  prompt?: string;
+  model?: string;
+  source?: string;
+  status?: string;
+}
+
+export interface TripImageInput {
+  tripId: string;
+  destination: string;
+  preferences?: TripPreferenceInput;
+}
+
+export const tripImageApi = {
+  /** Generate a cover image URL for a trip via the AI proxy route. */
+  async generate(input: TripImageInput): Promise<TripImageResult> {
+    const token = getAccessToken();
+    const res = await fetch("/api/ai/trip-images", {
+      method: "POST",
+      headers: token
+        ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        : { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      throw new Error(`Trip image generation failed (${res.status})`);
+    }
+    return res.json() as Promise<TripImageResult>;
+  },
+};
+
+/**
+ * Generate a cover image for a trip and persist it onto the trip. Safe to call
+ * fire-and-forget: it runs in the background and a failed persist (e.g. a viewer
+ * without edit rights) is swallowed. Returns the image URL, or null if disabled.
+ */
+export async function ensureTripCoverImage(
+  tripId: string,
+  destination: string,
+  preferences?: TripPreferenceInput,
+): Promise<string | null> {
+  const result = await tripImageApi.generate({ tripId, destination, preferences });
+  if (!result.imageUrl) return null;
+  try {
+    await tripsApi.update(tripId, { coverImageUrl: result.imageUrl });
+  } catch {
+    // Non-owners can't persist; the URL is still usable for the current session.
+  }
+  return result.imageUrl;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Participants API                                                    */
 /* ------------------------------------------------------------------ */
 
 export const participantsApi = {
   invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string) =>
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName }),
+  inviteByEmail: (tripId: string, email: string, message?: string, inviterName?: string) =>
+    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/approve`, { userId }),
   reject: (tripId: string, userId: string) =>
@@ -567,6 +720,8 @@ interface RawDayPlanResponse {
     endTime?: string;
     category?: string;
     notes?: string;
+    estimatedCost?: number | string;
+    currency?: string;
     orderIndex: number;
     upvotes?: number;
     downvotes?: number;
@@ -603,7 +758,8 @@ function normalizeItinerary(raw: RawItineraryResponse): { days: DayPlan[]; creat
         startTime: a.startTime,
         endTime: a.endTime,
         time: a.startTime && a.endTime ? `${a.startTime} - ${a.endTime}` : a.startTime || "",
-        estimatedCost: "",
+        estimatedCost: a.estimatedCost != null && a.estimatedCost !== "" ? String(a.estimatedCost) : "",
+        currency: a.currency ?? undefined,
         upvotes: a.upvotes ?? 0,
         downvotes: a.downvotes ?? 0,
         currentUserVote: a.currentUserVote as "UPVOTE" | "DOWNVOTE" | null,
@@ -633,6 +789,8 @@ export interface UpdateItineraryRequest {
       endTime?: string;
       category: string;
       notes?: string;
+      estimatedCost?: number;
+      currency?: string;
     }>;
   }>;
 }
@@ -640,6 +798,8 @@ export interface UpdateItineraryRequest {
 export const itineraryApi = {
   get: async (tripId: string) =>
     normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/${tripId}/itinerary`)),
+  getShared: async (tripId: string) =>
+    normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/shared/${tripId}/itinerary`)),
   update: async (tripId: string, data: UpdateItineraryRequest) =>
     normalizeItinerary(await api.put<RawItineraryResponse>(`/trips/${tripId}/itinerary`, data)),
   castVote: (tripId: string, dayNumber: number, voteType: "UPVOTE" | "DOWNVOTE") =>
