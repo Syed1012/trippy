@@ -4118,7 +4118,7 @@ export default function TripDetailPage() {
                     </div>
 
                     {/* Hover profile card */}
-                    <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-56 rounded-2xl border border-border bg-white p-4 shadow-2xl opacity-0 scale-95 transition-all duration-200 group-hover/member:opacity-100 group-hover/member:scale-100 group-hover/member:pointer-events-auto">
+                    <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-56 rounded-2xl border border-border bg-white p-4 shadow-2xl opacity-0 scale-95 transition-all duration-200 group-hover/member:opacity-100 group-hover/member:scale-100 group-hover/member:pointer-events-auto after:absolute after:content-[''] after:top-full after:left-0 after:right-0 after:h-3">
                       <div className="flex items-center gap-3 mb-3">
                         <div className={cn(
                           "flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold",
