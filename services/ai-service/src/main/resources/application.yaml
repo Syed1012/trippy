@@ -50,6 +50,13 @@ spring:
       fail-on-unknown-properties: false
 
 trippy:
+  ai:
+    groq:
+      api-key1: ${GROQ_API_KEY1:}
+    opencode:
+      api-key: ${Opencode_API_KEY:}
+      base-url: ${OPENCODE_BASE_URL:https://opencode.ai/zen/go/v1}
+      model: ${OPENCODE_MODEL:openai/gpt-4o}
   weather:
     openweather-api-key: ${OPENWEATHER_API_KEY:}
     geocoding-url: ${OPENWEATHER_GEOCODING_URL:https://api.openweathermap.org/geo/1.0/direct}

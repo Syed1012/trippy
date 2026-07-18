@@ -968,4 +968,69 @@ class AiServiceTest {
             return submittedTask != null && submittedTask.isCancelled();
         }
     }
+
+    @Nested
+    @DisplayName("callGroqDirect() Fallback & Rotation")
+    class CallGroqDirectFallbackRotation {
+
+        @Test
+        @DisplayName("rotates keys from Groq Primary to Groq Secondary to OpenCode on failures")
+        void keyRotationFlow() throws Exception {
+            setField("groqApiKey", "primary-key");
+            setField("groqApiKey1", "secondary-key");
+            setField("opencodeApiKey", "opencode-key");
+
+            AtomicInteger requestCount = new AtomicInteger(0);
+
+            String serverUrl = startHttpServer(exchange -> {
+                int count = requestCount.incrementAndGet();
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+
+                try {
+                    if (count == 1) {
+                        assertThat(authHeader).isEqualTo("Bearer primary-key");
+                        writeResponse(exchange, 429, "{\"error\": \"Rate limit exceeded\"}");
+                    } else if (count == 2) {
+                        assertThat(authHeader).isEqualTo("Bearer secondary-key");
+                        writeResponse(exchange, 500, "{\"error\": \"Internal Server Error\"}");
+                    } else if (count == 3) {
+                        assertThat(authHeader).isEqualTo("Bearer opencode-key");
+                        writeResponse(exchange, 200, """
+                                {
+                                  "choices": [
+                                    {
+                                      "message": {
+                                        "role": "assistant",
+                                        "content": "Success from OpenCode"
+                                      }
+                                    }
+                                  ]
+                                }
+                                """);
+                    }
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            });
+
+            setField("groqBaseUrl", serverUrl);
+            setField("opencodeBaseUrl", serverUrl);
+
+            Method method = AiService.class.getDeclaredMethod("callGroqDirect", String.class);
+            method.setAccessible(true);
+
+            String result;
+            try {
+                result = (String) method.invoke(aiService, "Test prompt");
+            } catch (InvocationTargetException ex) {
+                if (ex.getCause() instanceof Exception) {
+                    throw (Exception) ex.getCause();
+                }
+                throw ex;
+            }
+
+            assertThat(result).isEqualTo("Success from OpenCode");
+            assertThat(requestCount.get()).isEqualTo(3);
+        }
+    }
 }
