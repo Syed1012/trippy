@@ -2500,6 +2500,7 @@ function InviteModal({
   // Search states
   const [searchResults, setSearchResults] = useState<UserPublicProfile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
 
   const trimmedEmail = email.trim();
   const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
