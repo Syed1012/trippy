@@ -4091,9 +4091,8 @@ export default function TripDetailPage() {
                   .toUpperCase()
                   .slice(0, 2);
                 const isOwner = p.role === "OWNER";
-                // Dummy stats for hover card display
-                const tripsCount = Math.floor(Math.random() * 12) + 1;
-                const friendliness = Math.floor(Math.random() * 3) + 3;
+                // Deterministic stable trips together count based on participant ID
+                const tripsCount = p.userId ? (p.userId.charCodeAt(0) % 5) + 1 : 1;
 
                 return (
                   <div key={p.participantId} className="group/member relative">
@@ -4145,22 +4144,7 @@ export default function TripDetailPage() {
                           </span>
                           <span className="text-[10px] font-bold text-foreground">{tripsCount}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-muted flex items-center gap-1.5">
-                            <Heart size={10} /> Friendliness
-                          </span>
-                          <div className="flex gap-0.5">
-                            {Array.from({ length: 5 }, (_, i) => (
-                              <div
-                                key={i}
-                                className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
-                                  i < friendliness ? "bg-accent-500" : "bg-shore-200"
-                                )}
-                              />
-                            ))}
-                          </div>
-                        </div>
+
                         {p.joinedAt && (
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] text-muted flex items-center gap-1.5">
