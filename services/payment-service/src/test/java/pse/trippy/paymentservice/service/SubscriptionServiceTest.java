@@ -167,14 +167,17 @@ class SubscriptionServiceTest {
         }
 
         @Test
-        @DisplayName("throws SubscriptionNotFoundException for user without subscription")
-        void throwsForMissingSubscription() {
+        @DisplayName("returns default FREE subscription for user without one")
+        void returnsDefaultFreeSubscriptionForMissingUser() {
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> subscriptionService.getSubscription(USER_ID))
-                    .isInstanceOf(SubscriptionNotFoundException.class)
-                    .hasMessageContaining(USER_ID.toString());
+            SubscriptionResponse response = subscriptionService.getSubscription(USER_ID);
+
+            assertThat(response.plan()).isEqualTo("FREE");
+            assertThat(response.status()).isEqualTo("ACTIVE");
+            assertThat(response.subscriptionId()).isNull();
         }
+
     }
 
     // =========================================================================
