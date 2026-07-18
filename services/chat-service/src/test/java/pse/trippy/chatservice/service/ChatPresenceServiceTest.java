@@ -70,7 +70,7 @@ class ChatPresenceServiceTest {
         assertThat(result).isTrue();
         verify(redisTemplate).expire(eq(key), eq(ChatPresenceService.PRESENCE_TTL));
         verify(messagingTemplate).convertAndSend(
-                eq("/topic/trips/" + tripId + "/participants"),
+                eq("/topic/trips." + tripId + ".participants"),
                 any(Set.class));
     }
 
@@ -98,7 +98,7 @@ class ChatPresenceServiceTest {
         presenceService.removeUser(tripId, userId);
 
         verify(messagingTemplate).convertAndSend(
-                eq("/topic/trips/" + tripId + "/participants"),
+                eq("/topic/trips." + tripId + ".participants"),
                 any(Set.class));
     }
 

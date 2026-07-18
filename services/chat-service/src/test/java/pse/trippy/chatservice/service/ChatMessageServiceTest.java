@@ -61,7 +61,7 @@ class ChatMessageServiceTest {
         String content = "Hello everyone!";
 
         ChatRoom room = ChatRoom.builder().id(roomId).tripId(tripId).createdAt(Instant.now()).build();
-        when(chatRoomService.getRoomByTripId(tripId)).thenReturn(room);
+        when(chatRoomService.getOrCreateRoomByTripId(tripId)).thenReturn(room);
         when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> {
             ChatMessage m = inv.getArgument(0);
             m.setId(msgId);
@@ -90,7 +90,7 @@ class ChatMessageServiceTest {
 
         // Verify broadcast
         verify(messagingTemplate).convertAndSend(
-                eq("/topic/trips/" + tripId + "/messages"),
+                eq("/topic/trips." + tripId + ".messages"),
                 any(ChatMessageResponse.class));
     }
 
@@ -101,7 +101,7 @@ class ChatMessageServiceTest {
         UUID senderId = UUID.randomUUID();
         ChatRoom room = ChatRoom.builder().id(UUID.randomUUID()).tripId(tripId).createdAt(Instant.now()).build();
 
-        when(chatRoomService.getRoomByTripId(tripId)).thenReturn(room);
+        when(chatRoomService.getOrCreateRoomByTripId(tripId)).thenReturn(room);
         when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(inv -> {
             ChatMessage m = inv.getArgument(0);
             m.setId(UUID.randomUUID());
@@ -123,7 +123,7 @@ class ChatMessageServiceTest {
         UUID tripId = UUID.randomUUID();
         UUID roomId = UUID.randomUUID();
         ChatRoom room = ChatRoom.builder().id(roomId).tripId(tripId).createdAt(Instant.now()).build();
-        when(chatRoomService.getRoomByTripId(tripId)).thenReturn(room);
+        when(chatRoomService.getOrCreateRoomByTripId(tripId)).thenReturn(room);
 
         ChatMessage msg1 = ChatMessage.builder()
                 .id(UUID.randomUUID()).chatRoom(room).senderId(UUID.randomUUID())
@@ -155,7 +155,7 @@ class ChatMessageServiceTest {
         UUID roomId = UUID.randomUUID();
         Instant before = Instant.now();
         ChatRoom room = ChatRoom.builder().id(roomId).tripId(tripId).createdAt(Instant.now()).build();
-        when(chatRoomService.getRoomByTripId(tripId)).thenReturn(room);
+        when(chatRoomService.getOrCreateRoomByTripId(tripId)).thenReturn(room);
 
         PageImpl<ChatMessage> page = new PageImpl<>(List.of(), PageRequest.of(0, 50), 0);
         when(chatMessageRepository.findByChatRoomIdAndCreatedAtBeforeOrderByCreatedAtDesc(

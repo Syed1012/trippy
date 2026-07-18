@@ -119,6 +119,15 @@ public class ParticipantController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/{userId}")
+    public ResponseEntity<Void> checkMembership(
+            @PathVariable UUID tripId,
+            @PathVariable UUID userId) {
+        return participantService.isAcceptedParticipant(tripId, userId)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
+    }
+
     @DeleteMapping("/kick/{targetUserId}")
     public ResponseEntity<ParticipantActionResponse> kick(
             @PathVariable UUID tripId,

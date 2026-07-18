@@ -260,6 +260,12 @@ public class ParticipantService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public boolean isAcceptedParticipant(UUID tripId, UUID userId) {
+        return participantRepository.existsByTripIdAndUserIdAndStatus(
+                tripId, userId, ParticipantStatus.ACCEPTED);
+    }
+
     @Transactional
     public ParticipantActionResponse kickParticipant(UUID tripId, UUID targetUserId, UUID kickerId) {
         log.info("Owner {} kicking user {} from trip {}", kickerId, targetUserId, tripId);

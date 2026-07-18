@@ -16,7 +16,7 @@ import {
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { GlassCard, Button, Avatar } from "@/components/ui";
-import { chatApi, getAccessToken, type ChatMessage } from "@/lib/api";
+import { chatApi, getValidAccessToken, type ChatMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -65,44 +65,55 @@ export default function ChatPage() {
   useEffect(() => {
     if (!tripId) return;
 
-    const token = getAccessToken();
-    const connectHeaders: Record<string, string> = {};
-    if (token) connectHeaders["Authorization"] = `Bearer ${token}`;
-    if (user?.userId) connectHeaders["X-User-Id"] = user.userId;
-    if (user?.displayName) connectHeaders["X-User-DisplayName"] = user.displayName;
+    let cancelled = false;
+    let client: Client | null = null;
 
-    const client = new Client({
-      webSocketFactory: () => new SockJS(WS_URL),
-      connectHeaders,
-      reconnectDelay: 5000,
-      heartbeatIncoming: 10000,
-      heartbeatOutgoing: 10000,
-      onConnect: () => {
-        setConnected(true);
-        // Subscribe to messages (pass user headers for backend auth interceptor)
-        client.subscribe(`/topic/trips/${tripId}/messages`, (msg) => {
-          try {
-            const chatMsg: ChatMessage = JSON.parse(msg.body);
-            setMessages((prev) => {
-              // Avoid duplicates
-              if (prev.some((m) => m.id === chatMsg.id)) return prev;
-              return [...prev, chatMsg];
-            });
-            setTimeout(scrollToBottom, 50);
-          } catch {
-            // ignore parse errors
-          }
-        }, connectHeaders);
-      },
-      onDisconnect: () => setConnected(false),
-      onStompError: () => setConnected(false),
-    });
+    getValidAccessToken().then((token) => {
+      if (cancelled || !token) return;
 
-    client.activate();
-    stompRef.current = client;
+      const connectHeaders: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+      };
+      if (user?.userId) connectHeaders["X-User-Id"] = user.userId;
+      if (user?.displayName) connectHeaders["X-User-DisplayName"] = user.displayName;
+
+      client = new Client({
+        webSocketFactory: () => new SockJS(WS_URL),
+        connectHeaders,
+        beforeConnect: async () => {
+          const currentToken = await getValidAccessToken();
+          if (!currentToken) throw new Error("No valid chat access token");
+          connectHeaders.Authorization = `Bearer ${currentToken}`;
+        },
+        reconnectDelay: 5000,
+        heartbeatIncoming: 10000,
+        heartbeatOutgoing: 10000,
+        onConnect: () => {
+          setConnected(true);
+          client?.subscribe(`/topic/trips.${tripId}.messages`, (msg) => {
+            try {
+              const chatMsg: ChatMessage = JSON.parse(msg.body);
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === chatMsg.id)) return prev;
+                return [...prev, chatMsg];
+              });
+              setTimeout(scrollToBottom, 50);
+            } catch {
+              // ignore parse errors
+            }
+          }, connectHeaders);
+        },
+        onDisconnect: () => setConnected(false),
+        onStompError: () => setConnected(false),
+      });
+
+      client.activate();
+      stompRef.current = client;
+    }).catch(() => setConnected(false));
 
     return () => {
-      client.deactivate();
+      cancelled = true;
+      client?.deactivate();
       stompRef.current = null;
     };
   }, [tripId, scrollToBottom, user?.userId, user?.displayName]);
@@ -124,7 +135,7 @@ export default function ChatPage() {
         });
       } else {
         const msg = await chatApi.sendMessage(tripId, text);
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => prev.some((existing) => existing.id === msg.id) ? prev : [...prev, msg]);
         scrollToBottom();
       }
     } catch {
@@ -140,8 +151,8 @@ export default function ChatPage() {
     if (!file) return;
 
     try {
-      const msg = await chatApi.uploadFile(tripId, file, user?.userId ?? "", user?.displayName ?? "Anonymous");
-      setMessages((prev) => [...prev, msg]);
+      const msg = await chatApi.uploadFile(tripId, file);
+      setMessages((prev) => prev.some((existing) => existing.id === msg.id) ? prev : [...prev, msg]);
       scrollToBottom();
       addToast("File uploaded", "success");
     } catch {
