@@ -51,7 +51,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern TOPIC_PATTERN =
-            Pattern.compile("^/topic/trips/([0-9a-fA-F\\-]+)/(messages|participants|typing)$");
+            Pattern.compile("^/topic/trips\\.([0-9a-fA-F\\-]+)\\.(messages|participants|typing)$");
+        private static final Pattern APP_DESTINATION_PATTERN =
+            Pattern.compile("^/app/trips/([0-9a-fA-F\\-]+)/(send|typing)$");
 
     private final JwtDecoder jwtDecoder;
     private final TripServiceClient tripServiceClient;
@@ -166,9 +168,31 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
      * Banned and muted users receive a rejection.
      */
     private void handleSend(StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        if (destination == null) {
+            return;
+        }
+
+        Matcher matcher = APP_DESTINATION_PATTERN.matcher(destination);
+        if (!matcher.matches()) {
+            return;
+        }
+
         UUID userId = resolveUserId(accessor);
         if (userId == null) {
-            return; // unauthenticated — CONNECT guard handles this
+            throw new MessageDeliveryException("Unauthenticated chat message");
+        }
+
+        UUID tripId;
+        try {
+            tripId = UUID.fromString(matcher.group(1));
+        } catch (IllegalArgumentException e) {
+            throw new MessageDeliveryException("Invalid trip id in destination");
+        }
+
+        if (!tripServiceClient.isParticipant(tripId, userId)) {
+            log.warn("Rejected SEND from user {} to trip {} — not a participant", userId, tripId);
+            throw new MessageDeliveryException("User is not a participant of trip " + tripId);
         }
 
         if (moderationService.isBanned(userId)) {

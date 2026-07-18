@@ -401,6 +401,23 @@ class ParticipantServiceTest {
         }
     }
 
+        @Nested
+        @DisplayName("isAcceptedParticipant")
+        class IsAcceptedParticipant {
+
+                @Test
+                @DisplayName("returns repository accepted-membership result")
+                void returnsAcceptedMembershipResult() {
+                        when(participantRepository.existsByTripIdAndUserIdAndStatus(
+                                        TRIP_ID, INVITEE_ID, ParticipantStatus.ACCEPTED)).thenReturn(true);
+
+                        assertThat(participantService.isAcceptedParticipant(TRIP_ID, INVITEE_ID)).isTrue();
+
+                        verify(participantRepository).existsByTripIdAndUserIdAndStatus(
+                                        TRIP_ID, INVITEE_ID, ParticipantStatus.ACCEPTED);
+                }
+        }
+
     // =========================================================================
     // requestJoin
     // =========================================================================

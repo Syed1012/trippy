@@ -13,6 +13,18 @@ export function getAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+export async function getValidAccessToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  const payload = decodeJwtPayload(token);
+  const expiresAt = typeof payload.exp === "number" ? payload.exp * 1000 : 0;
+  if (expiresAt > Date.now() + 30_000) return token;
+
+  const refreshed = await refreshAccessToken();
+  return refreshed.accessToken;
+}
+
 export function getRefreshToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(REFRESH_KEY);
@@ -1009,11 +1021,9 @@ export const chatApi = {
     api.get<ChatMessagePage>(`/trips/${tripId}/chat/messages?page=${page}&size=${size}`),
   sendMessage: (tripId: string, content: string) =>
     api.post<ChatMessage>(`/trips/${tripId}/chat/messages`, { content }),
-  uploadFile: async (tripId: string, file: File, senderId: string, senderDisplayName: string): Promise<ChatMessage> => {
+  uploadFile: async (tripId: string, file: File): Promise<ChatMessage> => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("senderId", senderId);
-    formData.append("senderDisplayName", senderDisplayName);
     const token = getAccessToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;

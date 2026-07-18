@@ -92,4 +92,24 @@ class ChatRoomServiceTest {
         assertThatThrownBy(() -> chatRoomService.getRoomByTripId(tripId))
                 .isInstanceOf(ChatRoomNotFoundException.class);
     }
+
+    @Test
+    @DisplayName("getOrCreateRoomByTripId creates room when not found")
+    void getOrCreateRoomByTripIdCreatesRoomWhenNotFound() {
+        UUID tripId = UUID.randomUUID();
+        UUID roomId = UUID.randomUUID();
+        when(chatRoomRepository.findByTripId(tripId)).thenReturn(Optional.empty());
+        when(chatRoomRepository.save(any(ChatRoom.class))).thenAnswer(inv -> {
+            ChatRoom room = inv.getArgument(0);
+            room.setId(roomId);
+            room.prePersist();
+            return room;
+        });
+
+        ChatRoom room = chatRoomService.getOrCreateRoomByTripId(tripId);
+
+        assertThat(room.getId()).isEqualTo(roomId);
+        assertThat(room.getTripId()).isEqualTo(tripId);
+        assertThat(room.getCreatedAt()).isNotNull();
+    }
 }

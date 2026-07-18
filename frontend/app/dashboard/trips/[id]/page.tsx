@@ -2479,6 +2479,7 @@ function InviteModal({
   const { addToast } = useToast();
   const { user } = useAuth();
   const [email, setEmail] = useState("");
+  const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
   const [inviteMessage, setInviteMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sentEmails, setSentEmails] = useState<string[]>([]);
@@ -2528,14 +2529,35 @@ function InviteModal({
     setError(null);
     setSending(true);
     try {
-      await participantsApi.inviteByEmail(
-        tripId,
-        trimmedEmail,
-        inviteMessage.trim() || undefined,
-        currentUserName || undefined,
-      );
+      const message = inviteMessage.trim() || undefined;
+      const inviterName = currentUserName || undefined;
+      let invitee = selectedUser;
+      if (!invitee) {
+        const matches = await usersApi.search(trimmedEmail, 5);
+        invitee = matches.find(
+          (candidate) => candidate.email?.toLowerCase() === trimmedEmail.toLowerCase(),
+        ) ?? null;
+      }
+
+      if (invitee) {
+        await participantsApi.invite(
+          tripId,
+          invitee.id,
+          trimmedEmail,
+          message,
+          inviterName,
+        );
+      } else {
+        await participantsApi.inviteByEmail(
+          tripId,
+          trimmedEmail,
+          message,
+          inviterName,
+        );
+      }
       setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
       setEmail("");
+      setSelectedUser(null);
       setSearchResults([]);
       addToast("Invitation sent successfully!", "success");
       onInvited();
@@ -2585,6 +2607,7 @@ function InviteModal({
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  setSelectedUser(null);
                   if (error) setError(null);
                 }}
                 onKeyDown={(e) => {
@@ -2604,6 +2627,7 @@ function InviteModal({
                   type="button"
                   onClick={() => {
                     setEmail("");
+                    setSelectedUser(null);
                     setSearchResults([]);
                   }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground cursor-pointer p-0.5 rounded-full hover:bg-black/5"
@@ -2626,6 +2650,7 @@ function InviteModal({
                     onClick={() => {
                       if (user.email) {
                         setEmail(user.email);
+                        setSelectedUser(user);
                       }
                       setSearchResults([]);
                     }}

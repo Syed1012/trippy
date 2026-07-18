@@ -17,6 +17,7 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
 import pse.trippy.apigateway.service.JwksClient;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.security.interfaces.RSAPublicKey;
 import java.text.ParseException;
@@ -82,18 +83,22 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         String token = authHeader.substring(BEARER_PREFIX.length());
 
-        JWTClaimsSet claims;
-        try {
-            claims = validateToken(token);
-        } catch (ParseException | JOSEException ex) {
-            log.debug("JWT validation error: {}", ex.getMessage());
-            return unauthorized(exchange);
-        }
+        return Mono.fromCallable(() -> validateToken(token))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(claims -> filterAuthenticated(exchange, chain, path, claims))
+                .switchIfEmpty(Mono.defer(() -> unauthorized(exchange)))
+                .onErrorResume(ParseException.class, ex -> {
+                    log.debug("JWT parsing error: {}", ex.getMessage());
+                    return unauthorized(exchange);
+                })
+                .onErrorResume(JOSEException.class, ex -> {
+                    log.debug("JWT validation error: {}", ex.getMessage());
+                    return unauthorized(exchange);
+                });
+    }
 
-        if (claims == null) {
-            return unauthorized(exchange);
-        }
-
+    private Mono<Void> filterAuthenticated(ServerWebExchange exchange, GatewayFilterChain chain,
+                                           String path, JWTClaimsSet claims) {
         String jti    = claims.getJWTID();
         String userId = claims.getSubject();
         String role   = getClaimAsString(claims, "role");

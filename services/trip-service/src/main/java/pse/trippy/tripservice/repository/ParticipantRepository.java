@@ -54,6 +54,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
      */
     boolean existsByTripIdAndUserId(UUID tripId, UUID userId);
 
+    boolean existsByTripIdAndUserIdAndStatus(UUID tripId, UUID userId, ParticipantStatus status);
+
     /**
      * Deletes all participant records for the given trip.
      * Used when a trip is permanently deleted.

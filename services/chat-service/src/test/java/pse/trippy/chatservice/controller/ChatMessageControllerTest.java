@@ -9,10 +9,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import pse.trippy.chatservice.client.TripServiceClient;
 import pse.trippy.chatservice.dto.request.SendMessageRequest;
 import pse.trippy.chatservice.dto.response.ChatMessageResponse;
 import pse.trippy.chatservice.dto.response.MessageHistoryResponse;
-import pse.trippy.chatservice.model.enums.MessageType;
 import pse.trippy.chatservice.service.ChatMessageService;
 import pse.trippy.chatservice.service.FileStorageService;
 
@@ -49,12 +49,17 @@ class ChatMessageControllerTest {
     @MockBean
     private pse.trippy.chatservice.repository.MessageAttachmentRepository attachmentRepository;
 
+        @MockBean
+        private TripServiceClient tripServiceClient;
+
     @Test
     @DisplayName("POST /trips/{tripId}/chat/messages returns 201")
     void sendMessageReturnsCreated() throws Exception {
         UUID tripId = UUID.randomUUID();
         UUID msgId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
 
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
         when(chatMessageService.sendMessage(eq(tripId), any(), anyString(), anyString(), any()))
                 .thenReturn(ChatMessageResponse.builder()
                         .id(msgId)
@@ -72,6 +77,8 @@ class ChatMessageControllerTest {
                 .build();
 
         mockMvc.perform(post("/trips/{tripId}/chat/messages", tripId)
+                        .header("X-User-Id", userId)
+                        .header("X-User-DisplayName", "Alice")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -98,6 +105,7 @@ class ChatMessageControllerTest {
     void getMessageHistoryReturnsPaginatedHistory() throws Exception {
         UUID tripId = UUID.randomUUID();
         UUID msgId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
 
         MessageHistoryResponse historyResponse = MessageHistoryResponse.builder()
                 .messages(List.of(ChatMessageResponse.builder()
@@ -115,10 +123,12 @@ class ChatMessageControllerTest {
                 .hasMore(false)
                 .build();
 
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
         when(chatMessageService.getMessageHistory(eq(tripId), eq(0), eq(50), any()))
                 .thenReturn(historyResponse);
 
         mockMvc.perform(get("/trips/{tripId}/chat/messages", tripId)
+                        .header("X-User-Id", userId)
                         .param("page", "0")
                         .param("size", "50"))
                 .andExpect(status().isOk())
@@ -130,4 +140,16 @@ class ChatMessageControllerTest {
                 .andExpect(jsonPath("$.totalMessages").value(1))
                 .andExpect(jsonPath("$.hasMore").value(false));
     }
+
+        @Test
+        @DisplayName("GET rejects users who are not trip participants")
+        void getMessageHistoryRejectsNonParticipant() throws Exception {
+                UUID tripId = UUID.randomUUID();
+                UUID userId = UUID.randomUUID();
+                when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(false);
+
+                mockMvc.perform(get("/trips/{tripId}/chat/messages", tripId)
+                                                .header("X-User-Id", userId))
+                                .andExpect(status().isForbidden());
+        }
 }

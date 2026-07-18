@@ -28,7 +28,7 @@ import java.util.UUID;
 @Slf4j
 public class TypingIndicatorService {
 
-    private static final String TYPING_TOPIC   = "/topic/trips/%s/typing";
+    private static final String TYPING_TOPIC   = "/topic/trips.%s.typing";
     private static final String REDIS_KEY      = "typing:trip:%s:user:%s";
     static final Duration       TYPING_TTL     = Duration.ofSeconds(5);
 

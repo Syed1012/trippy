@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+import pse.trippy.chatservice.client.TripServiceClient;
 import pse.trippy.chatservice.dto.request.SendMessageRequest;
 import pse.trippy.chatservice.dto.response.ChatMessageResponse;
 import pse.trippy.chatservice.dto.response.MessageAttachmentResponse;
@@ -39,14 +41,17 @@ public class ChatMessageController {
     private final ChatMessageService chatMessageService;
     private final FileStorageService fileStorageService;
     private final MessageAttachmentRepository attachmentRepository;
+    private final TripServiceClient tripServiceClient;
 
     @GetMapping("/trips/{tripId}/chat/messages")
     public ResponseEntity<MessageHistoryResponse> getMessageHistory(
             @PathVariable UUID tripId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
-            @RequestParam(required = false) Instant before) {
+            @RequestParam(required = false) Instant before,
+            @RequestHeader(value = "X-User-Id", required = false) String userId) {
 
+        requireParticipant(tripId, userId);
         MessageHistoryResponse history = chatMessageService.getMessageHistory(tripId, page, size, before);
         return ResponseEntity.ok(history);
     }
@@ -58,7 +63,7 @@ public class ChatMessageController {
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-User-DisplayName", required = false) String displayName) {
 
-        UUID senderId = userId != null ? UUID.fromString(userId) : UUID.randomUUID();
+        UUID senderId = requireParticipant(tripId, userId);
         String senderName = displayName != null ? displayName : "Anonymous";
 
         MessageType messageType;
@@ -78,9 +83,11 @@ public class ChatMessageController {
     public ResponseEntity<ChatMessageResponse> uploadFile(
             @PathVariable UUID tripId,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("senderId") UUID senderId,
-            @RequestParam("senderDisplayName") String senderDisplayName) throws IOException {
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @RequestHeader(value = "X-User-DisplayName", required = false) String displayName) throws IOException {
 
+        UUID senderId = requireParticipant(tripId, userId);
+        String senderDisplayName = displayName != null ? displayName : "Anonymous";
         ChatMessageResponse response = chatMessageService.sendFileMessage(
                 tripId, senderId, senderDisplayName, file);
 
@@ -89,8 +96,10 @@ public class ChatMessageController {
 
     @GetMapping("/chats/{tripId}/attachments")
     public ResponseEntity<java.util.List<MessageAttachmentResponse>> listAttachments(
-            @PathVariable UUID tripId) {
+            @PathVariable UUID tripId,
+            @RequestHeader(value = "X-User-Id", required = false) String userId) {
 
+        requireParticipant(tripId, userId);
         java.util.List<MessageAttachmentResponse> attachments = attachmentRepository.findByTripId(tripId)
                 .stream()
                 .map(a -> new MessageAttachmentResponse(a.getId(), a.getFileName(),
@@ -134,5 +143,23 @@ public class ChatMessageController {
         if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
             throw new IllegalArgumentException("Invalid filename");
         }
+    }
+
+    private UUID requireParticipant(UUID tripId, String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authenticated user");
+        }
+
+        UUID parsedUserId;
+        try {
+            parsedUserId = UUID.fromString(userId);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid authenticated user");
+        }
+
+        if (!tripServiceClient.isParticipant(tripId, parsedUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "User is not a trip participant");
+        }
+        return parsedUserId;
     }
 }
