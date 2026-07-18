@@ -742,8 +742,8 @@ export async function ensureTripCoverImage(
 /* ------------------------------------------------------------------ */
 
 export const participantsApi = {
-  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string) =>
-    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName }),
+  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string, inviteeName?: string) =>
+    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName, inviteeName }),
   inviteByEmail: (tripId: string, email: string, message?: string, inviterName?: string) =>
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
