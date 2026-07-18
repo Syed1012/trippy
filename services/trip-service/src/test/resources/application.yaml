@@ -20,3 +20,6 @@ spring:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
   flyway:
     enabled: false
+  payment:
+    service:
+      url: http://localhost:8086
