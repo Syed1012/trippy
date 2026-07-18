@@ -3118,6 +3118,15 @@ function EditTripModal({
   );
 }
 
+function isAiGeneratedTrip(desc: string | undefined): boolean {
+  return typeof desc === "string" && desc.includes("[AI_GENERATED]");
+}
+
+function cleanDescription(desc: string | undefined): string {
+  if (!desc) return "";
+  return desc.replace("[AI_GENERATED]", "").trim();
+}
+
 /* ─── Main Page Component ─────────────────────────────────────────── */
 export default function TripDetailPage() {
   const params = useParams();
@@ -3130,6 +3139,7 @@ export default function TripDetailPage() {
   const isFromAi = searchParams.get("from") === "ai";
 
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const hasAiTag = trip ? isAiGeneratedTrip(trip.description) : false;
   const [preferences, setPreferences] = useState<TripPreference | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -3141,7 +3151,7 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (trip) {
       setEditTitle(trip.title);
-      setEditDesc(trip.description || "");
+      setEditDesc(cleanDescription(trip.description));
       setEditStartDate(trip.startDate || "");
       setEditEndDate(trip.endDate || "");
       setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
@@ -3610,9 +3620,12 @@ export default function TripDetailPage() {
     if (!tripId) return;
     setSaving(true);
     try {
+      const finalDesc = hasAiTag
+        ? ((editDesc || "").trim() + " [AI_GENERATED]").trim()
+        : editDesc || undefined;
       const updated = await tripsApi.update(tripId, {
         title: editTitle,
-        description: editDesc || undefined,
+        description: finalDesc,
         startDate: editStartDate || undefined,
         endDate: editEndDate || undefined,
         visibility: editVisibility,
@@ -3717,7 +3730,7 @@ export default function TripDetailPage() {
   const totalActivities = itineraryDays.reduce((sum, day) => sum + day.activities.length, 0);
 
   const hasAiMetadata = itineraryDays.some((d) => d.weather || (d.transportRecommendations && d.transportRecommendations.length > 0));
-  const isAiTrip = (isFromAi || hasAiMetadata) && trip?.status === "PLANNED";
+  const isAiTrip = (isFromAi || hasAiMetadata || hasAiTag) && trip?.status === "PLANNED";
 
   return (
     <div className="space-y-8 pb-12">
@@ -3881,9 +3894,9 @@ export default function TripDetailPage() {
                 <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
                   {trip.title}
                 </h1>
-                {trip.description && (
+                {cleanDescription(trip.description) && (
                   <p className="mt-2 text-sm text-white/60 max-w-xl">
-                    {trip.description}
+                    {cleanDescription(trip.description)}
                   </p>
                 )}
               </>
@@ -4339,7 +4352,7 @@ export default function TripDetailPage() {
                 {saving ? "Saving..." : "Save"}
               </Button>
             )}
-            {isOwnerOrEditor && (
+            {isOwnerOrEditor && !isAiTrip && (
               <button
                 onClick={() => setVotingSettingsOpen(!votingSettingsOpen)}
                 className={cn(
@@ -4355,7 +4368,7 @@ export default function TripDetailPage() {
               </button>
             )}
             {/* AI Suggestions — host (trip owner) only */}
-            {isOwner && (
+            {isOwner && !isAiTrip && (
               <button
                 onClick={openAI}
                 className={cn(
@@ -4434,7 +4447,7 @@ export default function TripDetailPage() {
                 </Button>
               )}
               {/* AI Suggestions — host (trip owner) only */}
-              {isOwner && (
+              {isOwner && !isAiTrip && (
                 <button
                   onClick={openAI}
                   className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
@@ -4471,13 +4484,19 @@ export default function TripDetailPage() {
 
       {/* Edit Trip Modal */}
       <AnimatePresence>
-        {editModalOpen && (
+        {editModalOpen && trip && (
           <EditTripModal
-            trip={trip}
+            trip={{ ...trip, description: cleanDescription(trip.description) }}
             onClose={() => setEditModalOpen(false)}
             onSave={async ({ status, ...updates }) => {
               try {
-                await tripsApi.update(tripId, updates);
+                const finalUpdates = {
+                  ...updates,
+                  description: hasAiTag && typeof updates.description === "string"
+                    ? ((updates.description || "").trim() + " [AI_GENERATED]").trim()
+                    : updates.description,
+                };
+                await tripsApi.update(tripId, finalUpdates);
                 // Route status changes through the dedicated lifecycle endpoint.
                 if (status && status !== trip.status) {
                   await tripsApi.updateStatus(tripId, status as TripDetail["status"]);

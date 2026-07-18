@@ -580,7 +580,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       const createPayload: CreateTripRequest = {
         title: trip.title,
         destination: trip.destination,
-        description: trip.reason || trip.highlights.join(", ") || undefined,
+        description: ((trip.reason || trip.highlights.join(", ") || "").trim() + " [AI_GENERATED]").trim(),
         startDate,
         endDate: effectiveEndDate,
         visibility,
