@@ -77,6 +77,7 @@ public class AiService {
     private static final String AI_MALFORMED_RESPONSE = "AI_MALFORMED_RESPONSE";
     private static final String AI_SCHEMA_INVALID = "AI_SCHEMA_INVALID";
     private static final String AI_UNUSABLE_RESPONSE = "AI_UNUSABLE_RESPONSE";
+    private static final int MIN_ACTIVITIES_PER_DAY = 5;
 
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
@@ -383,9 +384,9 @@ public class AiService {
                 throw new FallbackTriggerException(AI_SCHEMA_INVALID,
                         "AI itinerary contained duplicate day numbers");
             }
-            if (day.getActivities() == null || day.getActivities().isEmpty()) {
+            if (day.getActivities() == null || day.getActivities().size() < MIN_ACTIVITIES_PER_DAY) {
                 throw new FallbackTriggerException(AI_UNUSABLE_RESPONSE,
-                        "AI itinerary contained a day without activities");
+                        "AI itinerary contained fewer than " + MIN_ACTIVITIES_PER_DAY + " activities for a day");
             }
         }
     }
@@ -476,6 +477,15 @@ public class AiService {
         }
 
         sb.append("""
+
+                Itinerary quality requirements:
+                - Return exactly one day object for every calendar date in the requested range.
+                - Each day must contain 5 to 6 practical activities. Use 7 only when the requested pace is PACKED.
+                - Cover the whole usable day: morning, late morning, lunch or food stop, afternoon, early evening, and optional dinner/night activity.
+                - Use real venues, neighborhoods, viewpoints, stations, restaurants/markets, beaches, museums, or routes for the destination.
+                - Do not use placeholders like "explore the city", "flexible activity", or generic hotel check-in as most of the day.
+                - Sequence activities by realistic geography and travel time. A full-day tour counts as one activity, so still include meals and evening context around it.
+                - Include plausible durationMinutes, category, cost, tips, bookingRequired, Google Maps URL, and coordinates whenever possible.
 
                 Respond ONLY with a valid JSON object (no markdown, no extra text):
                 {
@@ -676,15 +686,27 @@ public class AiService {
         while (!current.isAfter(end) && dayNumber <= 14) {
             List<ItineraryResponse.Activity> activities = new ArrayList<>();
             activities.add(ItineraryResponse.Activity.builder()
-                    .time("09:30")
+                    .time("09:00")
+                    .durationMinutes(60)
+                    .title("Arrival briefing and central orientation")
+                    .description("Start in the most central area, confirm transit passes, and mark the day's key stops.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("FREE_TIME")
+                    .estimatedCost("€0")
+                    .tips("Use this block to reduce friction before the sightseeing-heavy part of the day.")
+                    .bookingRequired(false)
+                    .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("10:30")
                     .durationMinutes(120)
-                    .title("Explore " + constraints.destination())
-                    .description("Start with a central landmark or neighborhood walk to get oriented.")
+                    .title("Major landmark and neighborhood walk")
+                    .description("Visit a signature landmark, then walk nearby streets to understand the local layout.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
                     .category("SIGHTSEEING")
-                    .estimatedCost("Varies")
-                    .tips("Check local opening hours before leaving.")
+                    .estimatedCost("€0-€25")
+                    .tips("Check ticket windows and opening hours before leaving.")
                     .bookingRequired(false)
                     .build());
             if (includeMeals) {
@@ -704,15 +726,41 @@ public class AiService {
             activities.add(ItineraryResponse.Activity.builder()
                     .time("15:00")
                     .durationMinutes(120)
-                    .title("Flexible afternoon activity")
-                    .description("Visit a museum, market, park, or viewpoint based on group energy.")
+                    .title("Museum, market, or cultural stop")
+                    .description("Choose a high-value indoor or cultural stop that matches the group's interests.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
-                    .category("ACTIVITY")
+                    .category("CULTURE")
                     .estimatedCost("€0-€25")
                     .tips("Keep this flexible if weather or travel delays change the day.")
                     .bookingRequired(false)
                     .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("17:30")
+                    .durationMinutes(90)
+                    .title("Scenic viewpoint or relaxed local district")
+                    .description("Wind down with a viewpoint, waterfront, park, or atmospheric local quarter.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("SIGHTSEEING")
+                    .estimatedCost("€0-€15")
+                    .tips("Good timing for photos and a lower-pressure group check-in.")
+                    .bookingRequired(false)
+                    .build());
+            if (activities.size() < MIN_ACTIVITIES_PER_DAY) {
+                activities.add(ItineraryResponse.Activity.builder()
+                        .time("19:30")
+                        .durationMinutes(90)
+                        .title("Evening food and next-day planning")
+                        .description("Pick a convenient dinner area and review the next day's route while everyone is together.")
+                        .location(constraints.destination())
+                        .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                        .category("FOOD")
+                        .estimatedCost("€20-€40")
+                        .tips("Reserve if the group is larger than four people.")
+                        .bookingRequired(false)
+                        .build());
+            }
 
             ItineraryResponse.DayPlan day = ItineraryResponse.DayPlan.builder()
                     .dayNumber(dayNumber)
