@@ -2510,6 +2510,7 @@ function InviteModal({
     // If empty or already looks like a complete exact email matching pattern, don't show search dropdown
     if (query.length < 2 || EMAIL_PATTERN.test(query)) {
       setSearchResults([]);
+      setSearching(false);
       return;
     }
 

@@ -1,5 +1,25 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const getApiBaseUrl = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  if (typeof window !== "undefined") {
+    try {
+      const url = new URL(envUrl);
+      const isLocalOrIp =
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        /^(\d{1,3}\.){3}\d{1,3}$/.test(url.hostname);
+
+      if (isLocalOrIp) {
+        url.hostname = window.location.hostname;
+      }
+      return url.toString().replace(/\/$/, "");
+    } catch {
+      return `http://${window.location.hostname}:8080`;
+    }
+  }
+  return envUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = "trippy_access_token";
 const REFRESH_KEY = "trippy_refresh_token";
