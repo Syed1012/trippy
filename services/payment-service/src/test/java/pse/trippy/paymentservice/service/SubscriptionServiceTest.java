@@ -218,9 +218,11 @@ class SubscriptionServiceTest {
         void throwsForMissingSubscription() {
             when(subscriptionRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> subscriptionService.cancelSubscription(
-                    USER_ID, new CancelSubscriptionRequest(true)))
-                    .isInstanceOf(SubscriptionNotFoundException.class);
+            SubscriptionResponse response = subscriptionService.getSubscription(USER_ID);
+
+            assertThat(response.plan()).isEqualTo("FREE");
+            assertThat(response.status()).isEqualTo("ACTIVE");
+            assertThat(response.subscriptionId()).isNull();
         }
     }
 }

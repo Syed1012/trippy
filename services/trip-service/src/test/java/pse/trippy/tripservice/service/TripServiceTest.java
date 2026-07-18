@@ -28,6 +28,8 @@ import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.repository.ParticipantRepository;
 import pse.trippy.tripservice.repository.TripRepository;
+import pse.trippy.tripservice.client.SubscriptionClient;
+import pse.trippy.tripservice.dto.response.SubscriptionResponse;
 
 import java.time.LocalDate;
 import java.util.Collection;
@@ -53,6 +55,9 @@ class TripServiceTest {
     private ParticipantRepository participantRepository;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private SubscriptionClient subscriptionClient;
+
 
     @InjectMocks
     private TripService tripService;
@@ -63,6 +68,9 @@ class TripServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(subscriptionClient.getSubscription(any(UUID.class)))
+                .thenReturn(new SubscriptionResponse("FREE", true, "EUR", null));
+
         trip = Trip.builder()
                 .title("Beach Vacation")
                 .destination("Bali")
