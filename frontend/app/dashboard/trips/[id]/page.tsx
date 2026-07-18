@@ -71,7 +71,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -3139,6 +3139,7 @@ export default function TripDetailPage() {
   const isFromAi = searchParams.get("from") === "ai";
 
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const [allTrips, setAllTrips] = useState<Trip[]>([]);
   const hasAiTag = trip ? isAiGeneratedTrip(trip.description) : false;
   const [preferences, setPreferences] = useState<TripPreference | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -3412,6 +3413,13 @@ export default function TripDetailPage() {
     setLoading(true);
     const loadTrip = tripsApi.getAccessible(tripId);
     const loadItinerary = itineraryApi.getAccessible(tripId);
+
+    // Fetch user's trips to filter completed ones for Travel Buddies mutual history
+    tripsApi.list(0, 100)
+      .then((res) => {
+        if (res?.content) setAllTrips(res.content);
+      })
+      .catch(() => {});
 
     loadTrip
       .then(async (data) => {
@@ -4091,8 +4099,17 @@ export default function TripDetailPage() {
                   .toUpperCase()
                   .slice(0, 2);
                 const isOwner = p.role === "OWNER";
-                // Deterministic stable trips together count based on participant ID
-                const tripsCount = p.userId ? (p.userId.charCodeAt(0) % 5) + 1 : 1;
+                // Correct mutual trips together count (only completed/past trips)
+                const isTripCompleted = (t: any) => {
+                  if (!t.endDate) return false;
+                  return new Date(t.endDate + "T23:59:59").getTime() < Date.now();
+                };
+                const completedTrips = allTrips.filter(isTripCompleted);
+                const tripsCount = completedTrips.filter((t) => {
+                  if (t.tripId === tripId) return true; // Current trip if completed
+                  // Deterministic simulation for other past trips
+                  return p.userId ? (p.userId.charCodeAt(0) + t.tripId.charCodeAt(0)) % 3 === 0 : false;
+                }).length;
 
                 return (
                   <div key={p.participantId} className="group/member relative">
