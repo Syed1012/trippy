@@ -28,6 +28,7 @@ public class FallbackItineraryGenerator {
 
     private static final List<String> ACTIVITY_TIMES = List.of("09:00", "10:45", "12:45", "15:00", "17:30", "19:30");
     private static final String DEFAULT_REASON = "AI_PROVIDER_UNAVAILABLE";
+    private static final int MIN_ACTIVITIES_PER_DAY = 5;
 
     private final FallbackDestinationCatalogue catalogue;
 
@@ -84,6 +85,15 @@ public class FallbackItineraryGenerator {
             if (shouldAddEvening(dayNumber, days, preferences.pacePreference())) {
                 Optional<FallbackActivity> evening = firstAvailable(profile.eveningOptions(), preferences, usedTitles);
                 evening.ifPresent(activity -> addActivity(activities, activity, usedTitles, profile.destination()));
+            }
+
+            while (activities.size() < MIN_ACTIVITIES_PER_DAY) {
+                Optional<FallbackActivity> next = nextActivity(corePool, usedTitles, dayNumber);
+                if (next.isPresent()) {
+                    addActivity(activities, next.get(), usedTitles, profile.destination());
+                } else {
+                    activities.add(flexibleActivity(profile, dayNumber, activities.size()));
+                }
             }
 
             assignTimes(activities);
@@ -213,7 +223,7 @@ public class FallbackItineraryGenerator {
                                                         int activityIndex) {
         return ItineraryResponse.Activity.builder()
                 .durationMinutes(120)
-                .title("Slow exploration block in " + profile.city() + " - Day " + dayNumber)
+                .title("Local discovery block " + (activityIndex + 1) + " in " + profile.city() + " - Day " + dayNumber)
                 .description("Use this lower-pressure block for a neighbourhood walk, cafe pause, rest or "
                         + "weather-safe indoor alternative.")
                 .location(profile.city())
