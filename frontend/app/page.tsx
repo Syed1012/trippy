@@ -604,7 +604,7 @@ export default function LandingPage() {
                       </div>
                     ) : (
                       <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
-                        <p className="text-sm text-[#5f6f69]">You haven't created any trips yet.</p>
+                        <p className="text-sm text-[#5f6f69]">You haven&apos;t created any trips yet.</p>
                       </div>
                     )}
                   </div>
@@ -763,7 +763,7 @@ export default function LandingPage() {
                 Join Public Trip
               </h3>
               <p className="mt-2 text-sm text-[#5f6f69]">
-                Introduce yourself to the organizer. Let them know why you'd like to join their trip!
+                Introduce yourself to the organizer. Let them know why you&apos;d like to join their trip!
               </p>
 
               <textarea

@@ -58,6 +58,7 @@ import {
   Trees,
   Compass,
   Landmark,
+  ShoppingBag,
   CloudSun,
   Snowflake,
   RefreshCw,
@@ -66,6 +67,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
@@ -95,14 +97,21 @@ const statusLabel: Record<string, string> = {
 };
 
 /* ─── Activity category icons ────────────────────────────────────── */
-const categoryIcons: Record<string, typeof Coffee> = {
+const categoryIcons: Record<string, LucideIcon> = {
   morning: Sun,
   breakfast: Coffee,
   lunch: Utensils,
   dinner: Utensils,
-  sightseeing: Camera,
-  transport: Navigation,
+  food: Utensils,
+  sightseeing: Compass,
+  transport: Bus,
+  shopping: ShoppingBag,
+  activity: Trees,
   evening: Moon,
+  culture: Landmark,
+  nightlife: Moon,
+  nature: Trees,
+  wellness: Heart,
   default: MapPin,
 };
 
@@ -124,13 +133,11 @@ const CAT_COLORS: Record<string, string> = {
   lunch: "bg-orange-100 text-orange-700 border-orange-200",
   dinner: "bg-orange-100 text-orange-700 border-orange-200",
   evening: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  culture: "bg-purple-100 text-purple-700 border-purple-200",
+  nightlife: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  nature: "bg-green-100 text-green-700 border-green-200",
+  wellness: "bg-teal-100 text-teal-700 border-teal-200",
   default: "bg-gray-100 text-gray-600 border-gray-200",
-};
-
-const CAT_EMOJIS: Record<string, string> = {
-  food: "🍽️", sightseeing: "👁️", transport: "🚌", shopping: "🛍️",
-  activity: "🌿", morning: "☀️", breakfast: "☕", lunch: "🍴",
-  dinner: "🍽️", evening: "🌙", other: "📌", default: "📌",
 };
 
 function formatStartTime(st?: string): string {
@@ -152,7 +159,7 @@ function ReadOnlyActivityCard({
 }) {
   const cat = activity.category?.toLowerCase() || "default";
   const catLabel = cat === "default" ? "" : cat.toUpperCase();
-  const emoji = CAT_EMOJIS[cat] || CAT_EMOJIS.default;
+  const IconComponent = categoryIcons[cat] || categoryIcons.default;
   const colorCls = CAT_COLORS[cat] || CAT_COLORS.default;
   const displayTime = formatStartTime(activity.startTime) || formatStartTime(activity.time);
 
@@ -176,8 +183,10 @@ function ReadOnlyActivityCard({
       <div className={`flex-1 min-w-0 ${isLast ? "pb-2" : "pb-4"}`}>
         <div className="rounded-xl border border-border/50 bg-white hover:border-accent-300/60 hover:shadow-sm transition-all px-4 py-3">
           <div className="flex items-start gap-3">
-            {/* Category emoji */}
-            <span className="text-xl leading-none mt-0.5 shrink-0">{emoji}</span>
+            {/* Category Icon Badge */}
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center border shrink-0 mt-0.5 ${colorCls}`}>
+              <IconComponent size={15} />
+            </div>
             <div className="flex-1 min-w-0">
               {/* Title + Category badge */}
               <div className="flex items-center gap-2 flex-wrap">
@@ -214,9 +223,11 @@ function ReadOnlyActivityCard({
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${activity.location}, ${destination}`)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-surface hover:text-trippy-500 hover:border-trippy-500/30 transition-all shadow-sm cursor-pointer"
                   >
-                    <MapPin size={9} /> Open in Maps
+                    <MapPin size={11} className="text-trippy-500" />
+                    <span>Open in Maps</span>
+                    <ArrowUpRight size={10} className="opacity-50" />
                   </a>
                 )}
                 {activity.estimatedCost && parseFloat(activity.estimatedCost) > 0 && (
@@ -3301,7 +3312,7 @@ export default function TripDetailPage() {
 
   const refreshTrip = useCallback(async () => {
     if (!tripId) return;
-    const data = user?.userId ? await tripsApi.get(tripId) : await tripsApi.getShared(tripId);
+    const data = await tripsApi.getAccessible(tripId);
     if (user?.userId) {
       await enrichParticipants(data);
     }
@@ -3388,10 +3399,8 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (!tripId) return;
     setLoading(true);
-    const loadTrip = user?.userId ? tripsApi.get(tripId) : tripsApi.getShared(tripId);
-    const loadItinerary = user?.userId
-      ? itineraryApi.get(tripId)
-      : itineraryApi.getShared(tripId);
+    const loadTrip = tripsApi.getAccessible(tripId);
+    const loadItinerary = itineraryApi.getAccessible(tripId);
 
     loadTrip
       .then(async (data) => {
@@ -3420,10 +3429,8 @@ export default function TripDetailPage() {
               .flatMap((d) => d.activities)
               .find((a) => a.currency)?.currency;
             if (savedCurrency) setCurrency(savedCurrency);
-            // Auto-expand all days when arriving from AI trip save
-            if (isFromAi) {
-              setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
-            }
+            // Auto-expand all days by default
+            setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
           } else {
             // Initialize empty days based on trip dates
             const numDays = getNumDays(data.startDate, data.endDate);
@@ -4049,7 +4056,7 @@ export default function TripDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Users size={15} className="text-accent-500" />
-                <h3 className="text-sm font-bold text-foreground">Team</h3>
+                <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
                 <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
                   {members.length} member{members.length !== 1 ? "s" : ""}
                 </span>
