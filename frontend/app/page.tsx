@@ -31,6 +31,7 @@ import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
+import { formatDestinationInput } from "@/lib/destination-format";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
 import { tripsApi, participantsApi, type Trip } from "@/lib/api";
@@ -225,7 +226,7 @@ export default function LandingPage() {
 
   const stashPendingTrip = () => {
     savePendingTrip({
-      destination: searchQuery.trim(),
+      destination: formatDestinationInput(searchQuery).trim(),
       startDate,
       endDate: endDate || startDate,
       filters: activeFilters,
@@ -429,7 +430,7 @@ export default function LandingPage() {
                         value={searchQuery}
                         onFocus={() => setFocusedField("destination")}
                         onBlur={() => setFocusedField(null)}
-                        onChange={(event) => setSearchQuery(event.target.value)}
+                        onChange={(event) => setSearchQuery(formatDestinationInput(event.target.value))}
                         placeholder={typedIdea || "Two weeks in Japan with great food"}
                         className="mt-1 w-full bg-transparent text-base font-semibold text-[#17211f] outline-none placeholder:text-[#8c978f]"
                       />

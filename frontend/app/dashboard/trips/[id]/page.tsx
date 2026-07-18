@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { formatDestinationInput } from "@/lib/destination-format";
 import {
   ArrowLeft,
   MapPin,
@@ -2752,7 +2753,7 @@ function EditTripModal({
 }) {
   const [title, setTitle] = useState(trip.title);
   const [description, setDescription] = useState(trip.description ?? "");
-  const [destination, setDestination] = useState(trip.destination);
+  const [destination, setDestination] = useState(formatDestinationInput(trip.destination));
   const [startDate, setStartDate] = useState(trip.startDate ?? "");
   const [endDate, setEndDate] = useState(trip.endDate ?? "");
   const [status, setStatus] = useState(trip.status);
@@ -2809,7 +2810,7 @@ function EditTripModal({
     await onSave({
       title: title.trim(),
       description: description.trim() || undefined,
-      destination: destination.trim(),
+      destination: formatDestinationInput(destination).trim(),
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       status,
@@ -2875,7 +2876,7 @@ function EditTripModal({
             <input
               type="text"
               value={destination}
-              onChange={(e) => setDestination(e.target.value)}
+              onChange={(e) => setDestination(formatDestinationInput(e.target.value))}
               required
               className="w-full rounded-xl border border-border px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100"
             />

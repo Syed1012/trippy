@@ -48,6 +48,7 @@ import { useToast } from "@/lib/toast";
 import { tripSlug } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
 import { saveAiTripRouteState } from "@/lib/ai-trip-route-state";
+import { formatDestinationInput } from "@/lib/destination-format";
 
 /* ── Beautiful Loading Screen ─────────────────────────────────────── */
 const LOADING_MESSAGES = [
@@ -487,7 +488,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     if (!open) return;
 
     if (initialRequest?.requestId) {
-      setCity(initialRequest.city || "");
+      setCity(formatDestinationInput(initialRequest.city || ""));
       setStartDate(initialRequest.startDate || "");
       setEndDate(initialRequest.endDate || "");
       setPeople(initialRequest.people || 2);
@@ -872,7 +873,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                       City
                       <input
                         value={city}
-                        onChange={(e) => setCity(e.target.value)}
+                        onChange={(e) => setCity(formatDestinationInput(e.target.value))}
                         placeholder="Delhi, Paris, Tokyo..."
                         className="mt-1 w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-trippy-500/50"
                       />
@@ -1045,7 +1046,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                         {alsoExplore.map((s, i) => (
                           <button
                             key={`${s.city}-${i}`}
-                            onClick={() => setCity(s.city || "")}
+                            onClick={() => setCity(formatDestinationInput(s.city || ""))}
                             className="text-xs bg-surface border border-border px-3 py-1 rounded-full text-foreground hover:border-trippy-500/40 hover:bg-trippy-500/5 transition-colors cursor-pointer"
                           >
                             {s.city}{s.country ? `, ${s.country}` : ""}
