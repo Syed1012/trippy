@@ -78,7 +78,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     const timeout = window.setTimeout(() => {
       setLoading(true);
       notificationsApi
-        .list(0, 10)
+        .list(0, 40)
         .then((data) => {
           if (!cancelled) setNotifications(data.content);
         })
@@ -235,7 +235,7 @@ export default function NotificationBell({ className }: { className?: string }) 
 
       {/* Dropdown panel */}
       {open && (
-        <div className="fixed left-3 right-3 top-16 glass-strong shadow-2xl z-50 max-h-[calc(100vh-5rem)] flex flex-col sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-h-[28rem]">
+        <div className="fixed left-3 right-3 top-16 glass-strong shadow-2xl z-50 max-h-[calc(100vh-5rem)] flex flex-col sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-h-[32rem]">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="font-semibold text-sm">Notifications</h3>
@@ -337,17 +337,6 @@ export default function NotificationBell({ className }: { className?: string }) 
                 );
               })
             )}
-          </div>
-
-          {/* Footer */}
-          <div className="border-t border-border px-4 py-2">
-            <Link
-              href="/notifications"
-              onClick={() => setOpen(false)}
-              className="text-xs text-trippy-400 hover:text-trippy-300 transition-colors"
-            >
-              View All →
-            </Link>
           </div>
         </div>
       )}

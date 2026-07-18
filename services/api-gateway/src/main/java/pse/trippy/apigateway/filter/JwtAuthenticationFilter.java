@@ -52,6 +52,15 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/ws/**"
     );
 
+    /**
+     * Routes that work for visitors but may use an optional JWT to personalize
+     * their response. They must not be included in {@link #PUBLIC_PATHS}, as
+     * those routes deliberately bypass JWT parsing altogether.
+     */
+    private static final List<String> ANONYMOUS_PATHS = List.of(
+            "/trips/public"
+    );
+
     private static final List<String> ADMIN_ONLY_PATHS = List.of(
             "/actuator/metrics",
             "/actuator/metrics/**",
@@ -78,6 +87,9 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+            if (isAnonymousPath(path)) {
+                return chain.filter(exchange);
+            }
             return unauthorized(exchange);
         }
 
@@ -174,6 +186,10 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private boolean isAdminOnlyPath(String path) {
         return ADMIN_ONLY_PATHS.stream().anyMatch(p -> PATH_MATCHER.match(p, path));
+    }
+
+    private boolean isAnonymousPath(String path) {
+        return ANONYMOUS_PATHS.stream().anyMatch(p -> PATH_MATCHER.match(p, path));
     }
 
     private Mono<Boolean> isBlacklisted(String jti, String userId) {

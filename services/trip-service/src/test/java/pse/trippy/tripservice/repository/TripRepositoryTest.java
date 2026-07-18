@@ -191,4 +191,15 @@ class TripRepositoryTest {
                     .doesNotContain("Draft Public");
         }
     }
+
+    @Test
+    @DisplayName("findPublicTrips returns published public trips for anonymous visitors")
+    void findPublicTripsReturnsPublishedPublicTrips() {
+        tripRepository.save(buildTrip("Draft Public", CREATOR_B, TripStatus.DRAFT, TripVisibility.PUBLIC));
+
+        Page<Trip> results = tripRepository.findPublicTrips(PageRequest.of(0, 10));
+
+        assertThat(results.getContent()).extracting(Trip::getTitle)
+                .containsExactly("Creator A Public");
+    }
 }

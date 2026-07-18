@@ -18,6 +18,7 @@ export const ROUTES = {
   terms: "/terms",
   impressum: "/impressum",
   datenschutz: "/datenschutz",
+  howItWorks: "/how-it-works",
 } as const;
 
 export const LANDING_ANCHORS = {
