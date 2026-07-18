@@ -20,7 +20,7 @@ export default function Footer() {
           </div>
 
           {/* Product */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="lg:col-span-2 lg:col-start-7 space-y-4">
             <h6 className="font-bold text-foreground tracking-wider uppercase text-[10px]">
               Product
             </h6>
