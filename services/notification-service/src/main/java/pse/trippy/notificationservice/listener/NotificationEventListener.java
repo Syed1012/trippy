@@ -59,7 +59,13 @@ public class NotificationEventListener {
         try {
             log.info("Received notification event routingKey={}", LogSanitizer.safeDetail(routingKey));
             Object payload = deserializePayload(rawMessage);
-            dispatchEvent(payload, routingKey);
+            try {
+                dispatchEvent(payload, routingKey);
+            } catch (Exception ex) {
+                log.error("Failed to process event routingKey={} error={}", 
+                        LogSanitizer.safeDetail(routingKey), LogSanitizer.safeError(ex));
+                throw ex;
+            }
         } finally {
             MDC.remove(CorrelationIds.MDC_KEY);
         }
