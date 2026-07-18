@@ -2500,6 +2500,7 @@ function InviteModal({
   // Search states
   const [searchResults, setSearchResults] = useState<UserPublicProfile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
 
   const trimmedEmail = email.trim();
   const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
@@ -2535,40 +2536,35 @@ function InviteModal({
   }, [email, user]);
 
   async function handleSend() {
-    if (!isValidEmail) {
+    if (!selectedUser && !isValidEmail) {
       setError("Enter a valid email address");
       return;
     }
     setError(null);
     setSending(true);
     try {
-      const message = inviteMessage.trim() || undefined;
-      const inviterName = currentUserName || undefined;
-      let invitee = selectedUser;
-      if (!invitee) {
-        const matches = await usersApi.search(trimmedEmail, 5);
-        invitee = matches.find(
-          (candidate) => candidate.email?.toLowerCase() === trimmedEmail.toLowerCase(),
-        ) ?? null;
-      }
-
-      if (invitee) {
+      if (selectedUser) {
+        // Invite platform user: app invite + mail both
         await participantsApi.invite(
           tripId,
-          invitee.id,
-          trimmedEmail,
-          message,
-          inviterName,
+          selectedUser.id,
+          selectedUser.email || undefined,
+          inviteMessage.trim() || undefined,
+          currentUserName || undefined,
+          selectedUser.displayName || undefined
         );
+        const displayName = selectedUser.displayName || selectedUser.email || "User";
+        setSentEmails((prev) => [displayName, ...prev.filter((e) => e !== displayName)]);
       } else {
+        // Just email invite
         await participantsApi.inviteByEmail(
           tripId,
           trimmedEmail,
-          message,
-          inviterName,
+          inviteMessage.trim() || undefined,
+          currentUserName || undefined
         );
+        setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
       }
-      setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
       setEmail("");
       setSelectedUser(null);
       setSearchResults([]);
@@ -2661,10 +2657,8 @@ function InviteModal({
                     key={user.id}
                     type="button"
                     onClick={() => {
-                      if (user.email) {
-                        setEmail(user.email);
-                        setSelectedUser(user);
-                      }
+                      setSelectedUser(user);
+                      setEmail(user.displayName || user.email || "");
                       setSearchResults([]);
                     }}
                     className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
@@ -2696,11 +2690,11 @@ function InviteModal({
           
           <button
             onClick={handleSend}
-            disabled={!isValidEmail || sending}
+            disabled={(!selectedUser && !isValidEmail) || sending}
             className={cn(
               "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
               "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-              (!isValidEmail || sending) && "opacity-60 cursor-not-allowed",
+              ((!selectedUser && !isValidEmail) || sending) && "opacity-60 cursor-not-allowed",
             )}
           >
             {sending ? (
