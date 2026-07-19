@@ -11,6 +11,7 @@ import {
   Sun,
   ChevronRight,
   SmartphoneNfc,
+  Loader2,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui";
 import { useTheme } from "@/lib/useTheme";
@@ -26,12 +27,15 @@ export default function SettingsPage() {
 
   const handlePushToggle = async () => {
     setPushLoading(true);
-    if (isSubscribed) {
-      await unsubscribe();
-    } else {
-      await subscribe();
+    try {
+      if (isSubscribed) {
+        await unsubscribe();
+      } else {
+        await subscribe();
+      }
+    } finally {
+      setPushLoading(false);
     }
-    setPushLoading(false);
   };
 
   return (
@@ -88,7 +92,7 @@ export default function SettingsPage() {
             </div>
           </button>
           <div className="mt-2 border-t border-border pt-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <SmartphoneNfc size={16} className="text-muted" />
                 <span className="text-sm font-medium">Browser Push Notifications</span>
@@ -99,9 +103,9 @@ export default function SettingsPage() {
                   onClick={handlePushToggle}
                   disabled={pushLoading}
                   aria-label={isSubscribed ? "Disable browser push notifications" : "Enable browser push notifications"}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-trippy-500 focus:ring-offset-2 ${
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-trippy-500 focus:ring-offset-2 ${
                     isSubscribed ? "bg-trippy-500" : "bg-gray-200 dark:bg-gray-700"
-                  }`}
+                  } ${pushLoading ? "cursor-not-allowed opacity-70" : ""}`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -113,6 +117,12 @@ export default function SettingsPage() {
                 <span className="text-xs text-muted">Not Supported</span>
               )}
             </div>
+            {pushLoading ? (
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+                <Loader2 size={14} className="animate-spin" />
+                Updating push notification setting...
+              </div>
+            ) : null}
           </div>
         </GlassCard>
 
