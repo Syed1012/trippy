@@ -1,9 +1,9 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { notificationsApi, getAccessToken, type Notification } from "./api";
-import { useAuth } from "./auth-context";
-import { useToast } from "./toast";
+import { notificationsApi, getAccessToken, type Notification } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/lib/toast";
 
 interface NotificationContextType {
   notifications: Notification[];

@@ -23,9 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 @Import(WebPushService.class)
 @TestPropertySource(properties = {
-    "web-push.public-key=BJYksTzUnIKhjoNUcwx5Z6Bc9yneCFAKEHlwgLzVwhvQYXAxBg45S-6hiAY0LTF22fPA31zNzIOubD9opAKcYLk",
-    "web-push.private-key=5uNGLCXdpDPHeBNq-ij9-tNoD37D8J7d7QPzDQT_Mc4",
-    "web-push.subject=mailto:admin@trippy.com"
+    "web-push.public-key=dummy-public-key",
+    "web-push.private-key=dummy-private-key",
+    "web-push.subject=mailto:dummy@example.com"
 })
 @DisplayName("WebPushService")
 class WebPushServiceTest {
@@ -50,7 +50,7 @@ class WebPushServiceTest {
     @DisplayName("getPublicKey returns the configured VAPID public key")
     void getPublicKeyReturnsCorrectKey() {
         String publicKey = webPushService.getPublicKey();
-        assertThat(publicKey).isEqualTo("BJYksTzUnIKhjoNUcwx5Z6Bc9yneCFAKEHlwgLzVwhvQYXAxBg45S-6hiAY0LTF22fPA31zNzIOubD9opAKcYLk");
+        assertThat(publicKey).isEqualTo("dummy-public-key");
     }
 
     @Test
