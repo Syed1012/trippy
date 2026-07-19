@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatDestinationInput } from "@/lib/destination-format";
 import {
   ArrowLeft,
+  ArrowRight,
   MapPin,
   Calendar,
   Users,
@@ -71,7 +72,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, ApiError, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -1591,7 +1592,7 @@ function DayCard({
       />
 
       {/* Day header */}
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <div className="flex w-full items-center gap-3">
           <div
             role="button"
@@ -1691,7 +1692,7 @@ function DayCard({
             {/* Transit block at the top of the day content */}
             <DayContextBlocks day={day} />
 
-            <div className={readOnly ? "px-5 pb-5 space-y-0" : "px-5 pb-5 space-y-3"}>
+            <div className={readOnly ? "px-4 pb-4 sm:px-5 sm:pb-5 space-y-0" : "px-4 pb-4 sm:px-5 sm:pb-5 space-y-3"}>
               {/* Smart quick-add + one-tap starters */}
               {!readOnly && isParticipant && (
                 <div className="space-y-2.5">
@@ -3272,9 +3273,13 @@ export default function TripDetailPage() {
   const [isOwnerOrEditor, setIsOwnerOrEditor] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
+  const [isInvited, setIsInvited] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [processingRequestUserId, setProcessingRequestUserId] = useState<string | null>(null);
+  const [isPrivateTrip, setIsPrivateTrip] = useState(false);
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
+  const [decliningInvite, setDecliningInvite] = useState(false);
 
   const applyParticipantFlags = useCallback(
     (data: TripDetail) => {
@@ -3284,10 +3289,12 @@ export default function TripDetailPage() {
         setIsOwnerOrEditor(me?.role === "OWNER" || me?.role === "EDITOR");
         setIsParticipant(!!me && (me.status === "ACCEPTED" || me.role === "OWNER"));
         setIsPendingApproval(!!me && me.status === "PENDING_APPROVAL");
+        setIsInvited(!!me && me.status === "INVITED");
       } else {
         setIsOwner(false);
         setIsParticipant(false);
         setIsPendingApproval(false);
+        setIsInvited(false);
       }
     },
     [user?.userId]
@@ -3296,11 +3303,13 @@ export default function TripDetailPage() {
   const enrichParticipants = useCallback(async (data: TripDetail) => {
     if (data.participants && data.participants.length > 0) {
       try {
-        const userIds = data.participants.map((p) => p.userId);
+        const userIds = data.participants.map((p) => p.userId).filter(Boolean);
+        if (userIds.length === 0) return data;
         const profiles = await usersApi.batchProfiles(userIds);
         const profileMap: Record<string, typeof profiles[number]> = {};
         for (const p of profiles) profileMap[p.id] = p;
         data.participants = data.participants.map((p) => {
+          if (!p.userId) return p;
           const profile = profileMap[p.userId];
           return {
             ...p,
@@ -3374,11 +3383,12 @@ export default function TripDetailPage() {
     }
   }
 
-  async function handleRevokeInvite(invitedUserId: string) {
+  async function handleRevokeInvite(participant: { userId?: string; email?: string }) {
     if (!tripId) return;
-    setProcessingRequestUserId(invitedUserId);
+    const trackingId = participant.userId || participant.email || "";
+    setProcessingRequestUserId(trackingId);
     try {
-      await participantsApi.reject(tripId, invitedUserId);
+      await participantsApi.reject(tripId, participant.userId || undefined, participant.email || undefined);
       addToast("Invitation revoked.", "success");
       await refreshTrip();
     } catch (err: unknown) {
@@ -3386,6 +3396,36 @@ export default function TripDetailPage() {
       addToast(msg, "error");
     } finally {
       setProcessingRequestUserId(null);
+    }
+  }
+
+  async function handleAcceptInvite() {
+    if (!tripId) return;
+    setAcceptingInvite(true);
+    try {
+      await participantsApi.accept(tripId);
+      addToast("You have joined the trip!", "success");
+      await refreshTrip();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to accept invite";
+      addToast(msg, "error");
+    } finally {
+      setAcceptingInvite(false);
+    }
+  }
+
+  async function handleDeclineInvite() {
+    if (!tripId) return;
+    setDecliningInvite(true);
+    try {
+      await participantsApi.decline(tripId);
+      addToast("You have declined the invite.", "info");
+      router.push("/");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to decline invite";
+      addToast(msg, "error");
+    } finally {
+      setDecliningInvite(false);
     }
   }
 
@@ -3472,7 +3512,14 @@ export default function TripDetailPage() {
           }
         }
       })
-      .catch(() => setError("Failed to load trip details"))
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          setIsPrivateTrip(true);
+          setError("This trip is private. If you have been invited, please sign in with the email the invite was sent to.");
+        } else {
+          setError("Failed to load trip details");
+        }
+      })
       .finally(() => setLoading(false));
   }, [tripId, user?.userId, enrichParticipants, applyParticipantFlags]);
 
@@ -3710,10 +3757,35 @@ export default function TripDetailPage() {
   if (error || !trip) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
-        <p className="text-muted">{error || "Trip not found"}</p>
-        <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
-          <ArrowLeft size={16} /> Back to trips
-        </Button>
+        {isPrivateTrip ? (
+          <>
+            <Lock size={40} className="text-muted opacity-50" />
+            <p className="text-muted text-center max-w-md">{error}</p>
+            {!user?.userId && (
+              <div className="flex gap-3">
+                <Button
+                  variant="primary"
+                  onClick={() => router.push(`/login?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}
+                >
+                  <ArrowRight size={16} /> Sign In
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => router.push(`/register?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}
+                >
+                  <UserPlus size={16} /> Create Account
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-muted">{error || "Trip not found"}</p>
+            <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
+              <ArrowLeft size={16} /> Back to trips
+            </Button>
+          </>
+        )}
       </div>
     );
   }
@@ -3769,14 +3841,55 @@ export default function TripDetailPage() {
         </div>
       )}
 
+      {/* Invitation accept/decline banner */}
+      {isInvited && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-blue-300/50 bg-blue-50 dark:bg-blue-900/20 px-5 py-4 flex items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800/40">
+              <Mail size={17} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">You&apos;ve been invited!</p>
+              <p className="text-xs text-blue-700 dark:text-blue-300">You have been invited to join this trip. Would you like to accept?</p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="text-xs"
+              disabled={decliningInvite}
+              onClick={handleDeclineInvite}
+            >
+              {decliningInvite ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
+              Decline
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="text-xs"
+              disabled={acceptingInvite}
+              onClick={handleAcceptInvite}
+            >
+              {acceptingInvite ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Accept & Join
+            </Button>
+          </div>
+        </motion.div>
+      )}
+
       {/* ─── Hero Header ──────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10 transition-all duration-300",
+          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-6 sm:p-10 transition-all duration-300",
           isAiTrip
-            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-80 flex flex-col justify-end bg-black")
+            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-auto min-h-[20rem] md:h-80 flex flex-col justify-end bg-black")
             : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
         )}
       >
@@ -3892,11 +4005,11 @@ export default function TripDetailPage() {
               </div>
             ) : (
               <>
-                <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
+                <h1 className="font-display text-3xl sm:text-5xl font-black tracking-tight text-white break-words">
                   {trip.title}
                 </h1>
                 {cleanDescription(trip.description) && (
-                  <p className="mt-2 text-sm text-white/60 max-w-xl">
+                  <p className="mt-2 text-sm text-white/60 max-w-xl hidden sm:block">
                     {cleanDescription(trip.description)}
                   </p>
                 )}
@@ -3904,10 +4017,10 @@ export default function TripDetailPage() {
             )}
 
             {/* Quick stats */}
-            <div className="flex flex-wrap items-center gap-4 mt-5">
-              <div className="flex items-center gap-2 text-white/80">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 sm:items-center sm:gap-4 sm:mt-5">
+              <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                 <MapPin size={14} className="text-accent-400" />
-                <span className="text-sm font-medium">{trip.destination}</span>
+                <span className="font-medium">{trip.destination}</span>
               </div>
               
               {isEditing ? (
@@ -3929,9 +4042,9 @@ export default function TripDetailPage() {
                 </div>
               ) : (
                 trip.startDate && trip.endDate && (
-                  <div className="flex items-center gap-2 text-white/80">
+                  <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                     <Calendar size={14} className="text-accent-400" />
-                    <span className="text-sm">
+                    <span>
                       {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                       {" — "}
                       {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -3943,21 +4056,21 @@ export default function TripDetailPage() {
                 )
               )}
 
-              <div className="flex items-center gap-2 text-white/80">
+              <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                 <Users size={14} className="text-accent-400" />
-                <span className="text-sm">{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
+                <span>{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
               </div>
               {totalEstimatedCost > 0 && (
-                <div className="flex items-center gap-2 text-white/80">
+                <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                   <DollarSign size={14} className="text-accent-400" />
-                  <span className="text-sm font-medium">~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalEstimatedCost.toFixed(0)} est.</span>
+                  <span className="font-medium">~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalEstimatedCost.toFixed(0)} est.</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex gap-2 w-full sm:w-auto shrink-0 mt-3 sm:mt-0">
             {isEditing ? (
               <>
                 <Button
@@ -3965,17 +4078,17 @@ export default function TripDetailPage() {
                   size="sm"
                   onClick={saveInlineEdits}
                   disabled={saving}
-                  className="bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
+                  className="flex-1 sm:flex-none bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  Save Changes
+                  Save
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={cancelInlineEdits}
                   disabled={saving}
-                  className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                  className="flex-1 sm:flex-none bg-white/10 border-white/20 hover:bg-white/20 text-white justify-center"
                 >
                   Cancel
                 </Button>
@@ -3983,8 +4096,8 @@ export default function TripDetailPage() {
             ) : (
               <>
                 {user?.userId && (
-                  <Link href={`/dashboard/chat/${trip.tripId}`}>
-                    <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                  <Link href={`/dashboard/chat/${trip.tripId}`} className="flex-1 sm:flex-none">
+                    <Button variant="secondary" size="sm" className="w-full bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center">
                       <MessageSquare size={14} /> Chat
                     </Button>
                   </Link>
@@ -3994,7 +4107,7 @@ export default function TripDetailPage() {
                     <Button
                       variant="secondary"
                       size="sm"
-                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      className="flex-1 sm:flex-none bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center"
                       onClick={() => {
                         if (isAiTrip) {
                           setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
@@ -4006,7 +4119,7 @@ export default function TripDetailPage() {
                     >
                       <Edit size={14} /> Edit
                     </Button>
-                    <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
+                    <Button variant="danger" size="sm" onClick={handleDelete} className="flex-1 sm:flex-none bg-red-500/80 border-red-400/30 hover:bg-red-500 justify-center">
                       <Trash2 size={14} /> Delete
                     </Button>
                   </>
@@ -4019,7 +4132,7 @@ export default function TripDetailPage() {
 
       {/* AI trip stats bar */}
       {isAiTrip && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="flex sm:grid sm:grid-cols-3 gap-3 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 snap-x hide-scrollbar">
           {[
             {
               icon: <Sparkles size={16} className="text-purple-500" />,
@@ -4044,7 +4157,7 @@ export default function TripDetailPage() {
           ].map((s, i) => (
             <div
               key={i}
-              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all ${s.bg}`}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all min-w-[180px] sm:min-w-0 snap-center shrink-0 ${s.bg}`}
             >
               <div className="shrink-0">{s.icon}</div>
               <div className="min-w-0">
@@ -4067,23 +4180,27 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Users size={15} className="text-accent-500" />
-                <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
-                <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
-                  {members.length} member{members.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              {isParticipant && (
-                <Button variant="secondary" size="sm" className="text-xs" onClick={() => setInviteOpen(true)}>
-                  <Plus size={12} /> Invite
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {members.map((p) => {
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-accent-500" />
+                  <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
+                  <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
+                    {members.length} member{members.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isParticipant && (
+                    <Button variant="secondary" size="sm" className="text-xs" onClick={(e) => { e.preventDefault(); setInviteOpen(true); }}>
+                      <Plus size={12} /> Invite
+                    </Button>
+                  )}
+                  <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+                </div>
+              </summary>
+              <div className="flex flex-wrap gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {members.map((p) => {
                 const name = p.displayName ?? "User";
                 const initials = name
                   .split(" ")
@@ -4178,7 +4295,8 @@ export default function TripDetailPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}
@@ -4190,16 +4308,20 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Users size={15} className="text-amber-500" />
-              <h3 className="text-sm font-bold text-foreground">Join Requests</h3>
-              <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                {pendingRequests.length} pending
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
-              {pendingRequests.map((p) => {
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-amber-500" />
+                  <h3 className="text-sm font-bold text-foreground">Join Requests</h3>
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {pendingRequests.length} pending
+                  </span>
+                </div>
+                <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {pendingRequests.map((p) => {
                 const name = p.displayName ?? "User";
                 const initials = name
                   .split(" ")
@@ -4246,7 +4368,8 @@ export default function TripDetailPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}
@@ -4258,24 +4381,29 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.13 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Users size={15} className="text-blue-500" />
-              <h3 className="text-sm font-bold text-foreground">Pending Invites</h3>
-              <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                {pendingInvites.length} invited
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
-              {pendingInvites.map((p) => {
-                const name = p.displayName ?? "User";
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-blue-500" />
+                  <h3 className="text-sm font-bold text-foreground">Pending Invites</h3>
+                  <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                    {pendingInvites.length} invited
+                  </span>
+                </div>
+                <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {pendingInvites.map((p) => {
+                const name = p.displayName ?? (p.email || "User");
                 const initials = name
                   .split(" ")
                   .map((n) => n[0])
                   .join("")
                   .toUpperCase()
                   .slice(0, 2);
-                const processing = processingRequestUserId === p.userId;
+                const trackingId = p.userId || p.email || p.participantId;
+                const processing = processingRequestUserId === trackingId;
                 return (
                   <div
                     key={p.participantId}
@@ -4288,7 +4416,12 @@ export default function TripDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
-                        <span className="text-[10px] text-muted">Invitation sent — awaiting response</span>
+                        {p.email && !p.userId && (
+                          <span className="block text-[10px] text-blue-500 truncate max-w-[160px]">{p.email}</span>
+                        )}
+                        <span className="text-[10px] text-muted">
+                          {p.userId ? "Invitation sent — awaiting response" : "Invited by email — no account yet"}
+                        </span>
                       </div>
                     </div>
                     <Button
@@ -4296,14 +4429,15 @@ export default function TripDetailPage() {
                       size="sm"
                       className="text-xs shrink-0"
                       disabled={processing}
-                      onClick={() => handleRevokeInvite(p.userId)}
+                      onClick={() => handleRevokeInvite({ userId: p.userId, email: p.email })}
                     >
                       Revoke
                     </Button>
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}

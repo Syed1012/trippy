@@ -86,14 +86,19 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         }
 
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+        final String token;
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            token = authHeader.substring(BEARER_PREFIX.length());
+        } else {
+            token = exchange.getRequest().getQueryParams().getFirst("token");
+        }
+
+        if (token == null || token.isBlank()) {
             if (isAnonymousPath(path)) {
                 return chain.filter(exchange);
             }
             return unauthorized(exchange);
         }
-
-        String token = authHeader.substring(BEARER_PREFIX.length());
 
         return Mono.fromCallable(() -> validateToken(token))
                 .subscribeOn(Schedulers.boundedElastic())

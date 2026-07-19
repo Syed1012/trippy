@@ -19,6 +19,7 @@ import pse.trippy.aiservice.dto.response.DestinationSuggestionResponse;
 import pse.trippy.aiservice.dto.response.ItineraryResponse;
 import pse.trippy.aiservice.dto.response.TravelAdviceResponse;
 import pse.trippy.aiservice.service.AiService;
+import pse.trippy.aiservice.service.AiUsageService;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -43,6 +44,9 @@ class AiControllerTest {
 
     @MockBean
     private AiService aiService;
+
+    @MockBean
+    private AiUsageService aiUsageService;
 
     // =========================================================================
     // POST /ai/destination-suggestions

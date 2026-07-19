@@ -81,5 +81,8 @@ public class ItineraryResponse {
         private Boolean bookingRequired;
         private Double lat;
         private Double lng;
+        private String weatherCondition;
+        private Double weatherTemp;
+        private Boolean isRainy;
     }
 }

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -81,7 +82,7 @@ public class ParticipantService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ParticipantActionResponse inviteByEmail(UUID tripId, InviteByEmailRequest request, UUID inviterId) {
         log.info("Inviting by email to trip {} by inviter {}", tripId, inviterId);
         Trip trip = findTripOrThrow(tripId);
@@ -97,9 +98,31 @@ public class ParticipantService {
             throw new InvalidTripDataException("Trip has reached maximum number of participants");
         }
 
+        Optional<String> existingUserUuidStr = participantRepository.findUserIdByEmail(request.email());
+        UUID userId = existingUserUuidStr.map(UUID::fromString).orElse(null);
+
+        if (userId != null) {
+            if (participantRepository.existsByTripIdAndUserId(tripId, userId)) {
+                throw new InvalidTripDataException("User is already a participant or has a pending invite for this trip");
+            }
+        } else {
+            if (participantRepository.existsByTripIdAndEmail(tripId, request.email())) {
+                throw new InvalidTripDataException("An invite has already been sent to this email address");
+            }
+        }
+
+        Participant participant = Participant.builder()
+                .trip(trip)
+                .userId(userId)
+                .email(request.email())
+                .role(ParticipantRole.MEMBER)
+                .status(ParticipantStatus.INVITED)
+                .build();
+        participant = participantRepository.save(participant);
+
         publishEmailInvitation(trip, request.email(), inviterId, request.message(), request.inviterName());
 
-        return new ParticipantActionResponse("Invitation email sent", null);
+        return new ParticipantActionResponse("Invitation email sent", toResponse(participant));
     }
 
     @Transactional
@@ -126,13 +149,21 @@ public class ParticipantService {
     }
 
     @Transactional
-    public ParticipantActionResponse rejectInvite(UUID tripId, UUID targetUserId, UUID rejecterId) {
-        log.info("Owner {} rejecting invite of user {} for trip {}", rejecterId, targetUserId, tripId);
+    public ParticipantActionResponse rejectInvite(UUID tripId, InviteParticipantRequest request, UUID rejecterId) {
+        log.info("Owner {} rejecting invite/request for trip {}", rejecterId, tripId);
         findTripOrThrow(tripId);
         ensureOwner(tripId, rejecterId);
 
-        Participant participant = participantRepository.findByTripIdAndUserId(tripId, targetUserId)
-                .orElseThrow(() -> new InvalidTripDataException("No pending invite found for this user"));
+        Participant participant;
+        if (request.userId() != null) {
+            participant = participantRepository.findByTripIdAndUserId(tripId, request.userId())
+                    .orElseThrow(() -> new InvalidTripDataException("No pending invite found for this user"));
+        } else if (request.email() != null && !request.email().isBlank()) {
+            participant = participantRepository.findByTripIdAndEmail(tripId, request.email())
+                    .orElseThrow(() -> new InvalidTripDataException("No pending invite found for this email"));
+        } else {
+            throw new InvalidTripDataException("Either userId or email must be provided to reject invite");
+        }
 
         if (participant.getStatus() != ParticipantStatus.PENDING_APPROVAL
                 && participant.getStatus() != ParticipantStatus.INVITED) {
@@ -141,7 +172,7 @@ public class ParticipantService {
 
         participantRepository.delete(participant);
 
-        log.info("Invite rejected for user {} on trip {}", targetUserId, tripId);
+        log.info("Invite rejected/revoked for trip {}", tripId);
 
         return new ParticipantActionResponse("Invite rejected", null);
     }
@@ -313,6 +344,7 @@ public class ParticipantService {
         return new ParticipantResponse(
                 p.getId(),
                 p.getUserId(),
+                p.getEmail(),
                 p.getRole().name(),
                 p.getStatus().name(),
                 p.getJoinedAt()

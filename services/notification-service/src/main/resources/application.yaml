@@ -72,6 +72,14 @@ spring:
 server:
   port: 8085
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+
 management:
   endpoints:
     web:
@@ -87,6 +95,11 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+
+web-push:
+  public-key: ${VAPID_PUBLIC_KEY}
+  private-key: ${VAPID_PRIVATE_KEY}
+  subject: ${VAPID_SUBJECT:mailto:admin@trippy.com}
 
 logging:
   level:

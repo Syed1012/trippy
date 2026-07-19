@@ -66,8 +66,8 @@ public class ParticipantController {
             @PathVariable UUID tripId,
             @Valid @RequestBody InviteParticipantRequest request,
             @RequestHeader("X-User-Id") UUID userId) {
-        log.info("POST /trips/{}/participants/reject — Reject user={}, by={}", tripId, request.userId(), userId);
-        ParticipantActionResponse response = participantService.rejectInvite(tripId, request.userId(), userId);
+        log.info("POST /trips/{}/participants/reject — Reject request={}, by={}", tripId, request, userId);
+        ParticipantActionResponse response = participantService.rejectInvite(tripId, request, userId);
         return ResponseEntity.ok(response);
     }
 

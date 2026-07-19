@@ -9,12 +9,12 @@ import {
   Lightbulb, Undo2, ChevronDown, ChevronUp, Pencil,
   Bus, Clock, ArrowLeft, Lock, Globe,
   Utensils, Compass, ShoppingBag, Landmark, Moon,
-  Trees, Heart, ArrowUpRight, LucideIcon,
+  Trees, Heart, ArrowUpRight, CloudRain, LucideIcon,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
 import Button from "@/components/ui/Button";
-import { getAccessToken } from "@/lib/api";
+import { getValidAccessToken } from "@/lib/api";
 import { ROUTES } from "@/lib/routes";
 import { updateAiTripRouteState } from "@/lib/ai-trip-route-state";
 
@@ -56,6 +56,9 @@ interface AiItineraryActivity {
   bookingRequired?: boolean;
   lat?: number;
   lng?: number;
+  weatherCondition?: string;
+  weatherTemp?: number | null;
+  isRainy?: boolean;
 }
 
 interface GeneratedTrip {
@@ -211,7 +214,7 @@ export default function TripFullScreenView({
     try {
       const res = await fetch("/api/ai/itineraries", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           constraints: {
             destination: draftTrip.destination,
@@ -340,7 +343,7 @@ export default function TripFullScreenView({
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           messages: updated.map(m => ({ role: m.role, content: m.content })),
           tripContext: `Trip: ${draftTrip.title}\nDestination: ${draftTrip.destination}\nDuration: ${draftTrip.duration}`,
@@ -625,7 +628,7 @@ export default function TripFullScreenView({
               </div>
             </div>
           ) : draftTrip.aiItinerary && draftTrip.aiItinerary.length > 0 ? (
-            <div className="relative">
+            <div className="relative pb-24">
               {/* Loading overlay while chat is regenerating */}
               <AnimatePresence>
                 {chatLoading && (
@@ -689,8 +692,9 @@ export default function TripFullScreenView({
                     >
                       <span>Day {day.dayNumber}</span>
                       {hasWeather && (
-                        <span className={`text-[9px] font-medium ${isExp ? "text-white/80" : "text-sky-600"}`}>
-                          {formatTemperature(day.weather!.temperatureCelsius)}
+                        <span className={`text-[9px] font-medium flex items-center gap-1 ${isExp ? "text-white/80" : "text-sky-600"}`}>
+                          <span>{getWeatherIcon(day.weather?.condition)}</span>
+                          <span>{formatTemperature(day.weather!.temperatureCelsius)}</span>
                         </span>
                       )}
                     </button>
@@ -816,11 +820,26 @@ export default function TripFullScreenView({
                                   return (
                                     <div key={idx} className="group relative flex gap-4">
                                       {/* Timeline spine */}
-                                      <div className="flex flex-col items-center shrink-0 w-16">
+                                      <div className="flex flex-col items-center shrink-0 w-20">
                                         {act.time ? (
-                                          <span className="text-[10px] font-black text-trippy-600 bg-trippy-500/10 border border-trippy-200 px-2 py-1 rounded-lg text-center leading-tight whitespace-nowrap z-10">
-                                            {act.time}
-                                          </span>
+                                          <div className="flex flex-col items-center gap-1 z-10">
+                                            <span className="text-[10px] font-black text-trippy-600 bg-trippy-500/10 border border-trippy-200 px-2 py-1 rounded-lg text-center leading-tight whitespace-nowrap">
+                                              {act.time}
+                                            </span>
+                                            {(act.weatherCondition || act.weatherTemp != null) && (
+                                              <span
+                                                title={`${act.weatherCondition || "Weather"}: ${act.weatherTemp != null ? Math.round(act.weatherTemp) + "°C" : ""}`}
+                                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex items-center gap-0.5 whitespace-nowrap ${
+                                                  act.isRainy
+                                                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                                                    : "bg-sky-50/90 text-sky-700 border-sky-200"
+                                                }`}
+                                              >
+                                                <span>{getWeatherIcon(act.weatherCondition)}</span>
+                                                {act.weatherTemp != null && <span>{Math.round(act.weatherTemp)}°C</span>}
+                                              </span>
+                                            )}
+                                          </div>
                                         ) : (
                                           <div className="w-3 h-3 rounded-full bg-trippy-400 border-2 border-white shadow-sm z-10 mt-1" />
                                         )}
@@ -925,6 +944,15 @@ export default function TripFullScreenView({
                                                       {cat}
                                                     </span>
                                                   )}
+                                                  {(act.weatherCondition || act.weatherTemp != null) && (
+                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                                                      act.isRainy ? "bg-amber-50 text-amber-800 border-amber-200" : "bg-sky-50 text-sky-700 border-sky-200"
+                                                    }`}>
+                                                      <span>{getWeatherIcon(act.weatherCondition)}</span>
+                                                      <span>{act.weatherCondition?.split("(")[0].trim()}</span>
+                                                      {act.weatherTemp != null && <span>{Math.round(act.weatherTemp)}°C</span>}
+                                                    </span>
+                                                  )}
                                                   {act.bookingRequired && (
                                                     <span className="text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
                                                       📅 Book ahead
@@ -1002,7 +1030,7 @@ export default function TripFullScreenView({
           ) : null}
 
           {/* Save bar */}
-          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
+          <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
             {onVisibilityChange && (
               <div className="flex items-center justify-center gap-2">
                 <button
@@ -1059,29 +1087,45 @@ function DayContextBlocks({ day }: { day: AiItineraryDay }) {
     Boolean((item.from || item.to) && (item.estimatedDuration || item.notes))
   ) ?? [];
 
-  if (transport.length === 0) return null;
+  const weatherAdvice = day.weather?.advice;
+  const isRainyAdvice = weatherAdvice && (weatherAdvice.toLowerCase().includes("rain") || weatherAdvice.toLowerCase().includes("indoor"));
+
+  if (transport.length === 0 && !weatherAdvice) return null;
 
   return (
-    <div className="bg-[#f9f9f7] px-5 py-4">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Bus size={14} className="text-emerald-600" />
-          <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Transit</span>
+    <div className="bg-[#f9f9f7] px-5 py-4 space-y-3">
+      {weatherAdvice && (
+        <div className={`rounded-xl border px-4 py-3 flex items-start gap-2.5 ${isRainyAdvice ? "border-amber-200 bg-amber-50/90 text-amber-900" : "border-sky-200 bg-sky-50/90 text-sky-900"}`}>
+          <CloudRain size={16} className={`shrink-0 mt-0.5 ${isRainyAdvice ? "text-amber-600" : "text-sky-600"}`} />
+          <div className="text-[11px] leading-relaxed">
+            <span className="font-bold uppercase tracking-wider text-[10px] block mb-0.5">
+              {isRainyAdvice ? "Weather Adaptation Alert" : "Weather Guidance"}
+            </span>
+            <p className="font-medium">{weatherAdvice}</p>
+          </div>
         </div>
-        <div className="mt-1.5 space-y-2">
-          {transport.slice(0, 3).map((item, idx) => (
-            <div key={`${item.from}-${item.to}-${idx}`} className="text-[11px] leading-relaxed">
-              <p className="font-bold text-foreground/80">
-                {item.from || "Start"} → {item.to || "Next stop"}
-              </p>
-              <p className="text-muted">
-                {[item.mode || "Route", item.estimatedDuration].filter(Boolean).join(" · ")}
-              </p>
-              {item.notes && <p className="text-muted">{item.notes}</p>}
-            </div>
-          ))}
+      )}
+      {transport.length > 0 && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Bus size={14} className="text-emerald-600" />
+            <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Transit</span>
+          </div>
+          <div className="mt-1.5 space-y-2">
+            {transport.slice(0, 3).map((item, idx) => (
+              <div key={`${item.from}-${item.to}-${idx}`} className="text-[11px] leading-relaxed">
+                <p className="font-bold text-foreground/80">
+                  {item.from || "Start"} → {item.to || "Next stop"}
+                </p>
+                <p className="text-muted">
+                  {[item.mode || "Route", item.estimatedDuration].filter(Boolean).join(" · ")}
+                </p>
+                {item.notes && <p className="text-muted">{item.notes}</p>}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1118,8 +1162,8 @@ function formatDurationMinutes(value: number): string {
   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
-function aiRequestHeaders(): Record<string, string> {
-  const token = getAccessToken();
+async function aiRequestHeaders(): Promise<Record<string, string>> {
+  const token = await getValidAccessToken();
   return token
     ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
     : { "Content-Type": "application/json" };
