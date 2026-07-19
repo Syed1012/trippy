@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { GlassCard, Button } from "@/components/ui";
-import { notificationsApi, participantsApi, type Notification } from "@/lib/api";
+import { participantsApi, type Notification } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/lib/toast";
 import { useNotifications } from "@/lib/notification-context";

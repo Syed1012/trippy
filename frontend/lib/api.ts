@@ -146,6 +146,12 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && path !== "/auth/login") {
+      clearTokens();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("unauthorized"));
+      }
+    }
     throw new ApiError(res.status, body);
   }
 
@@ -206,6 +212,7 @@ export async function login(
   const data = await request<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password, rememberMe }),
+    auth: false,
   });
   setTokens(data.accessToken, data.refreshToken);
   return data;
@@ -219,6 +226,7 @@ export async function register(
   return request<RegisterResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, displayName }),
+    auth: false,
   });
 }
 
@@ -261,6 +269,7 @@ export async function logout(): Promise<void> {
     await request("/auth/logout", {
       method: "POST",
       body: JSON.stringify({ refreshToken }),
+      auth: false,
     }).catch(() => {
       /* best-effort — clear tokens regardless */
     });
@@ -281,6 +290,7 @@ export async function refreshAccessToken(): Promise<LoginResponse> {
   const data = await request<TokenRefreshResponse>("/auth/refresh", {
     method: "POST",
     body: JSON.stringify({ refreshToken }),
+    auth: false,
   });
   setTokens(data.accessToken, data.refreshToken);
 
@@ -967,6 +977,22 @@ export interface NotificationPage {
   size: number;
 }
 
+export interface NotificationPreference {
+  id: string | null;
+  userId: string;
+  type: string;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+}
+
+export interface UpdateNotificationPreferenceRequest {
+  type: string;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+}
+
 export const notificationsApi = {
   list: (page = 0, size = 10) =>
     api.get<NotificationPage>(`/notifications?page=${page}&size=${size}`),
@@ -977,6 +1003,9 @@ export const notificationsApi = {
   markRead: (id: string) => api.patch<void>(`/notifications/${id}/read`),
   markAllRead: () => api.patch<void>("/notifications/read-all"),
   deleteNotification: (id: string) => api.delete<void>(`/notifications/${id}`),
+  getPreferences: () => api.get<NotificationPreference[]>("/notifications/preferences"),
+  updatePreferences: (preferences: UpdateNotificationPreferenceRequest[]) =>
+    api.put<NotificationPreference[]>("/notifications/preferences", preferences),
 };
 
 /* ------------------------------------------------------------------ */
