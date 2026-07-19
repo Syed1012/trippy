@@ -33,6 +33,16 @@ export function getAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/**
+ * Single-flight lock for token refresh.
+ *
+ * Refresh tokens are single-use (the backend rotates them atomically), so
+ * concurrent refresh calls with the same token cause all but the first to
+ * fail with 401 "already consumed" — which logged users out randomly.
+ * All callers now await the same in-flight refresh promise.
+ */
+let refreshInFlight: Promise<LoginResponse> | null = null;
+
 export async function getValidAccessToken(): Promise<string | null> {
   const token = getAccessToken();
   if (!token) return null;
@@ -41,8 +51,22 @@ export async function getValidAccessToken(): Promise<string | null> {
   const expiresAt = typeof payload.exp === "number" ? payload.exp * 1000 : 0;
   if (expiresAt > Date.now() + 30_000) return token;
 
-  const refreshed = await refreshAccessToken();
-  return refreshed.accessToken;
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  try {
+    const refreshed = await refreshInFlight;
+    return refreshed.accessToken;
+  } catch (err) {
+    // Only a 401 means the refresh token is truly dead. For transient failures
+    // (429 rate limit, network, 5xx) keep using the current access token —
+    // proceeding with no Authorization header would cause a downstream 401
+    // and wrongly log the user out.
+    if (err instanceof ApiError && err.status === 401) throw err;
+    return token;
+  }
 }
 
 export function getRefreshToken(): string | null {
@@ -146,6 +170,8 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // 401 means the session is truly invalid — clear and notify.
+    // 429 (rate limit) and 5xx must NOT log the user out; the session is still valid.
     if (res.status === 401 && path !== "/auth/login") {
       clearTokens();
       if (typeof window !== "undefined") {
