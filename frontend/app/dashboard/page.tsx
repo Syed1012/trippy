@@ -396,7 +396,7 @@ export default function DashboardPage() {
                 {greetingName ? (
                   <>
                     Welcome back,{" "}
-                    <span className="text-gradient-warm">{greetingName}</span>
+                    <span className="text-foreground">{greetingName}</span>
                   </>
                 ) : (
                   <span className="text-gradient-warm">Your journeys</span>

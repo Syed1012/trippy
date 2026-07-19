@@ -19,7 +19,7 @@ import java.util.UUID;
  * <p>Clients send a STOMP MESSAGE to {@code /app/trips/{tripId}/typing} with a
  * {@link TypingRequest} payload.  The service manages debounced Redis state and
  * broadcasts {@code TypingEvent} frames to
- * {@code /topic/trips/{tripId}/typing}.
+ * {@code /topic/trips.{tripId}.typing}.
  *
  * <p>User identity is always derived server-side from the STOMP session
  * principal (set by {@link WebSocketAuthChannelInterceptor} on CONNECT).

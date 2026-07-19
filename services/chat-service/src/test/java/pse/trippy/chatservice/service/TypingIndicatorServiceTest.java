@@ -65,7 +65,7 @@ class TypingIndicatorServiceTest {
 
         verify(valueOps).setIfAbsent(eq(key), eq("1"), eq(TypingIndicatorService.TYPING_TTL));
         verify(messagingTemplate).convertAndSend(
-                eq("/topic/trips/" + tripId + "/typing"), any(TypingEvent.class));
+                eq("/topic/trips." + tripId + ".typing"), any(TypingEvent.class));
     }
 
     @Test
@@ -92,7 +92,7 @@ class TypingIndicatorServiceTest {
 
         verify(redisTemplate).delete(key);
         verify(messagingTemplate).convertAndSend(
-                eq("/topic/trips/" + tripId + "/typing"), any(TypingEvent.class));
+                eq("/topic/trips." + tripId + ".typing"), any(TypingEvent.class));
     }
 
     @Test

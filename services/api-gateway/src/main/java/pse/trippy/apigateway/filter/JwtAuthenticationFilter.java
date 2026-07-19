@@ -17,6 +17,7 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
 import pse.trippy.apigateway.service.JwksClient;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.security.interfaces.RSAPublicKey;
 import java.text.ParseException;
@@ -51,6 +52,15 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             "/ws/**"
     );
 
+    /**
+     * Routes that work for visitors but may use an optional JWT to personalize
+     * their response. They must not be included in {@link #PUBLIC_PATHS}, as
+     * those routes deliberately bypass JWT parsing altogether.
+     */
+    private static final List<String> ANONYMOUS_PATHS = List.of(
+            "/trips/public"
+    );
+
     private static final List<String> ADMIN_ONLY_PATHS = List.of(
             "/actuator/metrics",
             "/actuator/metrics/**",
@@ -77,23 +87,30 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+            if (isAnonymousPath(path)) {
+                return chain.filter(exchange);
+            }
             return unauthorized(exchange);
         }
 
         String token = authHeader.substring(BEARER_PREFIX.length());
 
-        JWTClaimsSet claims;
-        try {
-            claims = validateToken(token);
-        } catch (ParseException | JOSEException ex) {
-            log.debug("JWT validation error: {}", ex.getMessage());
-            return unauthorized(exchange);
-        }
+        return Mono.fromCallable(() -> validateToken(token))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(claims -> filterAuthenticated(exchange, chain, path, claims))
+                .switchIfEmpty(Mono.defer(() -> unauthorized(exchange)))
+                .onErrorResume(ParseException.class, ex -> {
+                    log.debug("JWT parsing error: {}", ex.getMessage());
+                    return unauthorized(exchange);
+                })
+                .onErrorResume(JOSEException.class, ex -> {
+                    log.debug("JWT validation error: {}", ex.getMessage());
+                    return unauthorized(exchange);
+                });
+    }
 
-        if (claims == null) {
-            return unauthorized(exchange);
-        }
-
+    private Mono<Void> filterAuthenticated(ServerWebExchange exchange, GatewayFilterChain chain,
+                                           String path, JWTClaimsSet claims) {
         String jti    = claims.getJWTID();
         String userId = claims.getSubject();
         String role   = getClaimAsString(claims, "role");
@@ -180,6 +197,10 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private boolean isAdminOnlyPath(String path) {
         return ADMIN_ONLY_PATHS.stream().anyMatch(p -> PATH_MATCHER.match(p, path));
+    }
+
+    private boolean isAnonymousPath(String path) {
+        return ANONYMOUS_PATHS.stream().anyMatch(p -> PATH_MATCHER.match(p, path));
     }
 
     private Mono<Boolean> isBlacklisted(String jti, String userId) {

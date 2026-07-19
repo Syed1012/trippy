@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ChatPresenceService {
 
-    private static final String PARTICIPANTS_TOPIC = "/topic/trips/%s/participants";
+    private static final String PARTICIPANTS_TOPIC = "/topic/trips.%s.participants";
     private static final String PRESENCE_KEY       = "presence:trip:%s";
     /** Safety-net TTL — a room key expires 24 h after the last join. */
     static final Duration       PRESENCE_TTL       = Duration.ofHours(24);

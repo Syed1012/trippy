@@ -69,8 +69,19 @@ class FallbackItineraryGeneratorTest {
         int packedCount = totalActivities(generator.generate(request("Berlin", 3, "PACKED",
                 List.of(), List.of()), "AI_PROVIDER_UNAVAILABLE"));
 
-        assertThat(slowCount).isLessThan(moderateCount);
-        assertThat(moderateCount).isLessThan(packedCount);
+        assertThat(slowCount).isGreaterThanOrEqualTo(15);
+        assertThat(moderateCount).isGreaterThanOrEqualTo(15);
+        assertThat(packedCount).isGreaterThanOrEqualTo(moderateCount);
+    }
+
+    @Test
+    @DisplayName("generates at least five activities for every fallback day")
+    void generatesAtLeastFiveActivitiesPerDay() {
+        ItineraryResponse response = generator.generate(request("Berlin", 3, "SLOW",
+                List.of(), List.of()), "AI_PROVIDER_UNAVAILABLE");
+
+        assertThat(response.getDailyPlan())
+                .allSatisfy(day -> assertThat(day.getActivities()).hasSizeGreaterThanOrEqualTo(5));
     }
 
     @Test

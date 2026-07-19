@@ -57,4 +57,12 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
             )
             """)
     Page<Trip> findPublicTripsExcludingUser(@Param("userId") UUID userId, Pageable pageable);
+
+    @Query("""
+            SELECT t FROM Trip t
+            WHERE t.visibility = pse.trippy.tripservice.model.enums.TripVisibility.PUBLIC
+            AND t.status <> pse.trippy.tripservice.model.enums.TripStatus.CANCELLED
+            AND t.status <> pse.trippy.tripservice.model.enums.TripStatus.DRAFT
+            """)
+    Page<Trip> findPublicTrips(Pageable pageable);
 }

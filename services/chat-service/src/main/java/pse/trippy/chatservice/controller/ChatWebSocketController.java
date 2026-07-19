@@ -3,9 +3,7 @@ package pse.trippy.chatservice.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Controller;
 import pse.trippy.chatservice.config.WebSocketAuthChannelInterceptor;
@@ -30,12 +28,11 @@ public class ChatWebSocketController {
 
     /**
      * Handles messages sent to /app/trips/{tripId}/send.
-     * Persists the message and broadcasts to /topic/trips/{tripId}/messages.
+    * Persists the message and broadcasts to /topic/trips.{tripId}.messages.
      * User identity is derived from the server-validated STOMP session principal
      * (set by {@link WebSocketAuthChannelInterceptor} on CONNECT).
      */
     @MessageMapping("/trips/{tripId}/send")
-    @SendTo("/topic/trips/{tripId}/messages")
     public ChatMessageResponse sendMessage(
             @DestinationVariable UUID tripId,
             StompHeaderAccessor headerAccessor,

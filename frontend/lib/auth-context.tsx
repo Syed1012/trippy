@@ -52,12 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshAccessToken()
       .then((res) => setUser(res.user))
       .catch(() => {
-        // If refresh fails but we have a valid decoded user, keep them logged in
-        // (the access token may still be valid). Only clear if no user at all.
-        if (!cachedUser) {
-          clearTokens();
-          setUser(null);
-        }
+        clearTokens();
+        setUser(null);
       })
       .finally(() => setIsLoading(false));
   }, []);

@@ -131,7 +131,9 @@ public class TripService {
     @Transactional(readOnly = true)
     public TripPageResponse listPublicTrips(UUID userId, int page, int size) {
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Trip> tripPage = tripRepository.findPublicTripsExcludingUser(userId, pageRequest);
+        Page<Trip> tripPage = userId == null
+                ? tripRepository.findPublicTrips(pageRequest)
+                : tripRepository.findPublicTripsExcludingUser(userId, pageRequest);
 
         List<Trip> pageTrips = tripPage.getContent();
         List<UUID> tripIds = pageTrips.stream().map(Trip::getId).toList();
@@ -140,8 +142,10 @@ public class TripService {
         Map<UUID, Integer> memberCountByTrip = new HashMap<>();
 
         if (!tripIds.isEmpty()) {
-            for (Participant p : participantRepository.findByUserIdAndTripIds(userId, tripIds)) {
-                userStatusByTrip.put(p.getTrip().getId(), p.getStatus().name());
+            if (userId != null) {
+                for (Participant p : participantRepository.findByUserIdAndTripIds(userId, tripIds)) {
+                    userStatusByTrip.put(p.getTrip().getId(), p.getStatus().name());
+                }
             }
             for (Participant p : participantRepository.findByTripIdsAndStatusIn(
                     tripIds, List.of(ParticipantStatus.ACCEPTED))) {

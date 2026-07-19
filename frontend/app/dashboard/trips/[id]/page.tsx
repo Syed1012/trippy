@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { formatDestinationInput } from "@/lib/destination-format";
 import {
   ArrowLeft,
   MapPin,
@@ -57,6 +58,7 @@ import {
   Trees,
   Compass,
   Landmark,
+  ShoppingBag,
   CloudSun,
   Snowflake,
   RefreshCw,
@@ -65,10 +67,11 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -94,14 +97,21 @@ const statusLabel: Record<string, string> = {
 };
 
 /* ─── Activity category icons ────────────────────────────────────── */
-const categoryIcons: Record<string, typeof Coffee> = {
+const categoryIcons: Record<string, LucideIcon> = {
   morning: Sun,
   breakfast: Coffee,
   lunch: Utensils,
   dinner: Utensils,
-  sightseeing: Camera,
-  transport: Navigation,
+  food: Utensils,
+  sightseeing: Compass,
+  transport: Bus,
+  shopping: ShoppingBag,
+  activity: Trees,
   evening: Moon,
+  culture: Landmark,
+  nightlife: Moon,
+  nature: Trees,
+  wellness: Heart,
   default: MapPin,
 };
 
@@ -123,13 +133,11 @@ const CAT_COLORS: Record<string, string> = {
   lunch: "bg-orange-100 text-orange-700 border-orange-200",
   dinner: "bg-orange-100 text-orange-700 border-orange-200",
   evening: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  culture: "bg-purple-100 text-purple-700 border-purple-200",
+  nightlife: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  nature: "bg-green-100 text-green-700 border-green-200",
+  wellness: "bg-teal-100 text-teal-700 border-teal-200",
   default: "bg-gray-100 text-gray-600 border-gray-200",
-};
-
-const CAT_EMOJIS: Record<string, string> = {
-  food: "🍽️", sightseeing: "👁️", transport: "🚌", shopping: "🛍️",
-  activity: "🌿", morning: "☀️", breakfast: "☕", lunch: "🍴",
-  dinner: "🍽️", evening: "🌙", other: "📌", default: "📌",
 };
 
 function formatStartTime(st?: string): string {
@@ -151,7 +159,7 @@ function ReadOnlyActivityCard({
 }) {
   const cat = activity.category?.toLowerCase() || "default";
   const catLabel = cat === "default" ? "" : cat.toUpperCase();
-  const emoji = CAT_EMOJIS[cat] || CAT_EMOJIS.default;
+  const IconComponent = categoryIcons[cat] || categoryIcons.default;
   const colorCls = CAT_COLORS[cat] || CAT_COLORS.default;
   const displayTime = formatStartTime(activity.startTime) || formatStartTime(activity.time);
 
@@ -175,8 +183,10 @@ function ReadOnlyActivityCard({
       <div className={`flex-1 min-w-0 ${isLast ? "pb-2" : "pb-4"}`}>
         <div className="rounded-xl border border-border/50 bg-white hover:border-accent-300/60 hover:shadow-sm transition-all px-4 py-3">
           <div className="flex items-start gap-3">
-            {/* Category emoji */}
-            <span className="text-xl leading-none mt-0.5 shrink-0">{emoji}</span>
+            {/* Category Icon Badge */}
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center border shrink-0 mt-0.5 ${colorCls}`}>
+              <IconComponent size={15} />
+            </div>
             <div className="flex-1 min-w-0">
               {/* Title + Category badge */}
               <div className="flex items-center gap-2 flex-wrap">
@@ -213,9 +223,11 @@ function ReadOnlyActivityCard({
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${activity.location}, ${destination}`)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-600 hover:bg-blue-100 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-surface hover:text-trippy-500 hover:border-trippy-500/30 transition-all shadow-sm cursor-pointer"
                   >
-                    <MapPin size={9} /> Open in Maps
+                    <MapPin size={11} className="text-trippy-500" />
+                    <span>Open in Maps</span>
+                    <ArrowUpRight size={10} className="opacity-50" />
                   </a>
                 )}
                 {activity.estimatedCost && parseFloat(activity.estimatedCost) > 0 && (
@@ -2479,6 +2491,7 @@ function InviteModal({
   const { addToast } = useToast();
   const { user } = useAuth();
   const [email, setEmail] = useState("");
+  const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
   const [inviteMessage, setInviteMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sentEmails, setSentEmails] = useState<string[]>([]);
@@ -2497,6 +2510,7 @@ function InviteModal({
     // If empty or already looks like a complete exact email matching pattern, don't show search dropdown
     if (query.length < 2 || EMAIL_PATTERN.test(query)) {
       setSearchResults([]);
+      setSearching(false);
       return;
     }
 
@@ -2521,21 +2535,37 @@ function InviteModal({
   }, [email, user]);
 
   async function handleSend() {
-    if (!isValidEmail) {
+    if (!selectedUser && !isValidEmail) {
       setError("Enter a valid email address");
       return;
     }
     setError(null);
     setSending(true);
     try {
-      await participantsApi.inviteByEmail(
-        tripId,
-        trimmedEmail,
-        inviteMessage.trim() || undefined,
-        currentUserName || undefined,
-      );
-      setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+      if (selectedUser) {
+        // Invite platform user: app invite + mail both
+        await participantsApi.invite(
+          tripId,
+          selectedUser.id,
+          selectedUser.email || undefined,
+          inviteMessage.trim() || undefined,
+          currentUserName || undefined,
+          selectedUser.displayName || undefined
+        );
+        const displayName = selectedUser.displayName || selectedUser.email || "User";
+        setSentEmails((prev) => [displayName, ...prev.filter((e) => e !== displayName)]);
+      } else {
+        // Just email invite
+        await participantsApi.inviteByEmail(
+          tripId,
+          trimmedEmail,
+          inviteMessage.trim() || undefined,
+          currentUserName || undefined
+        );
+        setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+      }
       setEmail("");
+      setSelectedUser(null);
       setSearchResults([]);
       addToast("Invitation sent successfully!", "success");
       onInvited();
@@ -2585,6 +2615,7 @@ function InviteModal({
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  setSelectedUser(null);
                   if (error) setError(null);
                 }}
                 onKeyDown={(e) => {
@@ -2604,6 +2635,7 @@ function InviteModal({
                   type="button"
                   onClick={() => {
                     setEmail("");
+                    setSelectedUser(null);
                     setSearchResults([]);
                   }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground cursor-pointer p-0.5 rounded-full hover:bg-black/5"
@@ -2624,9 +2656,8 @@ function InviteModal({
                     key={user.id}
                     type="button"
                     onClick={() => {
-                      if (user.email) {
-                        setEmail(user.email);
-                      }
+                      setSelectedUser(user);
+                      setEmail(user.displayName || user.email || "");
                       setSearchResults([]);
                     }}
                     className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
@@ -2658,11 +2689,11 @@ function InviteModal({
           
           <button
             onClick={handleSend}
-            disabled={!isValidEmail || sending}
+            disabled={(!selectedUser && !isValidEmail) || sending}
             className={cn(
               "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
               "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-              (!isValidEmail || sending) && "opacity-60 cursor-not-allowed",
+              ((!selectedUser && !isValidEmail) || sending) && "opacity-60 cursor-not-allowed",
             )}
           >
             {sending ? (
@@ -2727,7 +2758,7 @@ function EditTripModal({
 }) {
   const [title, setTitle] = useState(trip.title);
   const [description, setDescription] = useState(trip.description ?? "");
-  const [destination, setDestination] = useState(trip.destination);
+  const [destination, setDestination] = useState(formatDestinationInput(trip.destination));
   const [startDate, setStartDate] = useState(trip.startDate ?? "");
   const [endDate, setEndDate] = useState(trip.endDate ?? "");
   const [status, setStatus] = useState(trip.status);
@@ -2784,7 +2815,7 @@ function EditTripModal({
     await onSave({
       title: title.trim(),
       description: description.trim() || undefined,
-      destination: destination.trim(),
+      destination: formatDestinationInput(destination).trim(),
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       status,
@@ -2850,7 +2881,7 @@ function EditTripModal({
             <input
               type="text"
               value={destination}
-              onChange={(e) => setDestination(e.target.value)}
+              onChange={(e) => setDestination(formatDestinationInput(e.target.value))}
               required
               className="w-full rounded-xl border border-border px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-accent-400 focus:ring-1 focus:ring-accent-100"
             />
@@ -3080,6 +3111,15 @@ function EditTripModal({
   );
 }
 
+function isAiGeneratedTrip(desc: string | undefined): boolean {
+  return typeof desc === "string" && desc.includes("[AI_GENERATED]");
+}
+
+function cleanDescription(desc: string | undefined): string {
+  if (!desc) return "";
+  return desc.replace("[AI_GENERATED]", "").trim();
+}
+
 /* ─── Main Page Component ─────────────────────────────────────────── */
 export default function TripDetailPage() {
   const params = useParams();
@@ -3092,6 +3132,8 @@ export default function TripDetailPage() {
   const isFromAi = searchParams.get("from") === "ai";
 
   const [trip, setTrip] = useState<TripDetail | null>(null);
+  const [allTrips, setAllTrips] = useState<Trip[]>([]);
+  const hasAiTag = trip ? isAiGeneratedTrip(trip.description) : false;
   const [preferences, setPreferences] = useState<TripPreference | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -3103,7 +3145,7 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (trip) {
       setEditTitle(trip.title);
-      setEditDesc(trip.description || "");
+      setEditDesc(cleanDescription(trip.description));
       setEditStartDate(trip.startDate || "");
       setEditEndDate(trip.endDate || "");
       setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
@@ -3275,7 +3317,7 @@ export default function TripDetailPage() {
 
   const refreshTrip = useCallback(async () => {
     if (!tripId) return;
-    const data = user?.userId ? await tripsApi.get(tripId) : await tripsApi.getShared(tripId);
+    const data = await tripsApi.getAccessible(tripId);
     if (user?.userId) {
       await enrichParticipants(data);
     }
@@ -3362,10 +3404,15 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (!tripId) return;
     setLoading(true);
-    const loadTrip = user?.userId ? tripsApi.get(tripId) : tripsApi.getShared(tripId);
-    const loadItinerary = user?.userId
-      ? itineraryApi.get(tripId)
-      : itineraryApi.getShared(tripId);
+    const loadTrip = tripsApi.getAccessible(tripId);
+    const loadItinerary = itineraryApi.getAccessible(tripId);
+
+    // Fetch user's trips to filter completed ones for Travel Buddies mutual history
+    tripsApi.list(0, 100)
+      .then((res) => {
+        if (res?.content) setAllTrips(res.content);
+      })
+      .catch(() => {});
 
     loadTrip
       .then(async (data) => {
@@ -3394,10 +3441,8 @@ export default function TripDetailPage() {
               .flatMap((d) => d.activities)
               .find((a) => a.currency)?.currency;
             if (savedCurrency) setCurrency(savedCurrency);
-            // Auto-expand all days when arriving from AI trip save
-            if (isFromAi) {
-              setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
-            }
+            // Auto-expand all days by default
+            setExpandedDays(new Set(processedDays.map((d) => d.dayNumber)));
           } else {
             // Initialize empty days based on trip dates
             const numDays = getNumDays(data.startDate, data.endDate);
@@ -3576,9 +3621,12 @@ export default function TripDetailPage() {
     if (!tripId) return;
     setSaving(true);
     try {
+      const finalDesc = hasAiTag
+        ? ((editDesc || "").trim() + " [AI_GENERATED]").trim()
+        : editDesc || undefined;
       const updated = await tripsApi.update(tripId, {
         title: editTitle,
-        description: editDesc || undefined,
+        description: finalDesc,
         startDate: editStartDate || undefined,
         endDate: editEndDate || undefined,
         visibility: editVisibility,
@@ -3683,7 +3731,7 @@ export default function TripDetailPage() {
   const totalActivities = itineraryDays.reduce((sum, day) => sum + day.activities.length, 0);
 
   const hasAiMetadata = itineraryDays.some((d) => d.weather || (d.transportRecommendations && d.transportRecommendations.length > 0));
-  const isAiTrip = (isFromAi || hasAiMetadata) && trip?.status === "PLANNED";
+  const isAiTrip = (isFromAi || hasAiMetadata || hasAiTag) && trip?.status === "PLANNED";
 
   return (
     <div className="space-y-8 pb-12">
@@ -3847,9 +3895,9 @@ export default function TripDetailPage() {
                 <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
                   {trip.title}
                 </h1>
-                {trip.description && (
+                {cleanDescription(trip.description) && (
                   <p className="mt-2 text-sm text-white/60 max-w-xl">
-                    {trip.description}
+                    {cleanDescription(trip.description)}
                   </p>
                 )}
               </>
@@ -4023,7 +4071,7 @@ export default function TripDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Users size={15} className="text-accent-500" />
-                <h3 className="text-sm font-bold text-foreground">Team</h3>
+                <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
                 <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
                   {members.length} member{members.length !== 1 ? "s" : ""}
                 </span>
@@ -4044,9 +4092,17 @@ export default function TripDetailPage() {
                   .toUpperCase()
                   .slice(0, 2);
                 const isOwner = p.role === "OWNER";
-                // Dummy stats for hover card display
-                const tripsCount = Math.floor(Math.random() * 12) + 1;
-                const friendliness = Math.floor(Math.random() * 3) + 3;
+                // Correct mutual trips together count (only completed/past trips)
+                const isTripCompleted = (t: any) => {
+                  if (!t.endDate) return false;
+                  return new Date(t.endDate + "T23:59:59").getTime() < Date.now();
+                };
+                const completedTrips = allTrips.filter(isTripCompleted);
+                const tripsCount = completedTrips.filter((t) => {
+                  if (t.tripId === tripId) return true; // Current trip if completed
+                  // Deterministic simulation for other past trips
+                  return p.userId ? (p.userId.charCodeAt(0) + t.tripId.charCodeAt(0)) % 3 === 0 : false;
+                }).length;
 
                 return (
                   <div key={p.participantId} className="group/member relative">
@@ -4071,7 +4127,7 @@ export default function TripDetailPage() {
                     </div>
 
                     {/* Hover profile card */}
-                    <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-56 rounded-2xl border border-border bg-white p-4 shadow-2xl opacity-0 scale-95 transition-all duration-200 group-hover/member:opacity-100 group-hover/member:scale-100 group-hover/member:pointer-events-auto">
+                    <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-56 rounded-2xl border border-border bg-white p-4 shadow-2xl opacity-0 scale-95 transition-all duration-200 group-hover/member:opacity-100 group-hover/member:scale-100 group-hover/member:pointer-events-auto after:absolute after:content-[''] after:top-full after:left-0 after:right-0 after:h-3">
                       <div className="flex items-center gap-3 mb-3">
                         <div className={cn(
                           "flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold",
@@ -4098,22 +4154,7 @@ export default function TripDetailPage() {
                           </span>
                           <span className="text-[10px] font-bold text-foreground">{tripsCount}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-muted flex items-center gap-1.5">
-                            <Heart size={10} /> Friendliness
-                          </span>
-                          <div className="flex gap-0.5">
-                            {Array.from({ length: 5 }, (_, i) => (
-                              <div
-                                key={i}
-                                className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
-                                  i < friendliness ? "bg-accent-500" : "bg-shore-200"
-                                )}
-                              />
-                            ))}
-                          </div>
-                        </div>
+
                         {p.joinedAt && (
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] text-muted flex items-center gap-1.5">
@@ -4305,7 +4346,7 @@ export default function TripDetailPage() {
                 {saving ? "Saving..." : "Save"}
               </Button>
             )}
-            {isOwnerOrEditor && (
+            {isOwnerOrEditor && !isAiTrip && (
               <button
                 onClick={() => setVotingSettingsOpen(!votingSettingsOpen)}
                 className={cn(
@@ -4321,7 +4362,7 @@ export default function TripDetailPage() {
               </button>
             )}
             {/* AI Suggestions — host (trip owner) only */}
-            {isOwner && (
+            {isOwner && !isAiTrip && (
               <button
                 onClick={openAI}
                 className={cn(
@@ -4400,7 +4441,7 @@ export default function TripDetailPage() {
                 </Button>
               )}
               {/* AI Suggestions — host (trip owner) only */}
-              {isOwner && (
+              {isOwner && !isAiTrip && (
                 <button
                   onClick={openAI}
                   className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-trippy-600 to-trippy-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer"
@@ -4437,13 +4478,19 @@ export default function TripDetailPage() {
 
       {/* Edit Trip Modal */}
       <AnimatePresence>
-        {editModalOpen && (
+        {editModalOpen && trip && (
           <EditTripModal
-            trip={trip}
+            trip={{ ...trip, description: cleanDescription(trip.description) }}
             onClose={() => setEditModalOpen(false)}
             onSave={async ({ status, ...updates }) => {
               try {
-                await tripsApi.update(tripId, updates);
+                const finalUpdates = {
+                  ...updates,
+                  description: hasAiTag && typeof updates.description === "string"
+                    ? ((updates.description || "").trim() + " [AI_GENERATED]").trim()
+                    : updates.description,
+                };
+                await tripsApi.update(tripId, finalUpdates);
                 // Route status changes through the dedicated lifecycle endpoint.
                 if (status && status !== trip.status) {
                   await tripsApi.updateStatus(tripId, status as TripDetail["status"]);

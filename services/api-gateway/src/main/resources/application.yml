@@ -42,6 +42,7 @@ spring:
           args:
             name: trippy-backend-cb
             fallbackUri: forward:/fallback/default
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_FIRST
 
       routes:
         # User Service Routes
@@ -129,7 +130,14 @@ spring:
                 name: chatServiceCircuitBreaker
                 fallbackUri: forward:/fallback/chat-service
 
-        # WebSocket Route
+        # Native WebSocket transport for SockJS/STOMP upgrades
+        - id: websocket-upgrade-route
+          uri: ws://localhost:8083
+          predicates:
+            - Path=/ws/**
+            - Header=Upgrade, websocket
+
+        # SockJS discovery and HTTP fallback transports
         - id: websocket-route
           uri: http://localhost:8083
           predicates:

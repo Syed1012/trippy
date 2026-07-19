@@ -45,4 +45,15 @@ public class ChatRoomService {
         return chatRoomRepository.findByTripId(tripId)
                 .orElseThrow(() -> new ChatRoomNotFoundException(tripId.toString()));
     }
+
+    @Transactional
+    public ChatRoom getOrCreateRoomByTripId(UUID tripId) {
+        return chatRoomRepository.findByTripId(tripId)
+                .orElseGet(() -> {
+                    log.info("Creating chat room lazily for trip {}", tripId);
+                    return chatRoomRepository.save(ChatRoom.builder()
+                            .tripId(tripId)
+                            .build());
+                });
+    }
 }

@@ -50,6 +50,18 @@ export default function PaymentPage() {
   const activePlanId = subscription?.plan?.toUpperCase() || "FREE";
 
   async function handleSelectPlan(plan: any) {
+      // If user already has a paid plan, block switching
+    const isPaidPlan = activePlanId !== "FREE";
+    const isTryingPaidPlan = plan.planId !== "FREE";
+
+    if (isPaidPlan && isTryingPaidPlan) {
+      addToast(
+        `You already have an active ${subscription?.plan} plan. You can choose a new paid plan after ${subscription?.currentPeriodEnd}.`,
+        "error"
+      );
+      return;
+    }
+
     if (plan.planId === activePlanId) return;
 
     setCheckoutLoading(plan.planId);
@@ -59,6 +71,19 @@ export default function PaymentPage() {
       else throw new Error("No checkout URL received");
     } catch {
       addToast("Failed to initiate checkout. Please try again.", "error");
+    } finally {
+      setCheckoutLoading(null);
+    }
+  }
+
+  async function handleCancelPlan() {
+    try {
+      setCheckoutLoading("cancel");
+      await paymentsApi.cancelSubscription();
+      addToast("Your plan will cancel at the end of the billing period.", "success");
+      await loadData(); // refresh subscription info
+    } catch {
+      addToast("Failed to cancel your plan. Please try again.", "error");
     } finally {
       setCheckoutLoading(null);
     }
@@ -94,7 +119,16 @@ export default function PaymentPage() {
               </div>
             </div>
             {!subscription.cancelAtPeriodEnd && (
-              <Button variant="ghost" className="text-destructive text-xs">Cancel Plan</Button>
+              <Button
+                variant="ghost"
+                className="text-destructive text-xs"
+                disabled={checkoutLoading === "cancel"}
+                onClick={handleCancelPlan}
+              >
+                {checkoutLoading === "cancel"
+                  ? <Loader2 className="animate-spin" size={14} />
+                  : "Cancel Plan"}
+              </Button>
             )}
           </div>
         </GlassCard>

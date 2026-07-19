@@ -45,6 +45,11 @@ public class NotificationService {
         return createNotification(userId, type, title, message, actionUrl, null);
     }
 
+    private String truncate(String value, int maxLen) {
+        if (value == null) return null;
+        return value.length() <= maxLen ? value : value.substring(0, maxLen);
+    }
+
     @Transactional
     public Notification createNotification(UUID userId, NotificationType type, String title,
                                            String message, String actionUrl,
@@ -52,8 +57,8 @@ public class NotificationService {
         Notification notification = Notification.builder()
                 .userId(userId)
                 .type(type)
-                .title(title)
-                .message(message)
+                .title(truncate(title == null || title.isBlank() ? "Notification" : title, 200))
+                .message(truncate(message == null || message.isBlank() ? "New update" : message, 1000))
                 .actionUrl(normalizeActionUrl(actionUrl))
                 .metadata(metadata == null ? new HashMap<>() : new HashMap<>(metadata))
                 .channel(NotificationChannel.IN_APP)

@@ -259,6 +259,23 @@ class TripServiceTest {
             assertThat(response.trips()).isEmpty();
             assertThat(response.totalElements()).isEqualTo(0);
         }
+
+        @Test
+        @DisplayName("returns public trips without user-specific state for anonymous visitors")
+        void returnsPublicTripsForAnonymousVisitor() {
+            Page<Trip> page = new PageImpl<>(List.of(trip), PageRequest.of(0, 10), 1);
+            when(tripRepository.findPublicTrips(any(PageRequest.class))).thenReturn(page);
+            when(participantRepository.findByTripIdsAndStatusIn(any(Collection.class), any(Collection.class)))
+                    .thenReturn(List.of(ownerParticipant()));
+
+            TripPageResponse response = tripService.listPublicTrips(null, 0, 10);
+
+            assertThat(response.trips()).singleElement().satisfies(result -> {
+                assertThat(result.memberCount()).isEqualTo(1);
+                assertThat(result.currentUserStatus()).isNull();
+            });
+            verify(tripRepository).findPublicTrips(any(PageRequest.class));
+        }
     }
 
     // =========================================================================
