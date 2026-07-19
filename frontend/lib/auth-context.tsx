@@ -15,6 +15,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
   refreshAccessToken,
+  ApiError,
   type UserProfile,
   type LoginResponse,
 } from "@/lib/api";
@@ -45,20 +46,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const token = getAccessToken();
     if (!token) {
-      setIsLoading(false);
+      queueMicrotask(() => setIsLoading(false));
     } else {
       // First, immediately restore user from JWT claims (instant, no network)
       const cachedUser = getUserFromToken(token);
       if (cachedUser) {
-        setUser(cachedUser);
+        queueMicrotask(() => setUser(cachedUser));
       }
 
       // Then try to refresh the token to get a fresh one
       refreshAccessToken()
         .then((res) => setUser(res.user))
-        .catch(() => {
-          clearTokens();
-          setUser(null);
+        .catch((error) => {
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+            clearTokens();
+            setUser(null);
+          }
         })
         .finally(() => setIsLoading(false));
     }

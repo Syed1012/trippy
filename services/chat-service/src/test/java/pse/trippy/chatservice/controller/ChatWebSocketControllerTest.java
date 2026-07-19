@@ -29,7 +29,7 @@ class ChatWebSocketControllerTest {
     @Mock
     private ChatMessageService chatMessageService;
 
-    @Mock
+        @Mock
     private WebSocketAuthChannelInterceptor authChannelInterceptor;
 
     @InjectMocks

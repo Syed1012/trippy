@@ -44,7 +44,7 @@ public class TripImageService {
     @Value("${AI_IMAGE_BASE_URL:https://image.pollinations.ai}")
     private String imageBaseUrl;
 
-    @Value("${AI_IMAGE_MODEL:flux}")
+    @Value("${AI_IMAGE_MODEL:sana}")
     private String imageModel;
 
     @Value("${AI_IMAGE_WIDTH:1280}")

@@ -510,7 +510,6 @@ public class NotificationEventListener {
         if (parsedUserId == null) {
             return;
         }
-
         boolean inAppEnabled = notificationPreferenceService.isChannelEnabled(parsedUserId, type, NotificationChannel.IN_APP);
         boolean pushEnabled = notificationPreferenceService.isChannelEnabled(parsedUserId, type, NotificationChannel.PUSH);
 

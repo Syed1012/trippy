@@ -1127,6 +1127,15 @@ export const chatApi = {
     if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
     return res.json();
   },
+  getAttachment: async (fileUrl: string): Promise<Blob> => {
+    const token = await getValidAccessToken();
+    const encodedPath = fileUrl.split("/").map(encodeURIComponent).join("/");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/chats/files/${encodedPath}`, { headers });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
+    return res.blob();
+  },
   getParticipants: (tripId: string) =>
     api.get<string[]>(`/chats/${tripId}/participants`),
 };

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   ArrowLeft,
   Send,
@@ -10,18 +9,98 @@ import {
   Loader2,
   Users,
   File as FileIcon,
-  Image as ImageIcon,
+  Download,
   X,
 } from "lucide-react";
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { GlassCard, Button, Avatar } from "@/components/ui";
-import { chatApi, getValidAccessToken, type ChatMessage } from "@/lib/api";
+import { chatApi, getValidAccessToken, tripsApi, usersApi, type ChatMessage, type UserPublicProfile } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:8080/ws";
+
+function MessageAttachment({
+  attachment,
+  isImage,
+  isOwn,
+  onError,
+}: {
+  attachment: NonNullable<ChatMessage["attachment"]>;
+  isImage: boolean;
+  isOwn: boolean;
+  onError: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (!isImage) return;
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    chatApi.getAttachment(attachment.fileUrl)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      })
+      .catch(onError);
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment.fileUrl, isImage, onError]);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const blob = await chatApi.getAttachment(attachment.fileUrl);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = attachment.fileName;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      onError();
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={downloading}
+      className={cn(
+        "flex max-w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs disabled:opacity-60",
+        isOwn ? "bg-white/20" : "bg-surface",
+      )}
+    >
+      {isImage && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={previewUrl}
+          alt={attachment.fileName}
+          className="max-h-48 max-w-full rounded-lg"
+        />
+      ) : (
+        <FileIcon size={14} className="shrink-0" />
+      )}
+      <span className="truncate">{attachment.fileName}</span>
+      {downloading ? (
+        <Loader2 size={14} className="ml-auto shrink-0 animate-spin" />
+      ) : (
+        <Download size={14} className="ml-auto shrink-0" />
+      )}
+    </button>
+  );
+}
 
 export default function ChatPage() {
   const params = useParams();
@@ -36,7 +115,8 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [participants, setParticipants] = useState<string[]>([]);
+  const [participants, setParticipants] = useState<UserPublicProfile[]>([]);
+  const [onlineParticipantIds, setOnlineParticipantIds] = useState<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const stompRef = useRef<Client | null>(null);
@@ -46,20 +126,44 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  const loadParticipantProfiles = useCallback(async (userIds: string[]) => {
+    const profiles = await usersApi.batchProfiles(userIds).catch(() => []);
+    setParticipants(profiles);
+  }, []);
+
+  const resolveSenderNames = useCallback(async (chatMessages: ChatMessage[]) => {
+    const unresolvedIds = [...new Set(chatMessages
+      .filter((message) => !message.senderDisplayName || message.senderDisplayName === "Anonymous")
+      .map((message) => message.senderId)
+      .filter(Boolean))];
+    if (unresolvedIds.length === 0) return chatMessages;
+
+    const profiles = await usersApi.batchProfiles(unresolvedIds).catch(() => []);
+    const namesById = new Map(profiles.map((profile) => [profile.id, profile.displayName]));
+    return chatMessages.map((message) => ({
+      ...message,
+      senderDisplayName: namesById.get(message.senderId) ?? message.senderDisplayName,
+    }));
+  }, []);
+
   // Load initial messages
   useEffect(() => {
     if (!tripId) return;
     setLoading(true);
     Promise.all([
       chatApi.getMessages(tripId).catch(() => ({ messages: [], page: 0, size: 50, totalMessages: 0, hasMore: false })),
+      tripsApi.get(tripId).then((trip) => trip.participants
+        .filter((participant) => participant.status === "ACCEPTED")
+        .map((participant) => participant.userId)).catch(() => []),
       chatApi.getParticipants(tripId).catch(() => []),
-    ]).then(([msgData, parts]) => {
-      setMessages(msgData.messages.reverse());
-      setParticipants(parts);
+    ]).then(async ([msgData, parts, onlineIds]) => {
+      setMessages(await resolveSenderNames(msgData.messages.reverse()));
+      void loadParticipantProfiles(parts);
+      setOnlineParticipantIds(new Set(onlineIds));
       setLoading(false);
       setTimeout(scrollToBottom, 100);
     });
-  }, [tripId, scrollToBottom]);
+  }, [tripId, scrollToBottom, loadParticipantProfiles, resolveSenderNames]);
 
   // WebSocket connection
   useEffect(() => {
@@ -90,6 +194,14 @@ export default function ChatPage() {
         heartbeatOutgoing: 10000,
         onConnect: () => {
           setConnected(true);
+          client?.subscribe(`/topic/trips.${tripId}.participants`, (msg) => {
+            try {
+              const userIds: string[] = JSON.parse(msg.body);
+              setOnlineParticipantIds(new Set(userIds));
+            } catch {
+              // ignore parse errors
+            }
+          }, connectHeaders);
           client?.subscribe(`/topic/trips.${tripId}.messages`, (msg) => {
             try {
               const chatMsg: ChatMessage = JSON.parse(msg.body);
@@ -97,6 +209,12 @@ export default function ChatPage() {
                 if (prev.some((m) => m.id === chatMsg.id)) return prev;
                 return [...prev, chatMsg];
               });
+              if (!chatMsg.senderDisplayName || chatMsg.senderDisplayName === "Anonymous") {
+                void resolveSenderNames([chatMsg]).then(([resolved]) => {
+                  setMessages((prev) => prev.map((message) =>
+                    message.id === resolved.id ? resolved : message));
+                });
+              }
               setTimeout(scrollToBottom, 50);
             } catch {
               // ignore parse errors
@@ -116,7 +234,11 @@ export default function ChatPage() {
       client?.deactivate();
       stompRef.current = null;
     };
-  }, [tripId, scrollToBottom, user?.userId, user?.displayName]);
+  }, [tripId, scrollToBottom, loadParticipantProfiles, resolveSenderNames, user?.userId, user?.displayName]);
+
+  function handleLeaveChat() {
+    router.push(`/dashboard/trips/${tripId}`);
+  }
 
   async function handleSend(e: FormEvent) {
     e.preventDefault();
@@ -152,7 +274,10 @@ export default function ChatPage() {
 
     try {
       const msg = await chatApi.uploadFile(tripId, file);
-      setMessages((prev) => prev.some((existing) => existing.id === msg.id) ? prev : [...prev, msg]);
+      const resolved = msg.senderDisplayName === "Anonymous" && user?.displayName
+        ? { ...msg, senderDisplayName: user.displayName }
+        : msg;
+      setMessages((prev) => prev.some((existing) => existing.id === resolved.id) ? prev : [...prev, resolved]);
       scrollToBottom();
       addToast("File uploaded", "success");
     } catch {
@@ -177,12 +302,14 @@ export default function ChatPage() {
         {/* Chat Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <Link
-              href={`/dashboard/trips/${tripId}`}
+            <button
+              type="button"
+              onClick={handleLeaveChat}
               className="text-muted hover:text-foreground transition-colors"
+              aria-label="Leave chat"
             >
               <ArrowLeft size={20} />
-            </Link>
+            </button>
             <div>
               <h2 className="font-semibold">Trip Chat</h2>
               <p className="text-xs text-muted">
@@ -256,29 +383,12 @@ export default function ChatPage() {
                     {/* Attachment */}
                     {msg.attachment && (
                       <div className="mb-1">
-                        {msg.type === "IMAGE" ? (
-                          <a href={msg.attachment.fileUrl} target="_blank" rel="noopener noreferrer">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={msg.attachment.fileUrl}
-                              alt={msg.attachment.fileName}
-                              className="max-w-full max-h-48 rounded-lg"
-                            />
-                          </a>
-                        ) : (
-                          <a
-                            href={msg.attachment.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={cn(
-                              "flex items-center gap-2 rounded-lg px-3 py-2 text-xs",
-                              isOwn ? "bg-white/20" : "bg-surface",
-                            )}
-                          >
-                            <FileIcon size={14} />
-                            <span className="truncate">{msg.attachment.fileName}</span>
-                          </a>
-                        )}
+                        <MessageAttachment
+                          attachment={msg.attachment}
+                          isImage={msg.type === "IMAGE"}
+                          isOwn={isOwn}
+                          onError={() => addToast("Failed to download attachment", "error")}
+                        />
                       </div>
                     )}
 
@@ -353,17 +463,22 @@ export default function ChatPage() {
           </div>
           <div className="space-y-2">
             {participants.length === 0 ? (
-              <p className="text-xs text-muted">No participants online</p>
+              <p className="text-xs text-muted">No trip participants</p>
             ) : (
-              participants.map((pId) => (
-                <div key={pId} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface transition-colors">
-                  <Avatar size="sm" />
+              participants.map((participant) => {
+                const isOnline = onlineParticipantIds.has(participant.id);
+                return (
+                <div key={participant.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-surface transition-colors">
+                  <Avatar name={participant.displayName} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{pId.slice(0, 8)}...</p>
-                    <p className="text-[10px] text-success">online</p>
+                    <p className="text-xs font-medium truncate">{participant.displayName}</p>
+                    <p className={cn("text-[10px]", isOnline ? "text-success" : "text-muted")}>
+                      {isOnline ? "online" : "offline"}
+                    </p>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </GlassCard>

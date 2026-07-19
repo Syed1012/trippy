@@ -57,7 +57,6 @@ class NotificationEventStorageTest {
                 org.mockito.ArgumentMatchers.any()))
             .thenReturn(true);
     }
-
     @Test
     @DisplayName("trip invitation event stores an in-app notification")
     void tripInvitationEventStoresNotification() {

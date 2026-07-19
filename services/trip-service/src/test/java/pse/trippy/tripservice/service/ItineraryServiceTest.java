@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +24,7 @@ import pse.trippy.tripservice.model.enums.ActivityCategory;
 import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
 import pse.trippy.tripservice.model.enums.TripStatus;
+import pse.trippy.tripservice.repository.ActivityCommentRepository;
 import pse.trippy.tripservice.repository.ActivityRepository;
 import pse.trippy.tripservice.repository.ActivityVoteRepository;
 import pse.trippy.tripservice.repository.DayPlanRepository;
@@ -42,6 +44,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +68,8 @@ class ItineraryServiceTest {
     private DayPlanVoteRepository dayPlanVoteRepository;
     @Mock
     private ActivityVoteRepository activityVoteRepository;
+    @Mock
+    private ActivityCommentRepository activityCommentRepository;
 
     @InjectMocks
     private ItineraryService itineraryService;
@@ -329,8 +334,21 @@ class ItineraryServiceTest {
 
             ItineraryResponse response = itineraryService.updateItinerary(TRIP_ID, request, USER_ID);
 
+            // Comments and votes on the old day plan's activities must be purged
+            // before the activities themselves, which must go before the day plans —
+            // otherwise this violates fk_activity_comments_activity / fk_activity_votes_activity
+            // (see the production incident this guards against).
+            verify(activityCommentRepository).deleteAllByDayPlanId(oldDayPlan.getId());
+            verify(activityVoteRepository).deleteAllByDayPlanId(oldDayPlan.getId());
             verify(activityRepository).deleteAllByDayPlanId(oldDayPlan.getId());
             verify(dayPlanRepository).deleteAll(List.of(oldDayPlan));
+
+            InOrder order = inOrder(activityCommentRepository, activityVoteRepository, activityRepository, dayPlanRepository);
+            order.verify(activityCommentRepository).deleteAllByDayPlanId(oldDayPlan.getId());
+            order.verify(activityVoteRepository).deleteAllByDayPlanId(oldDayPlan.getId());
+            order.verify(activityRepository).deleteAllByDayPlanId(oldDayPlan.getId());
+            order.verify(dayPlanRepository).deleteAll(List.of(oldDayPlan));
+
             assertThat(response.dayPlans()).hasSize(1);
         }
 

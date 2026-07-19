@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS trip_schema.activity_comments (
     CONSTRAINT fk_activity_comments_activity
         FOREIGN KEY (activity_id)
         REFERENCES trip_schema.activities (id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_comments_activity_id
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS trip_schema.activity_votes (
     CONSTRAINT fk_activity_votes_activity
         FOREIGN KEY (activity_id)
         REFERENCES trip_schema.activities (id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_votes_activity_id
