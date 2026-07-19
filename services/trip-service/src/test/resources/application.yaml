@@ -15,14 +15,19 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+        hbm2ddl:
+          create_namespaces: true
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
   flyway:
-    enabled: false
-  payment:
-    service:
-      url: localhost:8086
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
   ai:
     openai:
       api-key: dummy-key
+
+payment:
+  service:
+    url: http://localhost:8086
