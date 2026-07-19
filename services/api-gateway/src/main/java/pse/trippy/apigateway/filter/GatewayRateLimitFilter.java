@@ -30,7 +30,11 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
     private static final String RATE_LIMIT_RESET_HEADER = "X-RateLimit-Reset";
 
     private static final List<RateLimitRule> RULES = List.of(
-            new RateLimitRule("/auth/**", "auth", 10),
+            // Refresh gets its own generous bucket: every active session refreshes
+            // ~every 15 min, and many users can share one IP (NAT/office/dev teams).
+            // The tight bucket below still protects login/register brute-forcing.
+            new RateLimitRule("/auth/refresh", "auth-refresh", 120),
+            new RateLimitRule("/auth/**", "auth", 30),
             new RateLimitRule("/trips/{tripId}/chat/**", "trips-chat", 200),
             new RateLimitRule("/trips/discover", "trips-discover", 30),
             new RateLimitRule("/trips/**", "trips", 100),
