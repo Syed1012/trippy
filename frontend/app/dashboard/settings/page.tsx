@@ -180,15 +180,17 @@ export default function SettingsPage() {
             </GlassCard>
           </Link>
 
-          <GlassCard className="flex items-start gap-4 cursor-not-allowed opacity-75 hover:bg-surface transition-all h-full">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-trippy-500/10">
-              <Shield size={20} className="text-trippy-500" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground">Security</h3>
-              <p className="text-sm text-muted mt-1">Change your password and manage sessions (coming soon)</p>
-            </div>
-          </GlassCard>
+          <Link href="/dashboard/settings/security">
+            <GlassCard className="flex items-start gap-4 cursor-pointer hover:bg-surface-hover transition-all h-full">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-trippy-500/10">
+                <Shield size={20} className="text-trippy-500" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">Security</h3>
+                <p className="text-sm text-muted mt-1">Change your password and manage sessions</p>
+              </div>
+            </GlassCard>
+          </Link>
 
           <GlassCard className="flex items-start gap-4 cursor-not-allowed opacity-75 hover:bg-surface transition-all h-full">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-trippy-500/10">

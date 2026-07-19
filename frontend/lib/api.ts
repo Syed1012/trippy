@@ -263,6 +263,23 @@ export async function updateProfile(data: UpdateProfileRequest): Promise<UserPro
   });
 }
 
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await request<void>("/users/me/password", {
+    method: "PUT",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await request<void>("/users/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
+}
+
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken();
   if (refreshToken) {
