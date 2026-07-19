@@ -2,20 +2,30 @@ package pse.trippy.userservice.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pse.trippy.userservice.config.RabbitMqConfig;
+import pse.trippy.userservice.dto.request.ChangePasswordRequest;
 import pse.trippy.userservice.dto.request.UpdateProfileRequest;
 import pse.trippy.userservice.dto.response.UserProfileResponse;
 import pse.trippy.userservice.dto.response.UserPublicProfileResponse;
 import pse.trippy.userservice.dto.response.SubscriptionInfoResponse;
+import pse.trippy.userservice.exception.InvalidPasswordException;
 import pse.trippy.userservice.exception.UserNotFoundException;
 import pse.trippy.userservice.mapper.UserMapper;
 import pse.trippy.userservice.model.entity.User;
+import pse.trippy.userservice.repository.EmailVerificationTokenRepository;
+import pse.trippy.userservice.repository.RefreshTokenRepository;
 import pse.trippy.userservice.repository.UserRepository;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -28,6 +38,10 @@ public class UserProfileService {
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+    private final RabbitTemplate rabbitTemplate;
 
     /**
      * Returns the full profile for the given user.
@@ -162,5 +176,73 @@ public class UserProfileService {
         
         userRepository.save(user);
         log.info("Subscription field '{}' incremented for user {}", field, userId);
+    }
+
+    /**
+     * Changes the user's password after verifying the current one.
+     * All refresh tokens are revoked so other sessions must log in again.
+     *
+     * @param userId  the user's UUID (from X-User-Id header)
+     * @param request contains currentPassword and newPassword
+     * @throws UserNotFoundException    if user not found
+     * @throws InvalidPasswordException if the current password is wrong
+     */
+    @Transactional
+    public void changePassword(UUID userId, ChangePasswordRequest request) {
+        User user = findUser(userId);
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new InvalidPasswordException("Current password is incorrect");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        // Revoke all sessions — force re-login everywhere with the new password
+        refreshTokenRepository.deleteAllByUserId(userId);
+
+        log.info("Password changed for user {} — all refresh tokens revoked", userId);
+    }
+
+    /**
+     * Permanently deletes the user's account after verifying their password.
+     * Cleans up refresh and verification tokens, then publishes a
+     * {@code user.deleted} event so other services can react.
+     *
+     * @param userId   the user's UUID (from X-User-Id header)
+     * @param password the user's current password, for confirmation
+     * @throws UserNotFoundException    if user not found
+     * @throws InvalidPasswordException if the password is wrong
+     */
+    @Transactional
+    public void deleteAccount(UUID userId, String password) {
+        User user = findUser(userId);
+
+        if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new InvalidPasswordException("Password is incorrect");
+        }
+
+        refreshTokenRepository.deleteAllByUserId(userId);
+        emailVerificationTokenRepository.deleteAllByUserId(userId);
+        userRepository.delete(user);
+
+        log.info("Account deleted for user {}", userId);
+        publishUserDeletedEvent(userId, user.getEmail());
+    }
+
+    /** Publishes a {@code user.deleted} event; failures are logged, not rethrown. */
+    private void publishUserDeletedEvent(UUID userId, String email) {
+        Map<String, Object> event = Map.of(
+                "eventType", "user.deleted",
+                "userId", userId.toString(),
+                "email", email,
+                "timestamp", Instant.now().toString()
+        );
+        try {
+            rabbitTemplate.convertAndSend(RabbitMqConfig.USER_EVENTS_EXCHANGE, "user.deleted", event);
+            log.info("Published user.deleted event for userId={}", userId);
+        } catch (AmqpException ex) {
+            log.error("Failed to publish user.deleted event for userId={}", userId, ex);
+        }
     }
 }

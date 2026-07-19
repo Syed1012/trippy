@@ -6,8 +6,8 @@ import { motion } from "framer-motion";
 import { GlassCard, Avatar, Button, Badge } from "@/components/ui";
 import Input from "@/components/ui/Input";
 import { useAuth } from "@/lib/auth-context";
-import { updateProfile, type UpdateProfileRequest } from "@/lib/api";
-import { Mail, Phone, MapPin, LogOut, ShieldCheck, Save, X, Pencil } from "lucide-react";
+import { updateProfile, deleteAccount, type UpdateProfileRequest } from "@/lib/api";
+import { Mail, Phone, MapPin, LogOut, ShieldCheck, Save, X, Pencil, Trash2, AlertTriangle } from "lucide-react";
 
 export default function ProfilePage() {
   const { user, setUser, logout } = useAuth();
@@ -18,6 +18,11 @@ export default function ProfilePage() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [form, setForm] = useState<UpdateProfileRequest>({
     displayName: user?.displayName ?? "",
@@ -84,6 +89,23 @@ export default function ProfilePage() {
     setLoggingOut(true);
     await logout();
     router.replace("/login");
+  }
+
+  async function handleDeleteAccount() {
+    if (!deletePassword) {
+      setDeleteError("Please enter your password to confirm.");
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount(deletePassword);
+      await logout();
+      router.replace("/");
+    } catch {
+      setDeleteError("Failed to delete account. Please check your password.");
+      setDeleting(false);
+    }
   }
 
   return (
@@ -231,7 +253,86 @@ export default function ProfilePage() {
             {loggingOut ? "Signing out…" : "Sign out"}
           </Button>
         </div>
+
+        <div className="mt-6 border-t border-red-500/20 pt-5">
+          <h4 className="text-sm font-semibold text-red-500">Delete Account</h4>
+          <p className="mt-1 text-sm text-muted">
+            Permanently delete your account and all associated data. This action cannot be undone.
+          </p>
+          <div className="mt-4">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setShowDeleteModal(true);
+                setDeletePassword("");
+                setDeleteError(null);
+              }}
+              className="border-red-500/40 text-red-500 hover:bg-red-500/10"
+            >
+              <Trash2 size={14} />
+              Delete my account
+            </Button>
+          </div>
+        </div>
       </GlassCard>
+
+      {/* Delete confirmation modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md"
+          >
+            <GlassCard className="space-y-4 border-red-500/30">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+                  <AlertTriangle size={20} className="text-red-500" />
+                </div>
+                <h3 className="text-base font-semibold">Delete your account?</h3>
+              </div>
+              <p className="text-sm text-muted">
+                This will permanently remove your profile, preferences, and sessions. Trips you
+                created may become inaccessible to other participants. This cannot be undone.
+              </p>
+              <Input
+                id="deletePassword"
+                name="deletePassword"
+                type="password"
+                label="Confirm with your password"
+                value={deletePassword}
+                onChange={(e) => {
+                  setDeletePassword(e.target.value);
+                  setDeleteError(null);
+                }}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+              />
+              {deleteError && <p className="text-sm text-danger">{deleteError}</p>}
+              <div className="flex gap-3 pt-1">
+                <Button
+                  size="sm"
+                  onClick={handleDeleteAccount}
+                  disabled={deleting}
+                  className="bg-red-600 hover:bg-red-700 text-white border-transparent"
+                >
+                  <Trash2 size={14} />
+                  {deleting ? "Deleting…" : "Delete permanently"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </GlassCard>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
