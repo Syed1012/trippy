@@ -179,6 +179,11 @@ public class ParticipantService {
 
     @Transactional
     public ParticipantActionResponse acceptInvite(UUID tripId, UUID userId) {
+        return acceptInvite(tripId, userId, null);
+    }
+
+    @Transactional
+    public ParticipantActionResponse acceptInvite(UUID tripId, UUID userId, String displayName) {
         log.info("User {} accepting invite for trip {}", userId, tripId);
         findTripOrThrow(tripId);
 
@@ -194,7 +199,7 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         log.info("User {} joined trip {} successfully", userId, tripId);
-        publishEvent("trip.participant.joined", tripId, userId);
+        publishEvent("trip.participant.joined", tripId, userId, displayName);
 
         return new ParticipantActionResponse("Invitation accepted successfully", toResponse(participant));
     }
@@ -259,6 +264,11 @@ public class ParticipantService {
 
     @Transactional
     public void leaveTrip(UUID tripId, UUID userId) {
+        leaveTrip(tripId, userId, null);
+    }
+
+    @Transactional
+    public void leaveTrip(UUID tripId, UUID userId, String displayName) {
         log.info("User {} leaving trip {}", userId, tripId);
         findTripOrThrow(tripId);
 
@@ -272,7 +282,7 @@ public class ParticipantService {
         participantRepository.delete(participant);
 
         log.info("User {} left trip {} successfully", userId, tripId);
-        publishEvent("trip.participant.left", tripId, userId);
+        publishEvent("trip.participant.left", tripId, userId, displayName);
     }
 
     @Transactional(readOnly = true)
@@ -342,7 +352,11 @@ public class ParticipantService {
     }
 
     private void publishEvent(String routingKey, UUID tripId, UUID userId) {
-        ParticipantEvent event = new ParticipantEvent(routingKey, tripId, userId, Instant.now());
+        publishEvent(routingKey, tripId, userId, null);
+    }
+
+    private void publishEvent(String routingKey, UUID tripId, UUID userId, String displayName) {
+        ParticipantEvent event = new ParticipantEvent(routingKey, tripId, userId, displayName, Instant.now());
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, routingKey, event);
     }
 

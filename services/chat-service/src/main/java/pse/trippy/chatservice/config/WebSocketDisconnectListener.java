@@ -6,8 +6,6 @@ import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
-import pse.trippy.chatservice.model.enums.MessageType;
-import pse.trippy.chatservice.service.ChatMessageService;
 import pse.trippy.chatservice.service.ChatPresenceService;
 
 import java.util.Map;
@@ -24,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WebSocketDisconnectListener {
 
     private final ChatPresenceService chatPresenceService;
-    private final ChatMessageService chatMessageService;
 
     /**
      * Stores session-to-user/trip mapping set by the channel interceptor on subscribe.
@@ -57,25 +54,14 @@ public class WebSocketDisconnectListener {
         }
 
         Map<UUID, UUID> subscriptions = sessionSubscriptions.remove(sessionId);
-        String displayName = sessionDisplayNames.remove(sessionId);
+        sessionDisplayNames.remove(sessionId);
 
         if (subscriptions == null || subscriptions.isEmpty()) {
             return;
         }
 
-        String name = (displayName != null && !displayName.isBlank()) ? displayName : "A user";
-
         subscriptions.forEach((tripId, userId) -> {
-            chatPresenceService.removeUser(tripId, userId);
-            try {
-                chatMessageService.sendMessage(
-                        tripId, userId, "System",
-                        name + " left the chat",
-                        MessageType.SYSTEM);
-            } catch (Exception e) {
-                log.warn("Failed to send leave message for user {} in trip {}",
-                        userId, tripId, e);
-            }
+            chatPresenceService.scheduleRemoval(tripId, userId);
             log.debug("User {} disconnected from trip {} chat", userId, tripId);
         });
     }

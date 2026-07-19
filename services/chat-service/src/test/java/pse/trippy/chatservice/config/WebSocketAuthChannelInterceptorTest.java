@@ -24,7 +24,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,8 +58,8 @@ class WebSocketAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         interceptor = new WebSocketAuthChannelInterceptor(
-                jwtDecoder, tripServiceClient, chatPresenceService,
-                chatMessageService, disconnectListener, moderationService);
+            jwtDecoder, tripServiceClient, chatPresenceService,
+            disconnectListener, moderationService);
     }
 
     // --------------------------------------------------------------- SUBSCRIBE
@@ -72,8 +71,6 @@ class WebSocketAuthChannelInterceptorTest {
         UUID userId = UUID.randomUUID();
 
         when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(true);
-
         Message<?> result = interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
 
         assertThat(result).isNotNull();
@@ -108,32 +105,15 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("broadcasts system join message for first-time subscriber")
-    void broadcastsJoinMessageForNewSubscriber() {
+    @DisplayName("message subscription updates presence without group membership messages")
+    void subscriptionUpdatesPresenceWithoutMembershipMessage() {
         UUID tripId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(true);
-
         interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
 
-        verify(chatMessageService).sendMessage(
-                eq(tripId), eq(userId), eq("System"),
-                eq("Alice joined the chat"), any());
-    }
-
-    @Test
-    @DisplayName("does not broadcast join message for already-connected user")
-    void doesNotBroadcastForExistingUser() {
-        UUID tripId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-
-        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(false);
-
-        interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
-
+        verify(chatPresenceService).addUser(tripId, userId);
         verify(chatMessageService, never()).sendMessage(any(), any(), any(), any(), any());
     }
 

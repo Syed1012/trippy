@@ -7,6 +7,7 @@ public record ParticipantEvent(
         String eventType,
         UUID tripId,
         UUID userId,
+        String displayName,
         Instant timestamp
 ) {
 }
