@@ -8,11 +8,15 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import pse.trippy.userservice.dto.request.ChangePasswordRequest;
+import pse.trippy.userservice.dto.request.DeleteAccountRequest;
 import pse.trippy.userservice.dto.request.ResendVerificationRequest;
 import pse.trippy.userservice.dto.request.UpdateProfileRequest;
 import pse.trippy.userservice.dto.request.VerifyEmailRequest;
@@ -74,6 +78,48 @@ public class UserController {
         }
 
         return ResponseEntity.ok(userProfileService.updateProfile(UUID.fromString(userId), request));
+    }
+
+    /**
+     * Changes the authenticated user's password.
+     * Verifies the current password first; revokes all refresh tokens on success.
+     *
+     * @param userId  the user ID injected by the gateway (X-User-Id header)
+     * @param request currentPassword + newPassword
+     * @return 204 No Content, 400 if current password wrong, 401 if unauthenticated
+     */
+    @PutMapping("/me/password")
+    public ResponseEntity<Void> changePassword(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @Valid @RequestBody ChangePasswordRequest request) {
+
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        userProfileService.changePassword(UUID.fromString(userId), request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Permanently deletes the authenticated user's account.
+     * Requires password confirmation in the request body.
+     *
+     * @param userId  the user ID injected by the gateway (X-User-Id header)
+     * @param request password confirmation
+     * @return 204 No Content, 400 if password wrong, 401 if unauthenticated
+     */
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
+            @Valid @RequestBody DeleteAccountRequest request) {
+
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        userProfileService.deleteAccount(UUID.fromString(userId), request.getPassword());
+        return ResponseEntity.noContent().build();
     }
 
     /**
