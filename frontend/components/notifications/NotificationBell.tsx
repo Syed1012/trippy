@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -14,7 +13,7 @@ import {
   UserCheck,
   UserX,
 } from "lucide-react";
-import { notificationsApi, participantsApi, type Notification } from "@/lib/api";
+import { participantsApi, type Notification } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useNotifications } from "@/lib/notification-context";
 

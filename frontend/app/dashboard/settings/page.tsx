@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Settings, User, Bell, Shield, Palette, SmartphoneNfc, Loader2, Check } from "lucide-react";
+import { User, Shield, Palette, SmartphoneNfc, Loader2, Check } from "lucide-react";
 import { GlassCard } from "@/components/ui";
 import { useWebPush } from "@/lib/useWebPush";
 import { useState, useEffect } from "react";
