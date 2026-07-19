@@ -1591,7 +1591,7 @@ function DayCard({
       />
 
       {/* Day header */}
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <div className="flex w-full items-center gap-3">
           <div
             role="button"
@@ -1691,7 +1691,7 @@ function DayCard({
             {/* Transit block at the top of the day content */}
             <DayContextBlocks day={day} />
 
-            <div className={readOnly ? "px-5 pb-5 space-y-0" : "px-5 pb-5 space-y-3"}>
+            <div className={readOnly ? "px-4 pb-4 sm:px-5 sm:pb-5 space-y-0" : "px-4 pb-4 sm:px-5 sm:pb-5 space-y-3"}>
               {/* Smart quick-add + one-tap starters */}
               {!readOnly && isParticipant && (
                 <div className="space-y-2.5">
@@ -3774,9 +3774,9 @@ export default function TripDetailPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-8 sm:p-10 transition-all duration-300",
+          "relative overflow-hidden rounded-[2rem] shadow-[0_40px_90px_-42px_rgba(8,31,54,0.9)] p-6 sm:p-10 transition-all duration-300",
           isAiTrip
-            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-80 flex flex-col justify-end bg-black")
+            ? (isEditing ? "min-h-[26rem] h-auto flex flex-col justify-end bg-black" : "h-auto min-h-[20rem] md:h-80 flex flex-col justify-end bg-black")
             : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
         )}
       >
@@ -3892,11 +3892,11 @@ export default function TripDetailPage() {
               </div>
             ) : (
               <>
-                <h1 className="font-display text-4xl font-black tracking-tight text-white sm:text-5xl">
+                <h1 className="font-display text-3xl sm:text-5xl font-black tracking-tight text-white break-words">
                   {trip.title}
                 </h1>
                 {cleanDescription(trip.description) && (
-                  <p className="mt-2 text-sm text-white/60 max-w-xl">
+                  <p className="mt-2 text-sm text-white/60 max-w-xl hidden sm:block">
                     {cleanDescription(trip.description)}
                   </p>
                 )}
@@ -3904,10 +3904,10 @@ export default function TripDetailPage() {
             )}
 
             {/* Quick stats */}
-            <div className="flex flex-wrap items-center gap-4 mt-5">
-              <div className="flex items-center gap-2 text-white/80">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 sm:items-center sm:gap-4 sm:mt-5">
+              <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                 <MapPin size={14} className="text-accent-400" />
-                <span className="text-sm font-medium">{trip.destination}</span>
+                <span className="font-medium">{trip.destination}</span>
               </div>
               
               {isEditing ? (
@@ -3929,9 +3929,9 @@ export default function TripDetailPage() {
                 </div>
               ) : (
                 trip.startDate && trip.endDate && (
-                  <div className="flex items-center gap-2 text-white/80">
+                  <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                     <Calendar size={14} className="text-accent-400" />
-                    <span className="text-sm">
+                    <span>
                       {new Date(trip.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                       {" — "}
                       {new Date(trip.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -3943,21 +3943,21 @@ export default function TripDetailPage() {
                 )
               )}
 
-              <div className="flex items-center gap-2 text-white/80">
+              <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                 <Users size={14} className="text-accent-400" />
-                <span className="text-sm">{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
+                <span>{trip.participantCount} member{trip.participantCount !== 1 ? "s" : ""}</span>
               </div>
               {totalEstimatedCost > 0 && (
-                <div className="flex items-center gap-2 text-white/80">
+                <div className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
                   <DollarSign size={14} className="text-accent-400" />
-                  <span className="text-sm font-medium">~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalEstimatedCost.toFixed(0)} est.</span>
+                  <span className="font-medium">~{currencies.find((c) => c.code === currency)?.symbol ?? "$"}{totalEstimatedCost.toFixed(0)} est.</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex gap-2 w-full sm:w-auto shrink-0 mt-3 sm:mt-0">
             {isEditing ? (
               <>
                 <Button
@@ -3965,17 +3965,17 @@ export default function TripDetailPage() {
                   size="sm"
                   onClick={saveInlineEdits}
                   disabled={saving}
-                  className="bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
+                  className="flex-1 sm:flex-none bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  Save Changes
+                  Save
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={cancelInlineEdits}
                   disabled={saving}
-                  className="bg-white/10 border-white/20 hover:bg-white/20 text-white"
+                  className="flex-1 sm:flex-none bg-white/10 border-white/20 hover:bg-white/20 text-white justify-center"
                 >
                   Cancel
                 </Button>
@@ -3983,8 +3983,8 @@ export default function TripDetailPage() {
             ) : (
               <>
                 {user?.userId && (
-                  <Link href={`/dashboard/chat/${trip.tripId}`}>
-                    <Button variant="secondary" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                  <Link href={`/dashboard/chat/${trip.tripId}`} className="flex-1 sm:flex-none">
+                    <Button variant="secondary" size="sm" className="w-full bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center">
                       <MessageSquare size={14} /> Chat
                     </Button>
                   </Link>
@@ -3994,7 +3994,7 @@ export default function TripDetailPage() {
                     <Button
                       variant="secondary"
                       size="sm"
-                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      className="flex-1 sm:flex-none bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center"
                       onClick={() => {
                         if (isAiTrip) {
                           setEditVisibility((trip.visibility || "PRIVATE") as "PRIVATE" | "PUBLIC");
@@ -4006,7 +4006,7 @@ export default function TripDetailPage() {
                     >
                       <Edit size={14} /> Edit
                     </Button>
-                    <Button variant="danger" size="sm" onClick={handleDelete} className="bg-red-500/80 border-red-400/30 hover:bg-red-500">
+                    <Button variant="danger" size="sm" onClick={handleDelete} className="flex-1 sm:flex-none bg-red-500/80 border-red-400/30 hover:bg-red-500 justify-center">
                       <Trash2 size={14} /> Delete
                     </Button>
                   </>
@@ -4019,7 +4019,7 @@ export default function TripDetailPage() {
 
       {/* AI trip stats bar */}
       {isAiTrip && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="flex sm:grid sm:grid-cols-3 gap-3 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 snap-x hide-scrollbar">
           {[
             {
               icon: <Sparkles size={16} className="text-purple-500" />,
@@ -4044,7 +4044,7 @@ export default function TripDetailPage() {
           ].map((s, i) => (
             <div
               key={i}
-              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all ${s.bg}`}
+              className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white hover:shadow-sm transition-all min-w-[180px] sm:min-w-0 snap-center shrink-0 ${s.bg}`}
             >
               <div className="shrink-0">{s.icon}</div>
               <div className="min-w-0">
@@ -4067,23 +4067,27 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Users size={15} className="text-accent-500" />
-                <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
-                <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
-                  {members.length} member{members.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              {isParticipant && (
-                <Button variant="secondary" size="sm" className="text-xs" onClick={() => setInviteOpen(true)}>
-                  <Plus size={12} /> Invite
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {members.map((p) => {
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-accent-500" />
+                  <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
+                  <span className="text-[10px] text-muted bg-shore-100 px-2 py-0.5 rounded-full">
+                    {members.length} member{members.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isParticipant && (
+                    <Button variant="secondary" size="sm" className="text-xs" onClick={(e) => { e.preventDefault(); setInviteOpen(true); }}>
+                      <Plus size={12} /> Invite
+                    </Button>
+                  )}
+                  <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+                </div>
+              </summary>
+              <div className="flex flex-wrap gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {members.map((p) => {
                 const name = p.displayName ?? "User";
                 const initials = name
                   .split(" ")
@@ -4178,7 +4182,8 @@ export default function TripDetailPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}
@@ -4190,16 +4195,20 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Users size={15} className="text-amber-500" />
-              <h3 className="text-sm font-bold text-foreground">Join Requests</h3>
-              <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                {pendingRequests.length} pending
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
-              {pendingRequests.map((p) => {
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-amber-500" />
+                  <h3 className="text-sm font-bold text-foreground">Join Requests</h3>
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {pendingRequests.length} pending
+                  </span>
+                </div>
+                <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {pendingRequests.map((p) => {
                 const name = p.displayName ?? "User";
                 const initials = name
                   .split(" ")
@@ -4246,7 +4255,8 @@ export default function TripDetailPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}
@@ -4258,16 +4268,20 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.13 }}
         >
-          <GlassCard className="!p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Users size={15} className="text-blue-500" />
-              <h3 className="text-sm font-bold text-foreground">Pending Invites</h3>
-              <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                {pendingInvites.length} invited
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
-              {pendingInvites.map((p) => {
+          <GlassCard className="!p-0 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <Users size={15} className="text-blue-500" />
+                  <h3 className="text-sm font-bold text-foreground">Pending Invites</h3>
+                  <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                    {pendingInvites.length} invited
+                  </span>
+                </div>
+                <ChevronDown size={16} className="text-muted transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
+                {pendingInvites.map((p) => {
                 const name = p.displayName ?? "User";
                 const initials = name
                   .split(" ")
@@ -4303,7 +4317,8 @@ export default function TripDetailPage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </details>
           </GlassCard>
         </motion.div>
       )}
