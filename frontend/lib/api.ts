@@ -23,6 +23,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = "trippy_access_token";
 const REFRESH_KEY = "trippy_refresh_token";
+let refreshRequest: Promise<LoginResponse> | null = null;
 
 /* ------------------------------------------------------------------ */
 /*  Token helpers                                                      */
@@ -301,6 +302,17 @@ interface TokenRefreshResponse {
 }
 
 export async function refreshAccessToken(): Promise<LoginResponse> {
+  if (refreshRequest) return refreshRequest;
+
+  refreshRequest = refreshAccessTokenOnce();
+  try {
+    return await refreshRequest;
+  } finally {
+    refreshRequest = null;
+  }
+}
+
+async function refreshAccessTokenOnce(): Promise<LoginResponse> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) throw new Error("No refresh token");
 
