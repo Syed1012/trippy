@@ -66,6 +66,8 @@ class AiServiceTest {
     @Mock
     private GenerationHistoryRepository generationHistoryRepository;
 
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     private AiService aiService;
     private ExecutorService aiBlockingExecutor;
     private HttpServer testHttpServer;
@@ -83,13 +85,15 @@ class AiServiceTest {
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
         fallbackDestinationCatalogue = new FallbackDestinationCatalogue(objectMapper);
         fallbackItineraryGenerator = new FallbackItineraryGenerator(fallbackDestinationCatalogue);
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         aiService = new AiService(
                 chatClient,
                 objectMapper,
                 generationHistoryRepository,
                 aiBlockingExecutor,
                 fallbackDestinationCatalogue,
-                fallbackItineraryGenerator);
+                fallbackItineraryGenerator,
+                meterRegistry);
 
         requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
         callSpec = mock(ChatClient.CallResponseSpec.class);
@@ -772,17 +776,18 @@ class AiServiceTest {
         @DisplayName("cancels blocking AI task when timeout expires")
         void cancelsBlockingAiTaskWhenTimeoutExpires() throws Exception {
             RecordingExecutorService recordingExecutor = new RecordingExecutorService();
-            AiService timeoutService = new AiService(
+            AiService localAiService = new AiService(
                     chatClient,
                     objectMapper,
                     generationHistoryRepository,
                     recordingExecutor,
                     fallbackDestinationCatalogue,
-                    fallbackItineraryGenerator);
+                    fallbackItineraryGenerator,
+                    meterRegistry);
             Method method = AiService.class.getDeclaredMethod("requestAiWithTimeout", String.class, Duration.class);
             method.setAccessible(true);
 
-            assertThatThrownBy(() -> method.invoke(timeoutService, "prompt", Duration.ofMillis(1)))
+            assertThatThrownBy(() -> method.invoke(localAiService, "prompt", Duration.ofMillis(1)))
                     .isInstanceOf(InvocationTargetException.class)
                     .satisfies(exception -> assertThat(((InvocationTargetException) exception).getCause())
                             .isInstanceOf(AiServiceTimeoutException.class)
