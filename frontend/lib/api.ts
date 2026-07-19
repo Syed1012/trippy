@@ -344,6 +344,7 @@ export interface Participant {
   participantId: string;
   tripId: string;
   userId: string;
+  email?: string;
   displayName?: string;
   avatarUrl?: string;
   role: "OWNER" | "EDITOR" | "VIEWER" | "MEMBER";
@@ -754,8 +755,8 @@ export const participantsApi = {
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/approve`, { userId }),
-  reject: (tripId: string, userId: string) =>
-    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId }),
+  reject: (tripId: string, userId?: string, email?: string) =>
+    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId, email }),
   accept: (tripId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/accept`, {}),
   decline: (tripId: string) =>

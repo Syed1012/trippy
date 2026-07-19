@@ -219,7 +219,7 @@ export default function LoginPage() {
           <p className="text-center text-sm text-muted">
             Don&apos;t have an account?{" "}
             <Link
-              href={ROUTES.register}
+              href={nextUrl ? `${ROUTES.register}?next=${encodeURIComponent(nextUrl)}` : ROUTES.register}
               className="font-medium text-trippy-400 hover:text-trippy-300 transition-colors"
             >
               Sign up

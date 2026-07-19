@@ -31,6 +31,7 @@ import Footer from "@/components/layout/Footer";
 import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
+import { savePendingTrip } from "@/lib/pending-trip";
 import { formatDestinationInput } from "@/lib/destination-format";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
@@ -228,10 +229,40 @@ export default function LandingPage() {
       !isPastDateValue(endDate || startDate),
   );
 
-
+  const stashPendingTrip = () => {
+    savePendingTrip({
+      destination: formatDestinationInput(searchQuery).trim(),
+      startDate,
+      endDate: endDate || startDate,
+      filters: activeFilters,
+      budget: heroBudget || undefined,
+      diet: dietPreference || undefined,
+      pace: pacePreference || undefined,
+    });
+  };
 
   const startCreateTripFlow = () => {
-    openAIBuilder({ autoGenerate: false });
+    if (!startDate) {
+      setDateError("Select a start date to create your trip.");
+      return;
+    }
+    if (isPastDateValue(startDate) || isPastDateValue(endDate || startDate)) {
+      setDateError("Please choose today or a future date.");
+      return;
+    }
+    if (!searchQuery.trim()) {
+      setDateError("Enter a destination to create your trip.");
+      return;
+    }
+
+    setDateError("");
+    stashPendingTrip();
+
+    if (isAuthenticated) {
+      router.push(ROUTES.dashboard);
+    } else {
+      setShowAuthModal(true);
+    }
   };
 
   const handleAuthSuccess = () => {
