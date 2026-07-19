@@ -115,7 +115,7 @@ public class AiController {
     })
     @PostMapping("/itineraries/{generationId}/retry")
     public ResponseEntity<ItineraryResponse> retryItinerary(
-            @Parameter(description = "UUID of the generation attempt to retry") @PathVariable java.util.UUID generationId) {
+            @Parameter(description = "UUID of the generation attempt to retry") @PathVariable UUID generationId) {
         return ResponseEntity.ok(aiService.retryItinerary(generationId));
     }
 

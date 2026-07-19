@@ -486,10 +486,6 @@ public class AiService {
         return sb.toString();
     }
 
-    private String buildItineraryPrompt(GenerateItineraryRequest req) {
-        return buildItineraryPrompt(req, Map.of());
-    }
-
     private String buildItineraryPrompt(GenerateItineraryRequest req, Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate) {
         TripConstraints c = req.constraints();
         StringBuilder sb = new StringBuilder();
@@ -681,6 +677,7 @@ public class AiService {
                 conversation);
     }
 
+    @SuppressWarnings("PMD.UnusedPrivateMethod")
     private void enrichItinerary(ItineraryResponse response, GenerateItineraryRequest request) {
         enrichItinerary(response, request, Map.of());
     }
@@ -1017,6 +1014,7 @@ public class AiService {
         return summaries;
     }
 
+    @SuppressWarnings("PMD.UnusedPrivateMethod")
     private Map<LocalDate, ItineraryResponse.WeatherSummary> fetchWeatherSummaries(GenerateItineraryRequest request) {
         Map<LocalDate, Map<Integer, HourlyForecast>> hourlyMap = fetchHourlyWeatherMap(request);
         return computeDailySummaries(hourlyMap);
@@ -1175,22 +1173,6 @@ public class AiService {
 
     private boolean wmoCodeIsRainy(int code) {
         return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99);
-    }
-
-    private void adaptRainyDayActivities(ItineraryResponse.DayPlan day) {
-        if (day.getActivities() == null || day.getActivities().isEmpty()) {
-            return;
-        }
-        boolean activitiesAdapted = false;
-        for (ItineraryResponse.Activity activity : day.getActivities()) {
-            if (isOutdoorActivity(activity)) {
-                adaptOutdoorActivityToIndoor(activity);
-                activitiesAdapted = true;
-            }
-        }
-        if (activitiesAdapted && day.getWeather() != null) {
-            day.getWeather().setAdvice("Rain forecasted — outdoor activities updated to indoor alternatives.");
-        }
     }
 
     private boolean isOutdoorActivity(ItineraryResponse.Activity activity) {
@@ -1665,7 +1647,7 @@ public class AiService {
     }
 
     private String callGroqDirect(String prompt) {
-        List<ProviderConfig> providers = new java.util.ArrayList<>();
+        List<ProviderConfig> providers = new ArrayList<>();
 
         // 1. Groq Primary
         String key0 = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
@@ -1683,7 +1665,7 @@ public class AiService {
         String model2 = (opencodeModel == null || opencodeModel.isBlank()) ? "openai/gpt-4o" : opencodeModel;
         providers.add(new ProviderConfig("OpenCode", key2, url2, model2));
 
-        List<ProviderConfig> activeProviders = new java.util.ArrayList<>();
+        List<ProviderConfig> activeProviders = new ArrayList<>();
         for (ProviderConfig p : providers) {
             if (p.apiKey != null && !p.apiKey.isBlank()) {
                 activeProviders.add(p);

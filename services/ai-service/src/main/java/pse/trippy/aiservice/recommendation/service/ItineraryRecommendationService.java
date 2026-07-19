@@ -255,7 +255,7 @@ public class ItineraryRecommendationService {
             }
             // Guarantee exactly three options; pad from the fallback set if the model was short.
             if (options.size() < VIBES.length) {
-                List<RecommendationOption> pad = fallbackForDay(day, request);
+                List<RecommendationOption> pad = fallbackForDay(request);
                 for (int i = options.size(); i < VIBES.length; i++) {
                     options.add(pad.get(i));
                 }
@@ -304,12 +304,12 @@ public class ItineraryRecommendationService {
             List<Integer> dayNumbers, RecommendationRequest request) {
         Map<Integer, List<RecommendationOption>> byDay = new LinkedHashMap<>();
         for (int day : dayNumbers) {
-            byDay.put(day, fallbackForDay(day, request));
+            byDay.put(day, fallbackForDay(request));
         }
         return byDay;
     }
 
-    private List<RecommendationOption> fallbackForDay(int day, RecommendationRequest request) {
+    private List<RecommendationOption> fallbackForDay(RecommendationRequest request) {
         String destination = request.destination().trim();
         BigDecimal base = defaultCost(request);
         String[] titles = {
@@ -420,7 +420,7 @@ public class ItineraryRecommendationService {
     }
 
     private String mapsUrl(String query, String destination) {
-        String combined = (query == null ? "" : query.trim());
+        String combined = query == null ? "" : query.trim();
         if (destination != null && !combined.toLowerCase().contains(destination.trim().toLowerCase())) {
             combined = (combined.isEmpty() ? "" : combined + " ") + destination.trim();
         }

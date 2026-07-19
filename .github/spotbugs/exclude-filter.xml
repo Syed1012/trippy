@@ -25,4 +25,8 @@
         <Class name="~pse\.trippy\.notificationservice\.(controller|listener|service)\..*"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
+    <Match>
+        <Class name="pse.trippy.notificationservice.health.DatabaseHealthIndicator"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>
