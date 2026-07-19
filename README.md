@@ -91,9 +91,17 @@ mvn spring-boot:run
 
 ## Documentation
 
-- [API Contracts](./contracts/) - OpenAPI & AsyncAPI specifications
-- [Architecture Diagrams](./docs/) - C4 diagrams, UML
+- [System Architecture & Topology Guide](./docs/Architecture.md) - Deep-dive architecture overview, component diagrams, and Docker topology
+- [C3 & UML Architecture Diagrams](./architecture/) - C3 container models and UML architecture diagrams
+- [API Contracts](./contracts/) - Pre-compiled OpenAPI specifications (`.yaml`)
+- **Interactive Swagger UI**:
+  - AI Service: [http://localhost:8084/swagger-ui.html](http://localhost:8084/swagger-ui.html)
+  - Notification Service: [http://localhost:8085/swagger-ui.html](http://localhost:8085/swagger-ui.html)
+  - Trip Service: [http://localhost:8082/swagger-ui.html](http://localhost:8082/swagger-ui.html)
+  - User Service: [http://localhost:8081/swagger-ui.html](http://localhost:8081/swagger-ui.html)
 
 ## License
 
 Proprietary - All rights reserved
+
+

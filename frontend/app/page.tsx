@@ -20,6 +20,7 @@ import {
   Globe,
   Utensils,
   MapPin,
+  Users,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
@@ -56,6 +57,8 @@ const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "L
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
+
+const COMPANION_OPTIONS = [NO_PREFERENCE_LABEL, "Solo", "Couple", "Friends", "Family"];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -120,6 +123,7 @@ export default function LandingPage() {
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
+  const [companionPreference, setCompanionPreference] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
@@ -214,7 +218,8 @@ export default function LandingPage() {
       activeFilters.length > 0 ||
       heroBudget ||
       dietPreference ||
-      pacePreference,
+      pacePreference ||
+      companionPreference,
   );
 
   const ticketReady = Boolean(
@@ -312,17 +317,27 @@ export default function LandingPage() {
     }
 
     setDateError("");
+    let peopleCount = people;
+    if (companionPreference === "Solo") {
+      peopleCount = 1;
+    } else if (companionPreference === "Couple") {
+      peopleCount = 2;
+    } else if (companionPreference === "Friends" || companionPreference === "Family") {
+      peopleCount = 4;
+    }
+
     setAiBuilderRequest({
       requestId: nextRequestId(),
       city: trimmedCity,
       startDate: start,
       endDate: normalizedEnd,
-      people,
+      people: peopleCount,
       budget: budget || undefined,
       filters,
       diet: diet || undefined,
       preferences: preferences || undefined,
       autoGenerate,
+      travelerType: companionPreference || undefined,
     });
     setShowAIBuilder(true);
   };
@@ -523,6 +538,14 @@ export default function LandingPage() {
                   selected={Boolean(pacePreference)}
                   options={PACE_OPTIONS}
                   onChange={setPacePreference}
+                />
+                <PlannerChoiceGroup
+                  icon={<Users size={12} />}
+                  label="Group"
+                  value={companionPreference}
+                  selected={Boolean(companionPreference)}
+                  options={COMPANION_OPTIONS}
+                  onChange={setCompanionPreference}
                 />
               </motion.div>
 

@@ -14,7 +14,7 @@ import {
 import Logo from "@/components/Logo";
 import AmbientBackground from "@/components/layout/AmbientBackground";
 import Button from "@/components/ui/Button";
-import { getAccessToken } from "@/lib/api";
+import { getValidAccessToken } from "@/lib/api";
 import { ROUTES } from "@/lib/routes";
 import { updateAiTripRouteState } from "@/lib/ai-trip-route-state";
 
@@ -214,7 +214,7 @@ export default function TripFullScreenView({
     try {
       const res = await fetch("/api/ai/itineraries", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           constraints: {
             destination: draftTrip.destination,
@@ -343,7 +343,7 @@ export default function TripFullScreenView({
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           messages: updated.map(m => ({ role: m.role, content: m.content })),
           tripContext: `Trip: ${draftTrip.title}\nDestination: ${draftTrip.destination}\nDuration: ${draftTrip.duration}`,
@@ -1162,8 +1162,8 @@ function formatDurationMinutes(value: number): string {
   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
-function aiRequestHeaders(): Record<string, string> {
-  const token = getAccessToken();
+async function aiRequestHeaders(): Promise<Record<string, string>> {
+  const token = await getValidAccessToken();
   return token
     ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
     : { "Content-Type": "application/json" };

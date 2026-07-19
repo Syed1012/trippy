@@ -128,9 +128,15 @@ async function request<T>(
     ...(fetchOptions.headers as Record<string, string>),
   };
 
-  const token = getAccessToken();
-  if (auth && token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (auth) {
+    try {
+      const token = await getValidAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch (e) {
+      console.warn("Failed to get valid access token", e);
+    }
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
