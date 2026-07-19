@@ -13,12 +13,14 @@ import pse.trippy.aiservice.dto.request.GenerateItineraryRequest;
 import pse.trippy.aiservice.dto.request.GroupPreferenceRequest;
 import pse.trippy.aiservice.dto.request.TravelAdviceRequest;
 import pse.trippy.aiservice.dto.request.TripConstraints;
+import pse.trippy.aiservice.dto.response.AiUsageResponse;
 import pse.trippy.aiservice.dto.response.ConsolidatedPreferencesResponse;
 import pse.trippy.aiservice.dto.response.DestinationSuggestion;
 import pse.trippy.aiservice.dto.response.DestinationSuggestionResponse;
 import pse.trippy.aiservice.dto.response.ItineraryResponse;
 import pse.trippy.aiservice.dto.response.TravelAdviceResponse;
 import pse.trippy.aiservice.service.AiService;
+import pse.trippy.aiservice.service.AiUsageService;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -28,6 +30,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -43,6 +46,9 @@ class AiControllerTest {
 
     @MockBean
     private AiService aiService;
+
+    @MockBean
+    private AiUsageService aiUsageService;
 
     // =========================================================================
     // POST /ai/destination-suggestions
@@ -253,5 +259,77 @@ class AiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recommendedBudget").value("MODERATE"))
                 .andExpect(jsonPath("$.sharedInterests[0]").value("food"));
+    }
+
+    @Test
+    @DisplayName("GET /ai/usage/{userId} → 200 with usage details")
+    void getUsage_byPathVariable_returns200() throws Exception {
+        UUID userId = UUID.randomUUID();
+        AiUsageResponse stubResponse = new AiUsageResponse(userId, 5L, java.util.Map.of("CHAT", 5L), Instant.now(), 500L);
+
+        when(aiUsageService.getUsage(userId)).thenReturn(stubResponse);
+
+        mockMvc.perform(get("/ai/usage/" + userId)
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(userId.toString()))
+                .andExpect(jsonPath("$.totalRequests").value(5))
+                .andExpect(jsonPath("$.tokensConsumed").value(500));
+    }
+
+    @Test
+    @DisplayName("GET /ai/usage with header → 200 with usage details")
+    void getUsage_byHeader_returns200() throws Exception {
+        UUID userId = UUID.randomUUID();
+        AiUsageResponse stubResponse = new AiUsageResponse(userId, 5L, java.util.Map.of("CHAT", 5L), Instant.now(), 500L);
+
+        when(aiUsageService.getUsage(userId)).thenReturn(stubResponse);
+
+        mockMvc.perform(get("/ai/usage")
+                        .header("X-User-Id", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(userId.toString()));
+    }
+
+    @Test
+    @DisplayName("GET /ai/usage with matching query param → 200 with usage details")
+    void getUsage_byQueryParam_returns200() throws Exception {
+        UUID userId = UUID.randomUUID();
+        AiUsageResponse stubResponse = new AiUsageResponse(userId, 5L, java.util.Map.of("CHAT", 5L), Instant.now(), 500L);
+
+        when(aiUsageService.getUsage(userId)).thenReturn(stubResponse);
+
+        mockMvc.perform(get("/ai/usage")
+                        .header("X-User-Id", userId.toString())
+                        .param("userId", userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(userId.toString()));
+    }
+
+    @Test
+    @DisplayName("GET /ai/usage with no authenticated user ID → 400 Bad Request")
+    void getUsage_missingUserId_returns400() throws Exception {
+        mockMvc.perform(get("/ai/usage"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /ai/usage rejects a different user ID")
+    void getUsage_rejectsDifferentUserId() throws Exception {
+        mockMvc.perform(get("/ai/usage/" + UUID.randomUUID())
+                        .header("X-User-Id", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /ai/itineraries/{generationId}/retry returns 409 at the retry limit")
+    void retryItinerary_returnsConflictAtRetryLimit() throws Exception {
+        UUID generationId = UUID.randomUUID();
+        when(aiService.retryItinerary(generationId))
+                .thenThrow(new IllegalStateException("Maximum retry attempts reached for this generation"));
+
+        mockMvc.perform(post("/ai/itineraries/" + generationId + "/retry"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
     }
 }

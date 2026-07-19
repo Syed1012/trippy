@@ -15,6 +15,8 @@ import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.repository.NotificationRepository;
 import pse.trippy.notificationservice.service.EmailService;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
+import pse.trippy.notificationservice.service.WebPushService;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,23 @@ class NotificationEventStorageTest {
     @MockBean
     private EmailService emailService;
 
+    @MockBean
+    private WebPushService webPushService;
+
+    @MockBean
+    private SseNotificationService sseNotificationService;
+
+    @MockBean
+    private pse.trippy.notificationservice.service.NotificationPreferenceService notificationPreferenceService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.mockito.Mockito.when(notificationPreferenceService.isChannelEnabled(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+            .thenReturn(true);
+    }
     @Test
     @DisplayName("trip invitation event stores an in-app notification")
     void tripInvitationEventStoresNotification() {

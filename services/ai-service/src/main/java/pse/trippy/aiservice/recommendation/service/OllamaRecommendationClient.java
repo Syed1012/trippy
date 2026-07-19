@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -49,6 +51,42 @@ public class OllamaRecommendationClient {
 
     public String model() {
         return model;
+    }
+
+    /**
+     * On startup, checks whether Ollama is reachable and the configured
+     * {@code AI_RECO_MODEL} is pulled, logging a single INFO line either way.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void logModelAvailabilityOnStartup() {
+        boolean loaded = isModelAvailable();
+        log.info("Ollama check: model '{}' at {} loaded={}", model, normalizedBaseUrl(), loaded);
+    }
+
+    private boolean isModelAvailable() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(normalizedBaseUrl() + "/api/tags"))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return false;
+            }
+            JsonNode models = mapper.readTree(response.body()).path("models");
+            for (JsonNode m : models) {
+                if (model.equals(m.path("name").asText())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     /**

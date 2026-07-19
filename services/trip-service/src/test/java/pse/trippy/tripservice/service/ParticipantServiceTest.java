@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import pse.trippy.tripservice.dto.request.InviteParticipantRequest;
+import pse.trippy.tripservice.dto.request.InviteByEmailRequest;
 import pse.trippy.tripservice.dto.response.ParticipantActionResponse;
 import pse.trippy.tripservice.dto.response.ParticipantResponse;
 import pse.trippy.tripservice.exception.ForbiddenException;
@@ -103,6 +104,52 @@ class ParticipantServiceTest {
                 .build();
         p.setId(UUID.randomUUID());
         return p;
+    }
+
+    @Nested
+    @DisplayName("inviteByEmail")
+    class InviteByEmail {
+
+        @Test
+        @DisplayName("stores a normalized email and rejects its duplicate")
+        void storesNormalizedEmailAndRejectsDuplicate() {
+            InviteByEmailRequest request = new InviteByEmailRequest("Invitee@Example.com", null, "TestOwner");
+
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(participantRepository.findByTripIdAndUserId(TRIP_ID, OWNER_ID))
+                    .thenReturn(Optional.of(ownerParticipant()));
+            when(participantRepository.countByTripIdAndStatusIn(eq(TRIP_ID), any(Collection.class))).thenReturn(1L);
+            when(participantRepository.findUserIdByEmail("invitee@example.com")).thenReturn(Optional.empty());
+            when(participantRepository.existsByTripIdAndEmail(TRIP_ID, "invitee@example.com")).thenReturn(false);
+            when(participantRepository.save(any(Participant.class))).thenAnswer(invocation -> {
+                Participant participant = invocation.getArgument(0);
+                participant.setId(UUID.randomUUID());
+                return participant;
+            });
+
+            ParticipantActionResponse response = participantService.inviteByEmail(TRIP_ID, request, OWNER_ID);
+
+            assertThat(response.participant().email()).isEqualTo("invitee@example.com");
+            assertThat(response.participant().status()).isEqualTo("INVITED");
+            verify(participantRepository).existsByTripIdAndEmail(TRIP_ID, "invitee@example.com");
+        }
+
+        @Test
+        @DisplayName("rejects an email that already has an invitation")
+        void rejectsDuplicateEmailInvitation() {
+            InviteByEmailRequest request = new InviteByEmailRequest("invitee@example.com", null, "TestOwner");
+
+            when(tripRepository.findById(TRIP_ID)).thenReturn(Optional.of(trip));
+            when(participantRepository.findByTripIdAndUserId(TRIP_ID, OWNER_ID))
+                    .thenReturn(Optional.of(ownerParticipant()));
+            when(participantRepository.countByTripIdAndStatusIn(eq(TRIP_ID), any(Collection.class))).thenReturn(1L);
+            when(participantRepository.findUserIdByEmail("invitee@example.com")).thenReturn(Optional.empty());
+            when(participantRepository.existsByTripIdAndEmail(TRIP_ID, "invitee@example.com")).thenReturn(true);
+
+            assertThatThrownBy(() -> participantService.inviteByEmail(TRIP_ID, request, OWNER_ID))
+                    .isInstanceOf(InvalidTripDataException.class)
+                    .hasMessageContaining("already been sent");
+        }
     }
 
     // =========================================================================
@@ -238,13 +285,14 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, INVITEE_ID))
                     .thenReturn(Optional.of(invited));
             when(participantRepository.save(any(Participant.class))).thenAnswer(i -> i.getArgument(0));
+            when(participantRepository.findByTripId(TRIP_ID)).thenReturn(List.of(ownerParticipant()));
 
             ParticipantActionResponse response = participantService.acceptInvite(TRIP_ID, INVITEE_ID);
 
             assertThat(response.message()).isEqualTo("Invitation accepted successfully");
             assertThat(response.participant().status()).isEqualTo("ACCEPTED");
             assertThat(response.participant().joinedAt()).isNotNull();
-            verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.TRIP_EXCHANGE), eq("trip.participant.joined"), any(ParticipantEvent.class));
+            verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.TRIP_EXCHANGE), eq("trip.participant.joined"), any(java.util.Map.class));
         }
 
         @Test
@@ -575,7 +623,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, INVITEE_ID))
                     .thenReturn(Optional.of(pending));
 
-            ParticipantActionResponse response = participantService.rejectInvite(TRIP_ID, INVITEE_ID, OWNER_ID);
+            ParticipantActionResponse response = participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), OWNER_ID);
 
             assertThat(response.message()).contains("rejected");
             assertThat(response.participant()).isNull();
@@ -592,7 +640,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, INVITEE_ID))
                     .thenReturn(Optional.of(accepted));
 
-            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, INVITEE_ID, OWNER_ID))
+            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), OWNER_ID))
                     .isInstanceOf(InvalidTripDataException.class)
                     .hasMessageContaining("not in a pending or invited state");
         }
@@ -605,7 +653,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, nonOwner))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, INVITEE_ID, nonOwner))
+            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), nonOwner))
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessageContaining("owner");
         }

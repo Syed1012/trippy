@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -16,9 +16,10 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { GlassCard, Button } from "@/components/ui";
-import { notificationsApi, participantsApi, type Notification } from "@/lib/api";
+import { participantsApi, type Notification } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/lib/toast";
+import { useNotifications } from "@/lib/notification-context";
 
 const typeIcon: Record<string, typeof Bell> = {
   TRIP_INVITE: Plane,
@@ -51,74 +52,38 @@ function timeAgo(dateStr: string): string {
 export default function NotificationsPage() {
   const router = useRouter();
   const { addToast } = useToast();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
-  const fetchNotifications = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [data, unread] = await Promise.all([
-        notificationsApi.list(page, 20),
-        notificationsApi.unreadCount(),
-      ]);
-      setNotifications(data.content);
-      setTotalPages(data.totalPages);
-      setUnreadCount(unread.count);
-    } catch {
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
+  const {
+    notifications,
+    unreadCount,
+    totalPages,
+    loading,
+    fetchNotifications,
+    markRead,
+    markAllRead,
+    deleteNotification,
+  } = useNotifications();
 
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+    fetchNotifications(page, 20);
+  }, [page, fetchNotifications]);
 
   async function handleMarkAllRead() {
-    try {
-      await notificationsApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-      setUnreadCount(0);
-    } catch {
-      // ignore
-    }
+    await markAllRead();
   }
 
-  async function handleMarkRead(n: Notification) {
-    if (n.read) return;
-    try {
-      await notificationsApi.markRead(n.id);
-      setNotifications((prev) =>
-        prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
-      );
-      setUnreadCount((c) => Math.max(0, c - 1));
-    } catch {
-      // ignore
+  async function handleClick(n: Notification) {
+    if (!n.read) {
+      await markRead(n.id);
     }
-  }
-
-  function handleClick(n: Notification) {
-    handleMarkRead(n);
     if (n.actionUrl) router.push(n.actionUrl);
   }
 
   async function handleDelete(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    try {
-      await notificationsApi.deleteNotification(id);
-      const removed = notifications.find((n) => n.id === id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      if (removed && !removed.read) {
-        setUnreadCount((c) => Math.max(0, c - 1));
-      }
-    } catch {
-      // ignore
-    }
+    await deleteNotification(id);
   }
 
   async function handleApprove(e: React.MouseEvent, n: Notification) {
@@ -131,10 +96,7 @@ export default function NotificationsPage() {
     try {
       await participantsApi.approve(tripId, requesterId);
       addToast("Join request approved!", "success");
-      // Mark notification as read and remove it
-      await notificationsApi.markRead(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to approve";
       addToast(msg, "error");
@@ -153,9 +115,7 @@ export default function NotificationsPage() {
     try {
       await participantsApi.reject(tripId, requesterId);
       addToast("Join request rejected.", "success");
-      await notificationsApi.markRead(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to reject";
       addToast(msg, "error");

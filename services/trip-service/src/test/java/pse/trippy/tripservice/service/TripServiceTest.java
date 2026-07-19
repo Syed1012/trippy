@@ -57,6 +57,8 @@ class TripServiceTest {
     private RabbitTemplate rabbitTemplate;
     @Mock
     private SubscriptionClient subscriptionClient;
+    @Mock
+    private PendingInviteLinkService pendingInviteLinkService;
 
 
     @InjectMocks
@@ -128,6 +130,31 @@ class TripServiceTest {
             assertThat(response.destination()).isEqualTo("Bali");
             assertThat(response.status()).isEqualTo("DRAFT");
             assertThat(response.visibility()).isEqualTo("PUBLIC");
+            verify(tripRepository).save(any(Trip.class));
+            verify(participantRepository).save(any(Participant.class));
+        }
+
+        @Test
+        @DisplayName("creates a trip with FREE limits when subscription lookup is unavailable")
+        void createsTripWhenSubscriptionLookupFails() {
+            when(subscriptionClient.getSubscription(any(UUID.class)))
+                    .thenThrow(new RuntimeException("payment service unavailable"));
+            when(participantRepository.countByUserIdAndRole(USER_ID, ParticipantRole.OWNER)).thenReturn(0L);
+            when(tripRepository.save(any(Trip.class))).thenAnswer(invocation -> {
+                Trip savedTrip = invocation.getArgument(0);
+                savedTrip.setId(TRIP_ID);
+                return savedTrip;
+            });
+            when(participantRepository.save(any(Participant.class))).thenAnswer(i -> i.getArgument(0));
+
+            CreateTripRequest request = new CreateTripRequest(
+                    "Fallback Trip", "Delhi", null,
+                    LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 2),
+                    "PUBLIC", 10);
+
+            TripResponse response = tripService.createTrip(request, USER_ID);
+
+            assertThat(response.id()).isEqualTo(TRIP_ID);
             verify(tripRepository).save(any(Trip.class));
             verify(participantRepository).save(any(Participant.class));
         }

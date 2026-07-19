@@ -36,8 +36,21 @@ class NotificationEventListenerTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private pse.trippy.notificationservice.service.WebPushService webPushService;
+
+    @Mock
+    private pse.trippy.notificationservice.service.NotificationPreferenceService notificationPreferenceService;
+
     @InjectMocks
     private NotificationEventListener listener;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient()
+            .when(notificationPreferenceService.isChannelEnabled(any(), any(), any()))
+            .thenReturn(true);
+    }
 
     @Test
     @DisplayName("user.registered event triggers verification email")
@@ -198,6 +211,28 @@ class NotificationEventListenerTest {
 
         listener.handleTripInvitation(payload);
 
+        verify(notificationService).createNotification(
+                eq(inviteeId),
+                eq(NotificationType.TRIP_INVITE),
+                eq("Trip Invitation"),
+                eq("Jane invited you to Summer in Barcelona"),
+                eq("/dashboard/trips/223e4567-e89b-12d3-a456-426614174000"),
+                any());
+    }
+
+    @Test
+    @DisplayName("linked email invitation creates an in-app notification without sending a duplicate email")
+    void linkedEmailInvitationCreatesInAppNotificationOnly() {
+        UUID inviteeId = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        Map<String, Object> payload = Map.of(
+                "tripId", "223e4567-e89b-12d3-a456-426614174000",
+                "tripTitle", "Summer in Barcelona",
+                "inviterName", "Jane",
+                "inviteeId", inviteeId.toString());
+
+        listener.handleTripInvitation(payload);
+
+        verify(emailService, never()).sendTemplateEmail(any(), any(), any(), any());
         verify(notificationService).createNotification(
                 eq(inviteeId),
                 eq(NotificationType.TRIP_INVITE),
@@ -415,6 +450,29 @@ class NotificationEventListenerTest {
         listener.handleEvent(payload, "trip.participant.joined");
 
         verifyNoInteractions(emailService, notificationService);
+    }
+
+    @Test
+    @DisplayName("trip participant joined notifies the trip owner in-app")
+    void tripParticipantJoinedNotifiesOwner() {
+        UUID ownerId = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        Map<String, Object> payload = Map.of(
+                "tripId", "223e4567-e89b-12d3-a456-426614174000",
+                "tripTitle", "Summer in Barcelona",
+                "userId", ownerId.toString(),
+                "inviterId", ownerId.toString(),
+                "inviteeId", "323e4567-e89b-12d3-a456-426614174000",
+                "inviteeName", "Bob");
+
+        listener.handleTripJoined(payload);
+
+        verify(notificationService).createNotification(
+                eq(ownerId),
+                eq(NotificationType.TRIP_JOINED),
+                eq("Trip Joined"),
+                eq("Bob joined Summer in Barcelona"),
+                eq("/dashboard/trips/223e4567-e89b-12d3-a456-426614174000"),
+                any());
     }
 
     @Test

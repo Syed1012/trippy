@@ -44,10 +44,10 @@ public class SecurityConfig {
                                 "/auth/**",
                                 "/.well-known/**",
                                 "/users/**",
+                                "/internal/**",
                                 "/actuator/health",
                                 "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/users/**"
+                                "/v3/api-docs/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 );

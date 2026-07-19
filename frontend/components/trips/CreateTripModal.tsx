@@ -129,7 +129,7 @@ function TripPreviewCard({
       <div className="p-5 space-y-3">
         <div>
           <motion.p
-            key={title || "placeholder"}
+            key={`title-${title || "placeholder"}`}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-base font-bold text-white truncate"
@@ -137,7 +137,7 @@ function TripPreviewCard({
             {title || "Your next adventure"}
           </motion.p>
           <motion.div
-            key={destination || "dest-placeholder"}
+            key={`destination-${destination || "placeholder"}`}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-1.5 mt-1"

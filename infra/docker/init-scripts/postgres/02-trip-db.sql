@@ -36,11 +36,13 @@ CREATE TABLE IF NOT EXISTS trip_schema.itineraries (
 CREATE TABLE IF NOT EXISTS trip_schema.participants (
     id UUID PRIMARY KEY,
     trip_id UUID NOT NULL,
-    user_id UUID NOT NULL,
+    user_id UUID,
+    email VARCHAR(254),
     role VARCHAR(20) NOT NULL DEFAULT 'VIEWER',
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     joined_at TIMESTAMPTZ,
     CONSTRAINT uq_participants_trip_user UNIQUE (trip_id, user_id),
+    CONSTRAINT uq_participants_trip_email UNIQUE (trip_id, email),
     CONSTRAINT fk_participants_trip
         FOREIGN KEY (trip_id)
         REFERENCES trip_schema.trips (id)
@@ -97,6 +99,7 @@ CREATE TABLE IF NOT EXISTS trip_schema.activity_comments (
     CONSTRAINT fk_activity_comments_activity
         FOREIGN KEY (activity_id)
         REFERENCES trip_schema.activities (id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_comments_activity_id
@@ -112,6 +115,7 @@ CREATE TABLE IF NOT EXISTS trip_schema.activity_votes (
     CONSTRAINT fk_activity_votes_activity
         FOREIGN KEY (activity_id)
         REFERENCES trip_schema.activities (id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_votes_activity_id

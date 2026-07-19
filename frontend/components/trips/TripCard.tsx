@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   MapPin,
   Calendar,
@@ -107,18 +108,22 @@ export default function TripCard({
   invited,
 }: TripCardProps) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.DRAFT;
+  // Falls back to the gradient placeholder below if the AI-generated cover
+  // (Pollinations) fails to load — e.g. rate-limited or briefly unreachable.
+  const [imgFailed, setImgFailed] = useState(false);
 
   return (
     <div className="group neu neu-interactive relative flex h-full flex-col overflow-hidden rounded-[1.5rem]">
       {/* ── Cover area ────────────────────────────────────── */}
       <div className="relative h-52 overflow-hidden">
-        {coverImageUrl ? (
+        {coverImageUrl && !imgFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={coverImageUrl}
             alt={title}
             className="h-full w-full object-cover opacity-0 transition-all duration-700 ease-out group-hover:scale-[1.08]"
             onLoad={(e) => { e.currentTarget.style.opacity = "1"; }}
+            onError={() => setImgFailed(true)}
           />
         ) : (
           <div className={cn("relative h-full w-full bg-gradient-to-br", getGradient(title))}>
@@ -199,7 +204,7 @@ export default function TripCard({
         )}
         {invited && (
           <div className="mt-auto w-full rounded-xl bg-accent-50 border border-accent-200 px-3 py-2.5 text-center text-xs font-bold text-accent-700">
-            ✉️ Invited — respond in notifications
+            ✉️ You&apos;re invited — open this trip to accept or decline
           </div>
         )}
       </div>

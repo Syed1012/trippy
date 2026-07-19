@@ -86,14 +86,19 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         }
 
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+        final String token;
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            token = authHeader.substring(BEARER_PREFIX.length());
+        } else {
+            token = exchange.getRequest().getQueryParams().getFirst("token");
+        }
+
+        if (token == null || token.isBlank()) {
             if (isAnonymousPath(path)) {
                 return chain.filter(exchange);
             }
             return unauthorized(exchange);
         }
-
-        String token = authHeader.substring(BEARER_PREFIX.length());
 
         return Mono.fromCallable(() -> validateToken(token))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -116,6 +121,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         String role   = getClaimAsString(claims, "role");
         String email  = getClaimAsString(claims, "email");
         String plan   = getClaimAsString(claims, "plan");
+        String displayName = getClaimAsString(claims, "displayName");
 
         if (userId == null || role == null || email == null || plan == null) {
             log.debug("JWT missing required claims (sub, role, email, plan)");
@@ -140,6 +146,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                                     .header("X-User-Role",  role)
                                     .header("X-User-Email", email)
                                     .header("X-User-Plan",  plan)
+                                    .header("X-User-DisplayName", displayName != null ? displayName : "")
                                     .headers(h -> h.remove(HttpHeaders.AUTHORIZATION))
                                     .build())
                             .build();

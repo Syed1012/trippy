@@ -22,6 +22,7 @@ import pse.trippy.tripservice.model.enums.ParticipantStatus;
 import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.model.enums.VoteType;
+import pse.trippy.tripservice.repository.ActivityCommentRepository;
 import pse.trippy.tripservice.repository.ActivityRepository;
 import pse.trippy.tripservice.repository.ActivityVoteRepository;
 import pse.trippy.tripservice.repository.DayPlanRepository;
@@ -45,6 +46,7 @@ public class ItineraryService {
     private final ActivityRepository activityRepository;
     private final DayPlanVoteRepository dayPlanVoteRepository;
     private final ActivityVoteRepository activityVoteRepository;
+    private final ActivityCommentRepository activityCommentRepository;
     private final ParticipantRepository participantRepository;
 
     @Transactional(readOnly = true)
@@ -91,10 +93,15 @@ public class ItineraryService {
                     return itineraryRepository.save(newItinerary);
                 });
 
-        // Delete existing day plans and their activities + votes (full replace)
+        // Delete existing day plans and everything that references their activities
+        // (full replace). Order matters: activity_comments and activity_votes hold a
+        // FK to activities, so they must be purged before the activities themselves,
+        // which in turn must go before their day plans.
         List<DayPlan> existingDayPlans = dayPlanRepository
                 .findByItineraryIdOrderByDayNumberAsc(itinerary.getId());
         for (DayPlan dp : existingDayPlans) {
+            activityCommentRepository.deleteAllByDayPlanId(dp.getId());
+            activityVoteRepository.deleteAllByDayPlanId(dp.getId());
             dayPlanVoteRepository.deleteAllByDayPlanId(dp.getId());
             activityRepository.deleteAllByDayPlanId(dp.getId());
         }

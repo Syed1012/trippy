@@ -37,10 +37,16 @@ import java.util.UUID;
 @Table(
         name = "participants",
         schema = "trip_schema",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_participants_trip_user",
-                columnNames = {"trip_id", "user_id"}
-        ),
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uq_participants_trip_user",
+                        columnNames = {"trip_id", "user_id"}
+                ),
+                @UniqueConstraint(
+                        name = "uq_participants_trip_email",
+                        columnNames = {"trip_id", "email"}
+                )
+        },
         indexes = @Index(name = "idx_participants_user_id", columnList = "user_id")
 )
 @Getter
@@ -60,9 +66,13 @@ public class Participant {
     @JoinColumn(name = "trip_id", nullable = false, updatable = false)
     private Trip trip;
 
-    @NotNull
-    @Column(name = "user_id", nullable = false, updatable = false)
+    // Email-only invitations are created before a user account exists. The
+    // registration listener fills this field once the invitee signs up.
+    @Column(name = "user_id")
     private UUID userId;
+
+    @Column(name = "email", length = 254)
+    private String email;
 
     @NotNull
     @Enumerated(EnumType.STRING)

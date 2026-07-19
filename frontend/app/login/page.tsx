@@ -25,15 +25,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isRegistered = params.get("registered") === "true";
     const isVerified = params.get("verified") === "true";
     const queryEmail = params.get("email");
+    const queryNext = params.get("next");
 
     setRegistered(isRegistered);
     setVerified(isVerified);
+    if (queryNext) {
+      setNextUrl(queryNext);
+    }
 
     if ((isRegistered || isVerified) && queryEmail) {
       setEmail(queryEmail);
@@ -43,9 +48,9 @@ export default function LoginPage() {
   // Redirect authenticated users away from login
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(ROUTES.dashboard);
+      router.replace(nextUrl || ROUTES.home);
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, router, nextUrl]);
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
@@ -68,7 +73,7 @@ export default function LoginPage() {
     try {
       await login(email, password, rememberMe);
       addToast("Welcome back!", "success");
-      router.push(ROUTES.dashboard);
+      router.push(nextUrl || ROUTES.home);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
@@ -214,7 +219,7 @@ export default function LoginPage() {
           <p className="text-center text-sm text-muted">
             Don&apos;t have an account?{" "}
             <Link
-              href={ROUTES.register}
+              href={nextUrl ? `${ROUTES.register}?next=${encodeURIComponent(nextUrl)}` : ROUTES.register}
               className="font-medium text-trippy-400 hover:text-trippy-300 transition-colors"
             >
               Sign up

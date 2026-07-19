@@ -49,6 +49,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
     }
 
+    @ExceptionHandler(InvalidPasswordException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPassword(
+            InvalidPasswordException ex, WebRequest request) {
+
+        log.warn("Invalid password: {}", ex.getMessage());
+        ErrorResponse response = ErrorResponse.builder()
+                .error("INVALID_PASSWORD")
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .path(extractPath(request))
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
     @ExceptionHandler(InvalidTokenException.class)
     public ResponseEntity<ErrorResponse> handleInvalidToken(
             InvalidTokenException ex, WebRequest request) {

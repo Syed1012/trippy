@@ -66,6 +66,7 @@ interface AiTripPageState {
     diet?: string;
     preferences?: string;
     customPreference?: string;
+    travelerType?: string;
   };
   savedTripId?: string;
 }

@@ -89,6 +89,14 @@ public class User {
     @Builder.Default
     private boolean emailVerified = false;
 
+    @Column(name = "trip_count", nullable = false)
+    @Builder.Default
+    private int tripCount = 0;
+
+    @Column(name = "generation_count", nullable = false)
+    @Builder.Default
+    private int generationCount = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

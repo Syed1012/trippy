@@ -23,6 +23,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = "trippy_access_token";
 const REFRESH_KEY = "trippy_refresh_token";
+let refreshRequest: Promise<LoginResponse> | null = null;
 
 /* ------------------------------------------------------------------ */
 /*  Token helpers                                                      */
@@ -33,6 +34,16 @@ export function getAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/**
+ * Single-flight lock for token refresh.
+ *
+ * Refresh tokens are single-use (the backend rotates them atomically), so
+ * concurrent refresh calls with the same token cause all but the first to
+ * fail with 401 "already consumed" — which logged users out randomly.
+ * All callers now await the same in-flight refresh promise.
+ */
+let refreshInFlight: Promise<LoginResponse> | null = null;
+
 export async function getValidAccessToken(): Promise<string | null> {
   const token = getAccessToken();
   if (!token) return null;
@@ -41,8 +52,22 @@ export async function getValidAccessToken(): Promise<string | null> {
   const expiresAt = typeof payload.exp === "number" ? payload.exp * 1000 : 0;
   if (expiresAt > Date.now() + 30_000) return token;
 
-  const refreshed = await refreshAccessToken();
-  return refreshed.accessToken;
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  try {
+    const refreshed = await refreshInFlight;
+    return refreshed.accessToken;
+  } catch (err) {
+    // Only a 401 means the refresh token is truly dead. For transient failures
+    // (429 rate limit, network, 5xx) keep using the current access token —
+    // proceeding with no Authorization header would cause a downstream 401
+    // and wrongly log the user out.
+    if (err instanceof ApiError && err.status === 401) throw err;
+    return token;
+  }
 }
 
 export function getRefreshToken(): string | null {
@@ -128,9 +153,15 @@ async function request<T>(
     ...(fetchOptions.headers as Record<string, string>),
   };
 
-  const token = getAccessToken();
-  if (auth && token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (auth) {
+    try {
+      const token = await getValidAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch (e) {
+      console.warn("Failed to get valid access token", e);
+    }
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -140,6 +171,14 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // 401 means the session is truly invalid — clear and notify.
+    // 429 (rate limit) and 5xx must NOT log the user out; the session is still valid.
+    if (res.status === 401 && path !== "/auth/login") {
+      clearTokens();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("unauthorized"));
+      }
+    }
     throw new ApiError(res.status, body);
   }
 
@@ -200,6 +239,7 @@ export async function login(
   const data = await request<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password, rememberMe }),
+    auth: false,
   });
   setTokens(data.accessToken, data.refreshToken);
   return data;
@@ -213,6 +253,7 @@ export async function register(
   return request<RegisterResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, displayName }),
+    auth: false,
   });
 }
 
@@ -249,12 +290,30 @@ export async function updateProfile(data: UpdateProfileRequest): Promise<UserPro
   });
 }
 
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await request<void>("/users/me/password", {
+    method: "PUT",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await request<void>("/users/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password }),
+  });
+}
+
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken();
   if (refreshToken) {
     await request("/auth/logout", {
       method: "POST",
       body: JSON.stringify({ refreshToken }),
+      auth: false,
     }).catch(() => {
       /* best-effort — clear tokens regardless */
     });
@@ -269,12 +328,24 @@ interface TokenRefreshResponse {
 }
 
 export async function refreshAccessToken(): Promise<LoginResponse> {
+  if (refreshRequest) return refreshRequest;
+
+  refreshRequest = refreshAccessTokenOnce();
+  try {
+    return await refreshRequest;
+  } finally {
+    refreshRequest = null;
+  }
+}
+
+async function refreshAccessTokenOnce(): Promise<LoginResponse> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) throw new Error("No refresh token");
 
   const data = await request<TokenRefreshResponse>("/auth/refresh", {
     method: "POST",
     body: JSON.stringify({ refreshToken }),
+    auth: false,
   });
   setTokens(data.accessToken, data.refreshToken);
 
@@ -338,6 +409,7 @@ export interface Participant {
   participantId: string;
   tripId: string;
   userId: string;
+  email?: string;
   displayName?: string;
   avatarUrl?: string;
   role: "OWNER" | "EDITOR" | "VIEWER" | "MEMBER";
@@ -447,6 +519,7 @@ interface RawTrip {
 interface RawParticipant {
   id: string;
   userId: string;
+  email?: string;
   role: "OWNER" | "EDITOR" | "VIEWER" | "MEMBER";
   status: "PENDING" | "PENDING_APPROVAL" | "ACCEPTED" | "DECLINED" | "LEFT" | "INVITED";
   joinedAt?: string;
@@ -489,6 +562,7 @@ function normalizeParticipant(raw: RawParticipant, tripId: string): Participant 
     participantId: raw.id,
     tripId,
     userId: raw.userId,
+    email: raw.email,
     role: raw.role,
     status: raw.status,
     invitedAt: undefined,
@@ -748,8 +822,8 @@ export const participantsApi = {
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/approve`, { userId }),
-  reject: (tripId: string, userId: string) =>
-    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId }),
+  reject: (tripId: string, userId?: string, email?: string) =>
+    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId, email }),
   accept: (tripId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/accept`, {}),
   decline: (tripId: string) =>
@@ -960,6 +1034,22 @@ export interface NotificationPage {
   size: number;
 }
 
+export interface NotificationPreference {
+  id: string | null;
+  userId: string;
+  type: string;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+}
+
+export interface UpdateNotificationPreferenceRequest {
+  type: string;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+}
+
 export const notificationsApi = {
   list: (page = 0, size = 10) =>
     api.get<NotificationPage>(`/notifications?page=${page}&size=${size}`),
@@ -970,6 +1060,9 @@ export const notificationsApi = {
   markRead: (id: string) => api.patch<void>(`/notifications/${id}/read`),
   markAllRead: () => api.patch<void>("/notifications/read-all"),
   deleteNotification: (id: string) => api.delete<void>(`/notifications/${id}`),
+  getPreferences: () => api.get<NotificationPreference[]>("/notifications/preferences"),
+  updatePreferences: (preferences: UpdateNotificationPreferenceRequest[]) =>
+    api.put<NotificationPreference[]>("/notifications/preferences", preferences),
 };
 
 /* ------------------------------------------------------------------ */
@@ -1090,6 +1183,15 @@ export const chatApi = {
     });
     if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
     return res.json();
+  },
+  getAttachment: async (fileUrl: string): Promise<Blob> => {
+    const token = await getValidAccessToken();
+    const encodedPath = fileUrl.split("/").map(encodeURIComponent).join("/");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/chats/files/${encodedPath}`, { headers });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
+    return res.blob();
   },
   getParticipants: (tripId: string) =>
     api.get<string[]>(`/chats/${tripId}/participants`),

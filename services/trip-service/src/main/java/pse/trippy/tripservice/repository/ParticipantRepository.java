@@ -86,4 +86,16 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
     @Query("SELECT p FROM Participant p WHERE p.trip.id IN :tripIds AND p.status IN :statuses")
     List<Participant> findByTripIdsAndStatusIn(@Param("tripIds") Collection<UUID> tripIds,
                                                @Param("statuses") Collection<ParticipantStatus> statuses);
+
+    List<Participant> findByEmailIgnoreCaseAndUserIdIsNull(String email);
+
+    Optional<Participant> findByTripIdAndEmail(UUID tripId, String email);
+
+    boolean existsByTripIdAndEmail(UUID tripId, String email);
+
+    @Query(value = "SELECT CAST(id AS VARCHAR) FROM user_schema.users WHERE LOWER(email) = LOWER(:email)", nativeQuery = true)
+    Optional<String> findUserIdByEmail(@Param("email") String email);
+
+    @Query(value = "SELECT email FROM user_schema.users WHERE id = :userId", nativeQuery = true)
+    Optional<String> findEmailByUserId(@Param("userId") UUID userId);
 }

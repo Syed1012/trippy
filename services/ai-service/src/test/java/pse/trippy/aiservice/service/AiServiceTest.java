@@ -1,6 +1,7 @@
 package pse.trippy.aiservice.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -38,6 +39,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -66,6 +69,8 @@ class AiServiceTest {
     @Mock
     private GenerationHistoryRepository generationHistoryRepository;
 
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     private AiService aiService;
     private ExecutorService aiBlockingExecutor;
     private HttpServer testHttpServer;
@@ -83,13 +88,15 @@ class AiServiceTest {
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
         fallbackDestinationCatalogue = new FallbackDestinationCatalogue(objectMapper);
         fallbackItineraryGenerator = new FallbackItineraryGenerator(fallbackDestinationCatalogue);
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         aiService = new AiService(
                 chatClient,
                 objectMapper,
                 generationHistoryRepository,
                 aiBlockingExecutor,
                 fallbackDestinationCatalogue,
-                fallbackItineraryGenerator);
+                fallbackItineraryGenerator,
+                meterRegistry);
 
         requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
         callSpec = mock(ChatClient.CallResponseSpec.class);
@@ -772,17 +779,18 @@ class AiServiceTest {
         @DisplayName("cancels blocking AI task when timeout expires")
         void cancelsBlockingAiTaskWhenTimeoutExpires() throws Exception {
             RecordingExecutorService recordingExecutor = new RecordingExecutorService();
-            AiService timeoutService = new AiService(
+            AiService localAiService = new AiService(
                     chatClient,
                     objectMapper,
                     generationHistoryRepository,
                     recordingExecutor,
                     fallbackDestinationCatalogue,
-                    fallbackItineraryGenerator);
+                    fallbackItineraryGenerator,
+                    meterRegistry);
             Method method = AiService.class.getDeclaredMethod("requestAiWithTimeout", String.class, Duration.class);
             method.setAccessible(true);
 
-            assertThatThrownBy(() -> method.invoke(timeoutService, "prompt", Duration.ofMillis(1)))
+            assertThatThrownBy(() -> method.invoke(localAiService, "prompt", Duration.ofMillis(1)))
                     .isInstanceOf(InvocationTargetException.class)
                     .satisfies(exception -> assertThat(((InvocationTargetException) exception).getCause())
                             .isInstanceOf(AiServiceTimeoutException.class)
@@ -830,6 +838,41 @@ class AiServiceTest {
         ArgumentCaptor<GenerationHistory> captor = ArgumentCaptor.forClass(GenerationHistory.class);
         verify(generationHistoryRepository).save(captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("retry history updates the existing record instead of inserting a duplicate generation ID")
+    void retryHistoryUpdatesExistingRecord() throws Exception {
+        UUID generationId = UUID.randomUUID();
+        GenerateItineraryRequest request = new GenerateItineraryRequest(
+                UUID.randomUUID(),
+                new TripConstraints("Kyoto", LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 2),
+                        null, null, null),
+                null, null, null);
+        GenerationHistory history = GenerationHistory.builder()
+                .generationId(generationId)
+                .destination("Kyoto")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 9, 2))
+                .retryCount(1)
+                .requestPayload(objectMapper.convertValue(request, new TypeReference<Map<String, Object>>() {}))
+                .build();
+        ItineraryResponse response = ItineraryResponse.builder()
+                .generationId(generationId)
+                .fallbackUsed(false)
+                .dailyPlan(List.of())
+                .build();
+
+        Method updateHistory = AiService.class.getDeclaredMethod(
+                "updateGenerationHistory", GenerationHistory.class, GenerateItineraryRequest.class,
+                ItineraryResponse.class, String.class);
+        updateHistory.setAccessible(true);
+        updateHistory.invoke(aiService, history, request, response, "prompt");
+
+        assertThat(history.getRetryCount()).isEqualTo(2);
+        assertThat(history.getGenerationId()).isEqualTo(generationId);
+        assertThat(history.getResponsePayload()).containsEntry("generationId", generationId.toString());
+        verify(generationHistoryRepository).save(history);
     }
 
     private String minimalTwoStopItinerary(boolean includeCoordinates) {
@@ -1031,6 +1074,133 @@ class AiServiceTest {
 
             assertThat(result).isEqualTo("Success from OpenCode");
             assertThat(requestCount.get()).isEqualTo(3);
+        }
+    }
+
+    @Nested
+    @DisplayName("Weather and Transport Adaptation Tests")
+    class WeatherAndTransportTests {
+
+        @Test
+        @DisplayName("Should adapt outdoor activities to indoor activities on rainy weather for AI generated trip")
+        void shouldAdaptOutdoorActivitiesForRainyWeatherOnAiGeneratedTrip() throws Exception {
+            ItineraryResponse.Activity outdoorActivity = ItineraryResponse.Activity.builder()
+                    .time("10:00")
+                    .durationMinutes(120)
+                    .title("City Park Walk & Viewpoint")
+                    .description("Explore the outdoor park and botanical garden.")
+                    .location("Central Park")
+                    .category("NATURE")
+                    .build();
+
+            ItineraryResponse.DayPlan dayPlan = ItineraryResponse.DayPlan.builder()
+                    .dayNumber(1)
+                    .date("2026-08-01")
+                    .title("Day 1")
+                    .weather(ItineraryResponse.WeatherSummary.builder()
+                            .condition("Heavy Rain")
+                            .temperatureCelsius(15.0)
+                            .advice("Carry an umbrella")
+                            .build())
+                    .activities(List.of(outdoorActivity))
+                    .build();
+
+            ItineraryResponse response = ItineraryResponse.builder()
+                    .tripTitle("Test Trip")
+                    .dailyPlan(List.of(dayPlan))
+                    .fallbackUsed(false)
+                    .build();
+
+            GenerateItineraryRequest request = new GenerateItineraryRequest(
+                    null,
+                    new TripConstraints("Paris", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 1), null, null, null),
+                    null, null, null);
+
+            Method enrichMethod = AiService.class.getDeclaredMethod("enrichItinerary", ItineraryResponse.class, GenerateItineraryRequest.class);
+            enrichMethod.setAccessible(true);
+            enrichMethod.invoke(aiService, response, request);
+
+            ItineraryResponse.Activity adapted = response.getDailyPlan().get(0).getActivities().get(0);
+            assertThat(adapted.getCategory()).isEqualTo("CULTURE");
+            assertThat(adapted.getTitle()).startsWith("Indoor Cultural & Museum Tour:");
+            assertThat(adapted.getDescription()).contains("Adapted for rainy weather");
+            assertThat(adapted.getTips()).contains("Indoor venue selected");
+            assertThat(response.getDailyPlan().get(0).getWeather().getAdvice()).contains("Rain forecasted");
+        }
+
+        @Test
+        @DisplayName("Should NOT adapt activities when fallback is used")
+        void shouldNotAdaptActivitiesWhenFallbackIsUsed() throws Exception {
+            ItineraryResponse.Activity outdoorActivity = ItineraryResponse.Activity.builder()
+                    .time("10:00")
+                    .durationMinutes(120)
+                    .title("City Park Walk")
+                    .description("Explore the outdoor park.")
+                    .category("NATURE")
+                    .build();
+
+            ItineraryResponse.DayPlan dayPlan = ItineraryResponse.DayPlan.builder()
+                    .dayNumber(1)
+                    .date("2026-08-01")
+                    .title("Day 1")
+                    .weather(ItineraryResponse.WeatherSummary.builder()
+                            .condition("Heavy Rain")
+                            .temperatureCelsius(15.0)
+                            .advice("Carry an umbrella")
+                            .build())
+                    .activities(List.of(outdoorActivity))
+                    .build();
+
+            ItineraryResponse response = ItineraryResponse.builder()
+                    .tripTitle("Fallback Trip")
+                    .dailyPlan(List.of(dayPlan))
+                    .fallbackUsed(true)
+                    .build();
+
+            GenerateItineraryRequest request = new GenerateItineraryRequest(
+                    null,
+                    new TripConstraints("Paris", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 1), null, null, null),
+                    null, null, null);
+
+            Method enrichMethod = AiService.class.getDeclaredMethod("enrichItinerary", ItineraryResponse.class, GenerateItineraryRequest.class);
+            enrichMethod.setAccessible(true);
+            enrichMethod.invoke(aiService, response, request);
+
+            ItineraryResponse.Activity unadapted = response.getDailyPlan().get(0).getActivities().get(0);
+            assertThat(unadapted.getCategory()).isEqualTo("NATURE");
+            assertThat(unadapted.getTitle()).isEqualTo("City Park Walk");
+        }
+
+        @Test
+        @DisplayName("Should fallback to Open-Meteo when OpenWeather API key is missing")
+        void shouldFallbackToOpenMeteoWhenOpenWeatherKeyMissing() throws Exception {
+            setField("openWeatherApiKey", "");
+
+            GenerateItineraryRequest request = new GenerateItineraryRequest(
+                    null,
+                    new TripConstraints("Berlin", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 1), null, null, null),
+                    null, null, null);
+
+            Method weatherMethod = AiService.class.getDeclaredMethod("fetchWeatherSummaries", GenerateItineraryRequest.class);
+            weatherMethod.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var weatherMap = (java.util.Map<?, ?>) weatherMethod.invoke(aiService, request);
+
+            assertThat(weatherMap).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("Should return empty transport when coordinates are missing")
+        void shouldReturnEmptyTransportWhenCoordinatesMissing() throws Exception {
+            ItineraryResponse.Activity from = ItineraryResponse.Activity.builder().title("Stop A").build();
+            ItineraryResponse.Activity to = ItineraryResponse.Activity.builder().title("Stop B").build();
+
+            Method transportMethod = AiService.class.getDeclaredMethod("fetchOsrmTransport", ItineraryResponse.Activity.class, ItineraryResponse.Activity.class);
+            transportMethod.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var transport = (java.util.Optional<?>) transportMethod.invoke(aiService, from, to);
+
+            assertThat(transport).isEmpty();
         }
     }
 }
