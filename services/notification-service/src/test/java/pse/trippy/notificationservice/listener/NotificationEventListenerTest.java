@@ -36,6 +36,9 @@ class NotificationEventListenerTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private pse.trippy.notificationservice.service.WebPushService webPushService;
+
     @InjectMocks
     private NotificationEventListener listener;
 
