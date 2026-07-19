@@ -2,14 +2,37 @@
 
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette, Moon, Sun, ChevronRight } from "lucide-react";
+import {
+  User,
+  Bell,
+  Shield,
+  Palette,
+  Moon,
+  Sun,
+  ChevronRight,
+  SmartphoneNfc,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui";
 import { useTheme } from "@/lib/useTheme";
 import { ROUTES } from "@/lib/routes";
+import { useWebPush } from "@/lib/useWebPush";
+import { useState } from "react";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { theme, toggle } = useTheme();
+  const { isSupported, isSubscribed, subscribe, unsubscribe } = useWebPush();
+  const [pushLoading, setPushLoading] = useState(false);
+
+  const handlePushToggle = async () => {
+    setPushLoading(true);
+    if (isSubscribed) {
+      await unsubscribe();
+    } else {
+      await subscribe();
+    }
+    setPushLoading(false);
+  };
 
   return (
     <div className="space-y-8">
@@ -42,28 +65,56 @@ export default function SettingsPage() {
           </GlassCard>
         </button>
 
-        {/* Notifications — navigates to notification settings */}
-        <button
-          type="button"
-          onClick={() => router.push(ROUTES.dashboardNotifications)}
-          className="text-left"
-          aria-label="Open notification settings"
-        >
-          <GlassCard className="flex h-full items-start gap-4 cursor-pointer hover:bg-surface-hover transition-all">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-trippy-500/10">
-              <Bell size={20} className="text-trippy-500" />
+        <GlassCard className="flex flex-col gap-4">
+          <button
+            type="button"
+            onClick={() => router.push(ROUTES.dashboardNotifications)}
+            className="text-left"
+            aria-label="Open notification settings"
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-trippy-500/10">
+                <Bell size={20} className="text-trippy-500" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold flex items-center gap-1">
+                  Notifications
+                  <ChevronRight size={16} className="text-muted" />
+                </h3>
+                <p className="text-sm text-muted mt-1">
+                  Configure email and push notification preferences
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-semibold flex items-center gap-1">
-                Notifications
-                <ChevronRight size={16} className="text-muted" />
-              </h3>
-              <p className="text-sm text-muted mt-1">
-                Configure email and push notification preferences
-              </p>
+          </button>
+          <div className="mt-2 border-t border-border pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <SmartphoneNfc size={16} className="text-muted" />
+                <span className="text-sm font-medium">Browser Push Notifications</span>
+              </div>
+              {isSupported ? (
+                <button
+                  type="button"
+                  onClick={handlePushToggle}
+                  disabled={pushLoading}
+                  aria-label={isSubscribed ? "Disable browser push notifications" : "Enable browser push notifications"}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-trippy-500 focus:ring-offset-2 ${
+                    isSubscribed ? "bg-trippy-500" : "bg-gray-200 dark:bg-gray-700"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isSubscribed ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              ) : (
+                <span className="text-xs text-muted">Not Supported</span>
+              )}
             </div>
-          </GlassCard>
-        </button>
+          </div>
+        </GlassCard>
 
         {/* Security — change password lands in an upcoming release */}
         <GlassCard className="flex h-full items-start gap-4 opacity-60" aria-disabled="true">
@@ -99,8 +150,7 @@ export default function SettingsPage() {
               role="switch"
               aria-checked={theme === "dark"}
               aria-label="Toggle dark mode"
-              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium
-                         text-foreground hover:bg-surface-hover transition-colors"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-surface-hover transition-colors"
             >
               {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
               {theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
