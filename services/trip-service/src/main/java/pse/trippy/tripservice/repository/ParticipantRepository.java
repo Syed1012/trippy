@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import pse.trippy.tripservice.model.entity.Participant;
-
+import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
 
 import java.util.Collection;
@@ -31,26 +31,18 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
     /**
      * Returns all participant records for the given user across all trips.
      *
-     * @param userId the user's UUID (from User Service)
+     * @param userId the user's UUID
      * @return list of participant records for this user
      */
     List<Participant> findByUserId(UUID userId);
 
     /**
-     * Returns the participant record for a specific user in a specific trip, if it exists.
-     *
-     * @param tripId the trip's UUID
-     * @param userId the user's UUID
-     * @return an {@link Optional} containing the participant record, or empty
+     * Returns the participant record for a specific user in a specific trip.
      */
     Optional<Participant> findByTripIdAndUserId(UUID tripId, UUID userId);
 
     /**
-     * Returns {@code true} if the given user already has a participant record in the trip.
-     *
-     * @param tripId the trip's UUID
-     * @param userId the user's UUID
-     * @return {@code true} if a record exists
+     * Checks if a participant record exists for the given user in the trip.
      */
     boolean existsByTripIdAndUserId(UUID tripId, UUID userId);
 
@@ -58,9 +50,6 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
 
     /**
      * Deletes all participant records for the given trip.
-     * Used when a trip is permanently deleted.
-     *
-     * @param tripId the trip's UUID
      */
     @Modifying
     @Query("DELETE FROM Participant p WHERE p.trip.id = :tripId")
@@ -68,19 +57,24 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
 
     /**
      * Counts participants in a trip whose status is in the given collection.
-     *
-     * @param tripId   the trip's UUID
-     * @param statuses the statuses to include in the count
-     * @return the number of matching participants
      */
     long countByTripIdAndStatusIn(UUID tripId, Collection<ParticipantStatus> statuses);
 
     /**
-     * Returns participant records for the given user across the provided trips.
+     * Counts how many trips the given user owns.
      *
-     * @param userId  the user's UUID
-     * @param tripIds the trip UUIDs to look up
-     * @return matching participant records
+     * <p>This method is used to enforce subscription limits (e.g., FREE users
+     * can create a maximum of 3 trips). It counts all participant records
+     * where the user is marked with the {@code OWNER} role.
+     *
+     * @param userId the user's UUID
+     * @param role   the participant role to filter by (typically {@code OWNER})
+     * @return the number of trips where the user has the specified role
+     */
+    long countByUserIdAndRole(UUID userId, ParticipantRole role);
+
+    /**
+     * Returns participant records for the given user across the provided trips.
      */
     @Query("SELECT p FROM Participant p WHERE p.userId = :userId AND p.trip.id IN :tripIds")
     List<Participant> findByUserIdAndTripIds(@Param("userId") UUID userId,
@@ -88,10 +82,6 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
 
     /**
      * Returns participant records for the given trips whose status is in the collection.
-     *
-     * @param tripIds  the trip UUIDs
-     * @param statuses the statuses to include
-     * @return matching participant records
      */
     @Query("SELECT p FROM Participant p WHERE p.trip.id IN :tripIds AND p.status IN :statuses")
     List<Participant> findByTripIdsAndStatusIn(@Param("tripIds") Collection<UUID> tripIds,

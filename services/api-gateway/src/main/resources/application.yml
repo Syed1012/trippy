@@ -15,22 +15,56 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
+      password: ${REDIS_PASSWORD:CHANGE_ME_REDIS_PASSWORD_456!}
   cloud:
     gateway:
+      # Add Resilience4j configuration
+      resilience4j:
+        config:
+          default:
+            # After 50% of requests fail, the circuit opens
+            sliding-window-type: COUNT_BASED
+            sliding-window-size: 20 # Last 20 requests
+            failure-rate-threshold: 50
+            # Wait 10s in open state before transitioning to half-open
+            wait-duration-in-open-state: 10s
+            # Number of permitted calls in half-open state
+            permitted-number-of-calls-in-half-open-state: 5
+
       default-filters:
+        - name: RequestRateLimiter
+          args:
+            key-resolver: '#{@userOrIpKeyResolver}'
+            redis-rate-limiter.replenishRate: 10
+            redis-rate-limiter.burstCapacity: 20
+            redis-rate-limiter.requestedTokens: 1
+        - name: CircuitBreaker
+          args:
+            name: trippy-backend-cb
+            fallbackUri: forward:/fallback/default
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_FIRST
+
       routes:
         # User Service Routes
         - id: auth-route
           uri: http://localhost:8081
           predicates:
             - Path=/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCircuitBreaker
+                fallbackUri: forward:/fallback/user-service
 
         - id: users-route
           uri: http://localhost:8081
           predicates:
             - Path=/users/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCircuitBreaker
+                fallbackUri: forward:/fallback/user-service
 
         - id: wellknown-route
           uri: http://localhost:8081
@@ -38,23 +72,51 @@ spring:
             - Path=/.well-known/**
 
         # Chat Service Routes (REST) - /trips/{tripId}/chat/**
+
         # Must be before trips-route so the more specific path matches first
         - id: trips-chat-route
           uri: http://localhost:8083
           predicates:
             - Path=/trips/{tripId}/chat/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: chatServiceCircuitBreaker
+                fallbackUri: forward:/fallback/chat-service
 
         # Trip Service Routes
+        # Public discover route must be before the general authenticated route
+        - id: trips-discover-route
+          uri: http://localhost:8082
+          predicates:
+            - Path=/trips/discover
+            - Method=GET
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: tripServiceCircuitBreaker
+                fallbackUri: forward:/fallback/trip-service
+
         - id: trips-route
           uri: http://localhost:8082
           predicates:
             - Path=/trips/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: tripServiceCircuitBreaker
+                fallbackUri: forward:/fallback/trip-service
 
         # Chat Service Routes (REST) - /chats/**
         - id: chats-route
           uri: http://localhost:8083
           predicates:
             - Path=/chats/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: chatServiceCircuitBreaker
+                fallbackUri: forward:/fallback/chat-service
 
         # Chat Moderation (ADMIN-only) - /admin/chat/**
         # Ban/mute users, soft-delete messages. Role enforcement happens in chat-service.
@@ -62,6 +124,11 @@ spring:
           uri: http://localhost:8083
           predicates:
             - Path=/admin/chat/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: chatServiceCircuitBreaker
+                fallbackUri: forward:/fallback/chat-service
 
         # Native WebSocket transport for SockJS/STOMP upgrades
         - id: websocket-upgrade-route
@@ -81,18 +148,33 @@ spring:
           uri: http://localhost:8084
           predicates:
             - Path=/ai/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: aiServiceCircuitBreaker
+                fallbackUri: forward:/fallback/ai-service
 
         # Notification Service Routes
         - id: notification-route
           uri: http://localhost:8085
           predicates:
             - Path=/notifications/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: notificationServiceCircuitBreaker
+                fallbackUri: forward:/fallback/notification-service
 
         # Payment Service Routes
         - id: payment-route
           uri: http://localhost:8086
           predicates:
             - Path=/payments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCircuitBreaker
+                fallbackUri: forward:/fallback/payment-service
 
         # Actuator Routes for Downstream Services
         - id: user-service-actuator

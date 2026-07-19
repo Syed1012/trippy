@@ -28,6 +28,8 @@ import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.repository.ParticipantRepository;
 import pse.trippy.tripservice.repository.TripRepository;
+import pse.trippy.tripservice.client.SubscriptionClient;
+import pse.trippy.tripservice.dto.response.SubscriptionResponse;
 
 import java.time.LocalDate;
 import java.util.Collection;
@@ -53,6 +55,9 @@ class TripServiceTest {
     private ParticipantRepository participantRepository;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private SubscriptionClient subscriptionClient;
+
 
     @InjectMocks
     private TripService tripService;
@@ -63,6 +68,8 @@ class TripServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Removed unnecessary stubbing of subscriptionClient.getSubscription()
+
         trip = Trip.builder()
                 .title("Beach Vacation")
                 .destination("Bali")
@@ -98,6 +105,10 @@ class TripServiceTest {
         @Test
         @DisplayName("creates trip with valid data and adds owner as participant")
         void createsTrip() {
+
+            when(subscriptionClient.getSubscription(any(UUID.class)))
+                    .thenReturn(new SubscriptionResponse("FREE", true, "EUR", null));
+
             CreateTripRequest request = new CreateTripRequest(
                     "Beach Vacation", "Bali", "Fun trip",
                     LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 10),
@@ -124,6 +135,10 @@ class TripServiceTest {
         @Test
         @DisplayName("defaults visibility to PRIVATE when null")
         void defaultsVisibility() {
+
+            when(subscriptionClient.getSubscription(any(UUID.class)))
+                    .thenReturn(new SubscriptionResponse("FREE", true, "EUR", null));
+
             CreateTripRequest request = new CreateTripRequest(
                     "Solo Trip", "Tokyo", null,
                     LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5),
@@ -144,6 +159,10 @@ class TripServiceTest {
         @Test
         @DisplayName("throws when end date is before start date")
         void throwsForInvalidDates() {
+
+            when(subscriptionClient.getSubscription(any(UUID.class)))
+                    .thenReturn(new SubscriptionResponse("FREE", true, "EUR", null));
+
             CreateTripRequest request = new CreateTripRequest(
                     "Bad Trip", "Mars", null,
                     LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 1),
@@ -157,6 +176,10 @@ class TripServiceTest {
         @Test
         @DisplayName("throws for invalid visibility value")
         void throwsForInvalidVisibility() {
+
+            when(subscriptionClient.getSubscription(any(UUID.class)))
+                    .thenReturn(new SubscriptionResponse("FREE", true, "EUR", null));
+
             CreateTripRequest request = new CreateTripRequest(
                     "Trip", "Place", null,
                     LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 5),
@@ -194,7 +217,6 @@ class TripServiceTest {
             when(tripRepository.findPublicTripsExcludingUser(eq(USER_ID), any(PageRequest.class)))
                     .thenReturn(page);
 
-            // User has a PENDING_APPROVAL status on trip
             Participant pending = Participant.builder()
                     .trip(trip)
                     .userId(USER_ID)
@@ -204,7 +226,6 @@ class TripServiceTest {
             when(participantRepository.findByUserIdAndTripIds(eq(USER_ID), any(Collection.class)))
                     .thenReturn(List.of(pending));
 
-            // trip has 3 accepted members
             Participant m1 = Participant.builder().trip(trip).userId(UUID.randomUUID())
                     .status(ParticipantStatus.ACCEPTED).role(ParticipantRole.OWNER).build();
             Participant m2 = Participant.builder().trip(trip).userId(UUID.randomUUID())
@@ -217,11 +238,10 @@ class TripServiceTest {
             TripPageResponse response = tripService.listPublicTrips(USER_ID, 0, 10);
 
             assertThat(response.trips()).hasSize(2);
-            // First trip has pending status and 3 members
             TripResponse first = response.trips().get(0);
             assertThat(first.currentUserStatus()).isEqualTo("PENDING_APPROVAL");
             assertThat(first.memberCount()).isEqualTo(3);
-            // Second trip has no status and 0 members (no accepted participants returned for it)
+
             TripResponse second = response.trips().get(1);
             assertThat(second.currentUserStatus()).isNull();
             assertThat(second.memberCount()).isEqualTo(0);
