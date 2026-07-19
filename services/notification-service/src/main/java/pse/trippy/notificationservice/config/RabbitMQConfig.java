@@ -169,9 +169,11 @@ public class RabbitMQConfig {
     @Bean
     @ConditionalOnBean(ConnectionFactory.class)
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
-            ConnectionFactory connectionFactory, MessageConverter jsonMessageConverter) {
+            ConnectionFactory connectionFactory,
+            MessageConverter jsonMessageConverter,
+            org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer configurer) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
+        configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
         return factory;
     }

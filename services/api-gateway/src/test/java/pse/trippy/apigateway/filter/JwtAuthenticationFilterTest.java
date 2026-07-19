@@ -140,6 +140,36 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void filter_publicTripsWithoutAuth_passesThrough() {
+        MockServerHttpRequest request = MockServerHttpRequest.get("/trips/public").build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        when(chain.filter(exchange)).thenReturn(Mono.empty());
+
+        filter.filter(exchange, chain).block();
+
+        verify(chain).filter(exchange);
+    }
+
+    @Test
+    void filter_publicTripsWithJwt_injectsUserHeaders() throws Exception {
+        String token = buildToken(Instant.now().plusSeconds(300), privateKey);
+        when(jwksClient.getPublicKey()).thenReturn(publicKey);
+        when(redisTemplate.hasKey(anyString())).thenReturn(Mono.just(false));
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/trips/public")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        ArgumentCaptor<ServerWebExchange> captor = ArgumentCaptor.forClass(ServerWebExchange.class);
+        when(chain.filter(captor.capture())).thenReturn(Mono.empty());
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(captor.getValue().getRequest().getHeaders().getFirst("X-User-Id"))
+                .isEqualTo("user-uuid-123");
+    }
+
+    @Test
     void filter_malformedToken_returns401() {
         when(jwksClient.getPublicKey()).thenReturn(publicKey);
 

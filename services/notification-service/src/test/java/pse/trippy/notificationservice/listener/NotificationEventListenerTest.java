@@ -361,24 +361,25 @@ class NotificationEventListenerTest {
                 "userId", "123e4567-e89b-12d3-a456-426614174000",
                 "email", "alice@test.com",
                 "userName", "Alice",
-                "amount", "29.00",
+                "amount", "9.99",
                 "planName", "Premium");
 
         listener.handleEvent(payload, "payment.completed");
 
         verify(emailService).sendTemplateEmail(
                 eq("alice@test.com"),
-                eq("Payment successful - 29.00 EUR for Premium"),
+                eq("Payment successful - 9.99 EUR for Premium"),
                 eq("payment-success"),
                 any());
         verify(notificationService).createNotification(
                 eq(java.util.UUID.fromString("123e4567-e89b-12d3-a456-426614174000")),
                 eq(NotificationType.PAYMENT_SUCCESS),
                 eq("Payment Successful"),
-                eq("Your payment of 29.00 EUR for Premium was successful"),
+                eq("Your payment of 9.99 EUR for Premium was successful"),
                 eq("/dashboard/payments"),
                 any());
-    }
+}
+
 
     @Test
     @DisplayName("payment.failed event triggers email and notification")
@@ -532,14 +533,14 @@ class NotificationEventListenerTest {
                 "userId", "not-a-uuid",
                 "email", "alice@test.com",
                 "userName", "Alice",
-                "amount", "29.00",
+                "amount", "9.99",
                 "planName", "Premium");
 
         listener.handleEvent(payload, "payment.completed");
 
         verify(emailService).sendTemplateEmail(
                 eq("alice@test.com"),
-                eq("Payment successful - 29.00 EUR for Premium"),
+                eq("Payment successful - 9.99 EUR for Premium"),
                 eq("payment-success"),
                 any());
         verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any());

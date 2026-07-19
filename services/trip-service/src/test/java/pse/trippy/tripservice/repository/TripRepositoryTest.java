@@ -11,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.TripStatus;
 import pse.trippy.tripservice.model.enums.TripVisibility;
@@ -25,7 +26,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration tests for {@link TripRepository} using an H2 in-memory database.
  */
 @DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
+@ImportAutoConfiguration(exclude = {
+    org.springframework.cloud.openfeign.FeignAutoConfiguration.class
+})
 @ActiveProfiles("test")
 @DisplayName("TripRepository")
 class TripRepositoryTest {
@@ -190,5 +193,16 @@ class TripRepositoryTest {
                     .contains("Creator A Public")
                     .doesNotContain("Draft Public");
         }
+    }
+
+    @Test
+    @DisplayName("findPublicTrips returns published public trips for anonymous visitors")
+    void findPublicTripsReturnsPublishedPublicTrips() {
+        tripRepository.save(buildTrip("Draft Public", CREATOR_B, TripStatus.DRAFT, TripVisibility.PUBLIC));
+
+        Page<Trip> results = tripRepository.findPublicTrips(PageRequest.of(0, 10));
+
+        assertThat(results.getContent()).extracting(Trip::getTitle)
+                .containsExactly("Creator A Public");
     }
 }

@@ -56,7 +56,7 @@ public class TripController {
 
     @GetMapping("/public")
     public ResponseEntity<TripPageResponse> listPublicTrips(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(value = "X-User-Id", required = false) UUID userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         log.debug("GET /trips/public — user={}, page={}, size={}", userId, page, size);

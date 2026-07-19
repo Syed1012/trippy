@@ -9,6 +9,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import pse.trippy.tripservice.model.entity.Activity;
 import pse.trippy.tripservice.model.entity.DayPlan;
 import pse.trippy.tripservice.model.entity.Itinerary;
@@ -25,8 +26,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration tests for {@link ActivityRepository} using an H2 in-memory database.
  */
 @DataJpaTest
-@AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
+@ImportAutoConfiguration(exclude = {
+    org.springframework.cloud.openfeign.FeignAutoConfiguration.class
+})
 @DisplayName("ActivityRepository")
 class ActivityRepositoryTest {
 

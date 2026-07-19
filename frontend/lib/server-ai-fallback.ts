@@ -8,6 +8,7 @@ const FALLBACK_FILES = [
   "destinations-worldwide.json",
 ];
 const ACTIVITY_TIMES = ["09:00", "10:45", "12:45", "15:00", "17:30", "19:30"];
+const MIN_ACTIVITIES_PER_DAY = 5;
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 
@@ -212,6 +213,15 @@ export async function buildFallbackItinerary(
       if (evening) addActivity(activities, evening, usedTitles, profile.destination);
     }
 
+    while (activities.length < MIN_ACTIVITIES_PER_DAY) {
+      const next = nextActivity(pool, usedTitles, dayNumber);
+      if (next) {
+        addActivity(activities, next, usedTitles, profile.destination);
+      } else {
+        activities.push(flexibleActivity(profile, dayNumber, activities.length));
+      }
+    }
+
     activities.forEach((activity, activityIndex) => {
       activity.time = ACTIVITY_TIMES[Math.min(activityIndex, ACTIVITY_TIMES.length - 1)];
     });
@@ -355,7 +365,7 @@ function flexibleActivity(profile: FallbackProfile, dayNumber: number, activityI
   return {
     time: ACTIVITY_TIMES[Math.min(activityIndex, ACTIVITY_TIMES.length - 1)],
     durationMinutes: 120,
-    title: `Slow exploration block in ${profile.city} - Day ${dayNumber}`,
+    title: `Local discovery block ${activityIndex + 1} in ${profile.city} - Day ${dayNumber}`,
     description: "Use this lower-pressure block for a neighbourhood walk, cafe pause, rest or weather-safe indoor alternative.",
     location: profile.city,
     googleMapsUrl: googleMapsDirectionsUrl(profile.destination),

@@ -1,5 +1,25 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const getApiBaseUrl = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  if (typeof window !== "undefined") {
+    try {
+      const url = new URL(envUrl);
+      const isLocalOrIp =
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        /^(\d{1,3}\.){3}\d{1,3}$/.test(url.hostname);
+
+      if (isLocalOrIp) {
+        url.hostname = window.location.hostname;
+      }
+      return url.toString().replace(/\/$/, "");
+    } catch {
+      return `http://${window.location.hostname}:8080`;
+    }
+  }
+  return envUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = "trippy_access_token";
 const REFRESH_KEY = "trippy_refresh_token";
@@ -94,22 +114,27 @@ export interface ApiErrorBody {
   details?: ApiFieldError[];
 }
 
+interface ApiRequestOptions extends RequestInit {
+  auth?: boolean;
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestOptions = {},
 ): Promise<T> {
+  const { auth = true, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   };
 
   const token = getAccessToken();
-  if (token) {
+  if (auth && token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
 
@@ -121,6 +146,17 @@ async function request<T>(
   // 204 No Content — nothing to parse
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+async function requestPublic<T>(path: string): Promise<T> {
+  try {
+    return await request<T>(path);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return request<T>(path, { auth: false });
+    }
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -498,13 +534,23 @@ export const tripsApi = {
   list: async (page = 0, size = 12) =>
     normalizeTripPage(await api.get<RawTripPage>(`/trips?page=${page}&size=${size}`)),
   listPublic: async (page = 0, size = 12) =>
-    normalizeTripPage(await api.get<RawTripPage>(`/trips/public?page=${page}&size=${size}`)),
+    normalizeTripPage(await requestPublic<RawTripPage>(`/trips/public?page=${page}&size=${size}`)),
   search: async (q: string, page = 0, size = 12) =>
     normalizeTripPage(
       await api.get<RawTripPage>(`/trips?search=${encodeURIComponent(q)}&page=${page}&size=${size}`),
     ),
   get: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/${id}`)),
   getShared: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/shared/${id}`)),
+  getAccessible: async (id: string) => {
+    try {
+      return await tripsApi.get(id);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        return tripsApi.getShared(id);
+      }
+      throw error;
+    }
+  },
   create: async (data: CreateTripRequest) => normalizeTrip(await api.post<RawTrip>("/trips", data), 1),
   update: (id: string, data: Partial<CreateTripRequest>) =>
     api.patch<RawTrip>(`/trips/${id}`, data).then((trip) => normalizeTrip(trip)),
@@ -696,8 +742,8 @@ export async function ensureTripCoverImage(
 /* ------------------------------------------------------------------ */
 
 export const participantsApi = {
-  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string) =>
-    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName }),
+  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string, inviteeName?: string) =>
+    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName, inviteeName }),
   inviteByEmail: (tripId: string, email: string, message?: string, inviterName?: string) =>
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
@@ -812,6 +858,16 @@ export const itineraryApi = {
     normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/${tripId}/itinerary`)),
   getShared: async (tripId: string) =>
     normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/shared/${tripId}/itinerary`)),
+  getAccessible: async (tripId: string) => {
+    try {
+      return await itineraryApi.get(tripId);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        return itineraryApi.getShared(tripId);
+      }
+      throw error;
+    }
+  },
   update: async (tripId: string, data: UpdateItineraryRequest) =>
     normalizeItinerary(await api.put<RawItineraryResponse>(`/trips/${tripId}/itinerary`, data)),
   castVote: (tripId: string, dayNumber: number, voteType: "UPVOTE" | "DOWNVOTE") =>

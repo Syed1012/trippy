@@ -290,6 +290,38 @@ class AiServiceTest {
                               "estimatedCost": "Free",
                               "tips": "Go early to avoid crowds",
                               "bookingRequired": false
+                            },
+                            {
+                              "time": "12:30",
+                              "durationMinutes": 75,
+                              "title": "Nishiki Market lunch",
+                              "description": "Sample Kyoto snacks and seasonal dishes",
+                              "location": "Nishiki Market, Kyoto",
+                              "category": "FOOD"
+                            },
+                            {
+                              "time": "14:00",
+                              "durationMinutes": 90,
+                              "title": "Kiyomizu-dera visit",
+                              "description": "Visit the temple and surrounding lanes",
+                              "location": "Kiyomizu-dera, Kyoto",
+                              "category": "SIGHTSEEING"
+                            },
+                            {
+                              "time": "16:00",
+                              "durationMinutes": 75,
+                              "title": "Gion lanes walk",
+                              "description": "Walk through preserved streets and tea houses",
+                              "location": "Gion, Kyoto",
+                              "category": "CULTURE"
+                            },
+                            {
+                              "time": "18:30",
+                              "durationMinutes": 90,
+                              "title": "Pontocho dinner",
+                              "description": "Dinner along the narrow riverside dining alley",
+                              "location": "Pontocho, Kyoto",
+                              "category": "FOOD"
                             }
                           ]
                         }
@@ -310,7 +342,7 @@ class AiServiceTest {
 
             assertThat(response.getTripTitle()).isEqualTo("5 Days of Culture in Kyoto");
             assertThat(response.getDailyPlan()).hasSize(1);
-            assertThat(response.getDailyPlan().get(0).getActivities()).hasSize(1);
+            assertThat(response.getDailyPlan().get(0).getActivities()).hasSize(5);
             assertThat(response.getDailyPlan().get(0).getActivities().get(0).getTitle())
                     .isEqualTo("Fushimi Inari Shrine");
             assertThat(response.getPackingTips()).contains("Comfortable walking shoes");
@@ -347,6 +379,34 @@ class AiServiceTest {
                               "bookingRequired": false,
                               "lat": 35.0394,
                               "lng": 135.7292
+                            },
+                            {
+                              "time": "10:45",
+                              "durationMinutes": 75,
+                              "title": "Ryoan-ji rock garden",
+                              "location": "Ryoan-ji, Kyoto",
+                              "category": "CULTURE"
+                            },
+                            {
+                              "time": "12:45",
+                              "durationMinutes": 60,
+                              "title": "Nishiki Market lunch",
+                              "location": "Nishiki Market, Kyoto",
+                              "category": "FOOD"
+                            },
+                            {
+                              "time": "15:00",
+                              "durationMinutes": 90,
+                              "title": "Nijo Castle",
+                              "location": "Nijo Castle, Kyoto",
+                              "category": "SIGHTSEEING"
+                            },
+                            {
+                              "time": "17:30",
+                              "durationMinutes": 90,
+                              "title": "Kamogawa riverside walk",
+                              "location": "Kamogawa River, Kyoto",
+                              "category": "FREE_TIME"
                             }
                           ]
                         }
@@ -384,6 +444,30 @@ class AiServiceTest {
                               "time": "10:00",
                               "duration": 120,
                               "title": "Legacy Activity",
+                              "category": "SIGHTSEEING"
+                            },
+                            {
+                              "time": "11:30",
+                              "duration": 60,
+                              "title": "Legacy Lunch",
+                              "category": "FOOD"
+                            },
+                            {
+                              "time": "13:00",
+                              "duration": 90,
+                              "title": "Legacy Museum",
+                              "category": "CULTURE"
+                            },
+                            {
+                              "time": "15:30",
+                              "duration": 75,
+                              "title": "Legacy Market",
+                              "category": "SHOPPING"
+                            },
+                            {
+                              "time": "17:30",
+                              "duration": 60,
+                              "title": "Legacy Viewpoint",
                               "category": "SIGHTSEEING"
                             }
                           ]
@@ -573,6 +657,50 @@ class AiServiceTest {
         }
 
         @Test
+        @DisplayName("uses fallback when AI returns too few activities per day")
+        void fallsBackWhenAiReturnsSparseDays() {
+            when(callSpec.content()).thenReturn("""
+                    {
+                      "tripTitle": "Sparse Kyoto",
+                      "summary": "Too little to be useful",
+                      "dailyPlan": [
+                        {
+                          "dayNumber": 1,
+                          "date": "2026-09-01",
+                          "title": "Thin day",
+                          "activities": [
+                            {
+                              "time": "10:00",
+                              "durationMinutes": 120,
+                              "title": "One activity",
+                              "location": "Kyoto",
+                              "category": "SIGHTSEEING"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """);
+
+            GenerateItineraryRequest request = new GenerateItineraryRequest(
+                    null,
+                    new TripConstraints("Kyoto", LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1),
+                            null, null, null),
+                    null, null, null);
+
+            ItineraryResponse response = aiService.generateItinerary(request);
+
+            assertThat(response.getFallbackUsed()).isTrue();
+            assertThat(response.getFallbackReason()).isEqualTo("AI_UNUSABLE_RESPONSE");
+            assertThat(response.getDailyPlan()).hasSize(1);
+            assertThat(response.getDailyPlan().get(0).getActivities()).hasSizeGreaterThanOrEqualTo(5);
+
+            GenerationHistory history = captureGenerationHistory();
+            assertThat(history.getStatus()).isEqualTo("FALLBACK");
+            assertThat(history.isFallbackUsed()).isTrue();
+        }
+
+        @Test
         @DisplayName("uses fallback when AI omits required day numbers")
         void fallsBackWhenDayNumbersAreMissing() {
             String groqJson = """
@@ -737,6 +865,27 @@ class AiServiceTest {
                           "title": "Temple Two",
                           "location": "Temple Two",
                           "category": "SIGHTSEEING"
+                        },
+                        {
+                          "time": "12:45",
+                          "durationMinutes": 60,
+                          "title": "Market Lunch",
+                          "location": "Nishiki Market",
+                          "category": "FOOD"
+                        },
+                        {
+                          "time": "15:00",
+                          "durationMinutes": 90,
+                          "title": "Castle Visit",
+                          "location": "Nijo Castle",
+                          "category": "CULTURE"
+                        },
+                        {
+                          "time": "17:30",
+                          "durationMinutes": 60,
+                          "title": "Riverside Walk",
+                          "location": "Kamogawa River",
+                          "category": "FREE_TIME"
                         }
                       ]
                     }
@@ -817,6 +966,71 @@ class AiServiceTest {
 
         private boolean wasSubmittedTaskCancelled() {
             return submittedTask != null && submittedTask.isCancelled();
+        }
+    }
+
+    @Nested
+    @DisplayName("callGroqDirect() Fallback & Rotation")
+    class CallGroqDirectFallbackRotation {
+
+        @Test
+        @DisplayName("rotates keys from Groq Primary to Groq Secondary to OpenCode on failures")
+        void keyRotationFlow() throws Exception {
+            setField("groqApiKey", "primary-key");
+            setField("groqApiKey1", "secondary-key");
+            setField("opencodeApiKey", "opencode-key");
+
+            AtomicInteger requestCount = new AtomicInteger(0);
+
+            String serverUrl = startHttpServer(exchange -> {
+                int count = requestCount.incrementAndGet();
+                String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+
+                try {
+                    if (count == 1) {
+                        assertThat(authHeader).isEqualTo("Bearer primary-key");
+                        writeResponse(exchange, 429, "{\"error\": \"Rate limit exceeded\"}");
+                    } else if (count == 2) {
+                        assertThat(authHeader).isEqualTo("Bearer secondary-key");
+                        writeResponse(exchange, 500, "{\"error\": \"Internal Server Error\"}");
+                    } else if (count == 3) {
+                        assertThat(authHeader).isEqualTo("Bearer opencode-key");
+                        writeResponse(exchange, 200, """
+                                {
+                                  "choices": [
+                                    {
+                                      "message": {
+                                        "role": "assistant",
+                                        "content": "Success from OpenCode"
+                                      }
+                                    }
+                                  ]
+                                }
+                                """);
+                    }
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            });
+
+            setField("groqBaseUrl", serverUrl);
+            setField("opencodeBaseUrl", serverUrl);
+
+            Method method = AiService.class.getDeclaredMethod("callGroqDirect", String.class);
+            method.setAccessible(true);
+
+            String result;
+            try {
+                result = (String) method.invoke(aiService, "Test prompt");
+            } catch (InvocationTargetException ex) {
+                if (ex.getCause() instanceof Exception) {
+                    throw (Exception) ex.getCause();
+                }
+                throw ex;
+            }
+
+            assertThat(result).isEqualTo("Success from OpenCode");
+            assertThat(requestCount.get()).isEqualTo(3);
         }
     }
 }

@@ -77,6 +77,7 @@ public class AiService {
     private static final String AI_MALFORMED_RESPONSE = "AI_MALFORMED_RESPONSE";
     private static final String AI_SCHEMA_INVALID = "AI_SCHEMA_INVALID";
     private static final String AI_UNUSABLE_RESPONSE = "AI_UNUSABLE_RESPONSE";
+    private static final int MIN_ACTIVITIES_PER_DAY = 5;
 
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
@@ -102,6 +103,21 @@ public class AiService {
 
     @Value("${trippy.ai.groq.model:llama-3.3-70b-versatile}")
     private String groqModel;
+
+    @Value("${trippy.ai.groq.api-key1:${GROQ_API_KEY1:}}")
+    private String groqApiKey1;
+
+    @Value("${trippy.ai.opencode.api-key:${Opencode_API_KEY:}}")
+    private String opencodeApiKey;
+
+    @Value("${trippy.ai.opencode.base-url:https://opencode.ai/zen/go/v1}")
+    private String opencodeBaseUrl;
+
+    @Value("${trippy.ai.opencode.model:openai/gpt-4o}")
+    private String opencodeModel;
+
+    private final java.util.concurrent.atomic.AtomicInteger activeProviderIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicLong lastFailureTime = new java.util.concurrent.atomic.AtomicLong(0);
 
     @Value("${trippy.weather.openweather-api-key:}")
     private String openWeatherApiKey;
@@ -383,9 +399,9 @@ public class AiService {
                 throw new FallbackTriggerException(AI_SCHEMA_INVALID,
                         "AI itinerary contained duplicate day numbers");
             }
-            if (day.getActivities() == null || day.getActivities().isEmpty()) {
+            if (day.getActivities() == null || day.getActivities().size() < MIN_ACTIVITIES_PER_DAY) {
                 throw new FallbackTriggerException(AI_UNUSABLE_RESPONSE,
-                        "AI itinerary contained a day without activities");
+                        "AI itinerary contained fewer than " + MIN_ACTIVITIES_PER_DAY + " activities for a day");
             }
         }
     }
@@ -476,6 +492,15 @@ public class AiService {
         }
 
         sb.append("""
+
+                Itinerary quality requirements:
+                - Return exactly one day object for every calendar date in the requested range.
+                - Each day must contain 5 to 6 practical activities. Use 7 only when the requested pace is PACKED.
+                - Cover the whole usable day: morning, late morning, lunch or food stop, afternoon, early evening, and optional dinner/night activity.
+                - Use real venues, neighborhoods, viewpoints, stations, restaurants/markets, beaches, museums, or routes for the destination.
+                - Do not use placeholders like "explore the city", "flexible activity", or generic hotel check-in as most of the day.
+                - Sequence activities by realistic geography and travel time. A full-day tour counts as one activity, so still include meals and evening context around it.
+                - Include plausible durationMinutes, category, cost, tips, bookingRequired, Google Maps URL, and coordinates whenever possible.
 
                 Respond ONLY with a valid JSON object (no markdown, no extra text):
                 {
@@ -676,15 +701,27 @@ public class AiService {
         while (!current.isAfter(end) && dayNumber <= 14) {
             List<ItineraryResponse.Activity> activities = new ArrayList<>();
             activities.add(ItineraryResponse.Activity.builder()
-                    .time("09:30")
+                    .time("09:00")
+                    .durationMinutes(60)
+                    .title("Arrival briefing and central orientation")
+                    .description("Start in the most central area, confirm transit passes, and mark the day's key stops.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("FREE_TIME")
+                    .estimatedCost("€0")
+                    .tips("Use this block to reduce friction before the sightseeing-heavy part of the day.")
+                    .bookingRequired(false)
+                    .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("10:30")
                     .durationMinutes(120)
-                    .title("Explore " + constraints.destination())
-                    .description("Start with a central landmark or neighborhood walk to get oriented.")
+                    .title("Major landmark and neighborhood walk")
+                    .description("Visit a signature landmark, then walk nearby streets to understand the local layout.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
                     .category("SIGHTSEEING")
-                    .estimatedCost("Varies")
-                    .tips("Check local opening hours before leaving.")
+                    .estimatedCost("€0-€25")
+                    .tips("Check ticket windows and opening hours before leaving.")
                     .bookingRequired(false)
                     .build());
             if (includeMeals) {
@@ -704,15 +741,41 @@ public class AiService {
             activities.add(ItineraryResponse.Activity.builder()
                     .time("15:00")
                     .durationMinutes(120)
-                    .title("Flexible afternoon activity")
-                    .description("Visit a museum, market, park, or viewpoint based on group energy.")
+                    .title("Museum, market, or cultural stop")
+                    .description("Choose a high-value indoor or cultural stop that matches the group's interests.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
-                    .category("ACTIVITY")
+                    .category("CULTURE")
                     .estimatedCost("€0-€25")
                     .tips("Keep this flexible if weather or travel delays change the day.")
                     .bookingRequired(false)
                     .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("17:30")
+                    .durationMinutes(90)
+                    .title("Scenic viewpoint or relaxed local district")
+                    .description("Wind down with a viewpoint, waterfront, park, or atmospheric local quarter.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("SIGHTSEEING")
+                    .estimatedCost("€0-€15")
+                    .tips("Good timing for photos and a lower-pressure group check-in.")
+                    .bookingRequired(false)
+                    .build());
+            if (activities.size() < MIN_ACTIVITIES_PER_DAY) {
+                activities.add(ItineraryResponse.Activity.builder()
+                        .time("19:30")
+                        .durationMinutes(90)
+                        .title("Evening food and next-day planning")
+                        .description("Pick a convenient dinner area and review the next day's route while everyone is together.")
+                        .location(constraints.destination())
+                        .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                        .category("FOOD")
+                        .estimatedCost("€20-€40")
+                        .tips("Reserve if the group is larger than four people.")
+                        .bookingRequired(false)
+                        .build());
+            }
 
             ItineraryResponse.DayPlan day = ItineraryResponse.DayPlan.builder()
                     .dayNumber(dayNumber)
@@ -1310,53 +1373,127 @@ public class AiService {
         }
     }
 
+    private static class ProviderConfig {
+        final String name;
+        final String apiKey;
+        final String baseUrl;
+        final String model;
+
+        ProviderConfig(String name, String apiKey, String baseUrl, String model) {
+            this.name = name;
+            this.apiKey = apiKey;
+            this.baseUrl = baseUrl;
+            this.model = model;
+        }
+    }
+
     private String callGroqDirect(String prompt) {
-        try {
-            String actualBaseUrl = (groqBaseUrl == null || groqBaseUrl.isBlank()) ? "https://api.groq.com/openai" : groqBaseUrl;
-            String endpoint = actualBaseUrl.endsWith("/")
-                    ? actualBaseUrl + "v1/chat/completions"
-                    : actualBaseUrl + "/v1/chat/completions";
+        List<ProviderConfig> providers = new java.util.ArrayList<>();
 
-            String actualKey = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
-            if (actualKey == null || actualKey.isBlank()) {
-                throw new IllegalStateException("Groq API key is not configured (GROQ_API_KEY is empty).");
+        // 1. Groq Primary
+        String key0 = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
+        String url0 = (groqBaseUrl == null || groqBaseUrl.isBlank()) ? "https://api.groq.com/openai" : groqBaseUrl;
+        String model0 = (groqModel == null || groqModel.isBlank()) ? "llama-3.3-70b-versatile" : groqModel;
+        providers.add(new ProviderConfig("Groq Primary", key0, url0, model0));
+
+        // 2. Groq Secondary
+        String key1 = (groqApiKey1 == null || groqApiKey1.isBlank()) ? System.getenv("GROQ_API_KEY1") : groqApiKey1;
+        providers.add(new ProviderConfig("Groq Secondary", key1, url0, model0));
+
+        // 3. OpenCode
+        String key2 = (opencodeApiKey == null || opencodeApiKey.isBlank()) ? System.getenv("Opencode_API_KEY") : opencodeApiKey;
+        String url2 = (opencodeBaseUrl == null || opencodeBaseUrl.isBlank()) ? "https://opencode.ai/zen/go/v1" : opencodeBaseUrl;
+        String model2 = (opencodeModel == null || opencodeModel.isBlank()) ? "openai/gpt-4o" : opencodeModel;
+        providers.add(new ProviderConfig("OpenCode", key2, url2, model2));
+
+        List<ProviderConfig> activeProviders = new java.util.ArrayList<>();
+        for (ProviderConfig p : providers) {
+            if (p.apiKey != null && !p.apiKey.isBlank()) {
+                activeProviders.add(p);
             }
+        }
 
-            String actualModel = (groqModel == null || groqModel.isBlank()) ? "llama-3.3-70b-versatile" : groqModel;
+        if (activeProviders.isEmpty()) {
+            throw new IllegalStateException("No AI provider API keys are configured (all keys are empty).");
+        }
 
-            Map<String, Object> payload = Map.of(
-                    "model", actualModel,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", "You are Trippy AI, a helpful travel planning assistant."),
-                            Map.of("role", "user", "content", prompt)
-                    )
-            );
+        // Cool-off check: if activeProviderIndex is not 0, check if we should reset it
+        long now = System.currentTimeMillis();
+        int currentIndex = activeProviderIndex.get();
+        if (currentIndex != 0 && now - lastFailureTime.get() > 300_000) { // 5 minutes cool-off
+            log.info("Cooldown period of 5 minutes elapsed. Resetting active provider to primary (0).");
+            activeProviderIndex.set(0);
+            currentIndex = 0;
+        }
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(ITINERARY_TIMEOUT)
-                    .header("Authorization", "Bearer " + actualKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build();
+        int startIndex = currentIndex % activeProviders.size();
+        Exception lastException = null;
 
+        for (int i = 0; i < activeProviders.size(); i++) {
+            int attemptIndex = (startIndex + i) % activeProviders.size();
+            ProviderConfig provider = activeProviders.get(attemptIndex);
+
+            log.info("Attempting AI generation with provider: {} (index: {})", provider.name, attemptIndex);
+
+            try {
+                String result = executeChatCompletion(provider, prompt);
+                // If we succeeded and we used a fallback index, log that we used fallback and stick to it
+                if (attemptIndex != activeProviderIndex.get()) {
+                    log.info("Successfully recovered using AI provider: {} (new sticky index: {})", provider.name, attemptIndex);
+                    activeProviderIndex.set(attemptIndex);
+                }
+                return result;
+            } catch (Exception ex) {
+                log.warn("AI provider {} failed (index: {}). Error: {}", provider.name, attemptIndex, ex.getMessage());
+                lastException = ex;
+                lastFailureTime.set(System.currentTimeMillis());
+                // Switch sticky index to next available index immediately
+                int nextIndex = (attemptIndex + 1) % activeProviders.size();
+                activeProviderIndex.set(nextIndex);
+            }
+        }
+
+        if (lastException instanceof AiServiceTimeoutException) {
+            throw (AiServiceTimeoutException) lastException;
+        }
+        throw new RuntimeException("All fallback AI providers failed.", lastException);
+    }
+
+    private String executeChatCompletion(ProviderConfig provider, String prompt) throws Exception {
+        String endpoint = provider.baseUrl.endsWith("/")
+                ? provider.baseUrl + "v1/chat/completions"
+                : provider.baseUrl + "/v1/chat/completions";
+
+        Map<String, Object> payload = Map.of(
+                "model", provider.model,
+                "messages", List.of(
+                        Map.of("role", "system", "content", "You are Trippy AI, a helpful travel planning assistant."),
+                        Map.of("role", "user", "content", prompt)
+                )
+        );
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(ITINERARY_TIMEOUT)
+                .header("Authorization", "Bearer " + provider.apiKey)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build();
+
+        try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Groq API returned status " + response.statusCode());
+                throw new IllegalStateException("API returned status " + response.statusCode() + ": " + response.body());
             }
 
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode content = root.path("choices").path(0).path("message").path("content");
             if (content.isMissingNode() || content.asText().isBlank()) {
-                throw new RuntimeException("Groq API returned empty content");
+                throw new RuntimeException("API returned empty content");
             }
             return content.asText();
-        } catch (AiServiceTimeoutException ex) {
-            throw ex;
         } catch (HttpTimeoutException ex) {
             throw new AiServiceTimeoutException(timeoutMessage(ITINERARY_TIMEOUT), ex);
-        } catch (Exception ex) {
-            throw new RuntimeException("Direct Groq fallback failed", ex);
         }
     }
 
