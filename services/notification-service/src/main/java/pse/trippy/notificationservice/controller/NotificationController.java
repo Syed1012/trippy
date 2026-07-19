@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import pse.trippy.notificationservice.dto.response.NotificationResponse;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
 
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +35,14 @@ import java.util.UUID;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final SseNotificationService sseNotificationService;
+
+    @Operation(summary = "Subscribe to real-time notification stream", description = "Establishes a Server-Sent Events (SSE) connection to receive real-time notifications.")
+    @GetMapping(value = "/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamNotifications(
+            @Parameter(description = "Authenticated User ID") @RequestHeader("X-User-Id") UUID userId) {
+        return sseNotificationService.createEmitter(userId);
+    }
 
     @Operation(summary = "Get paginated user notifications", description = "Fetches a paginated list of notifications for the authenticated user, optionally filtered by unread status or type.")
     @ApiResponses(value = {

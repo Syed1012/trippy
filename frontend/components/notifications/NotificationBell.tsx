@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { notificationsApi, participantsApi, type Notification } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useNotifications } from "@/lib/notification-context";
 
 const typeIcon: Record<string, typeof Bell> = {
   TRIP_INVITE: Plane,
@@ -47,54 +48,24 @@ function timeAgo(dateStr: string): string {
 export default function NotificationBell({ className }: { className?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Poll unread count every 30s
-  const fetchUnreadCount = useCallback(async () => {
-    try {
-      const data = await notificationsApi.unreadCount();
-      setUnreadCount(data.count);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialPoll = window.setTimeout(fetchUnreadCount, 0);
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => {
-      window.clearTimeout(initialPoll);
-      clearInterval(interval);
-    };
-  }, [fetchUnreadCount]);
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    fetchNotifications,
+    markRead,
+    markAllRead,
+    deleteNotification,
+  } = useNotifications();
 
   // Load notifications when dropdown opens
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      setLoading(true);
-      notificationsApi
-        .list(0, 40)
-        .then((data) => {
-          if (!cancelled) setNotifications(data.content);
-        })
-        .catch(() => {
-          if (!cancelled) setNotifications([]);
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }, 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [open]);
+    if (open) {
+      fetchNotifications();
+    }
+  }, [open, fetchNotifications]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -108,29 +79,13 @@ export default function NotificationBell({ className }: { className?: string }) 
   }, [open]);
 
   async function handleMarkAllRead() {
-    try {
-      await notificationsApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-      setUnreadCount(0);
-    } catch {
-      // ignore
-    }
+    await markAllRead();
   }
 
   async function handleClickNotification(n: Notification) {
-    // Mark as read
     if (!n.read) {
-      try {
-        await notificationsApi.markRead(n.id);
-        setNotifications((prev) =>
-          prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
-        );
-        setUnreadCount((c) => Math.max(0, c - 1));
-      } catch {
-        // ignore
-      }
+      await markRead(n.id);
     }
-    // Navigate
     setOpen(false);
     if (n.actionUrl) {
       router.push(n.actionUrl);
@@ -139,16 +94,7 @@ export default function NotificationBell({ className }: { className?: string }) 
 
   async function handleDeleteNotification(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    try {
-      await notificationsApi.deleteNotification(id);
-      const removed = notifications.find((n) => n.id === id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      if (removed && !removed.read) {
-        setUnreadCount((c) => Math.max(0, c - 1));
-      }
-    } catch {
-      // ignore
-    }
+    await deleteNotification(id);
   }
 
   function isJoinRequest(n: Notification) {
@@ -166,9 +112,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     if (!tripId || !requesterId) return;
     try {
       await participantsApi.approve(tripId, requesterId);
-      await notificationsApi.deleteNotification(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch {
       // ignore
     }
@@ -181,9 +125,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     if (!tripId || !requesterId) return;
     try {
       await participantsApi.reject(tripId, requesterId);
-      await notificationsApi.deleteNotification(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch {
       // ignore
     }
@@ -195,9 +137,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     if (!tripId) return;
     try {
       await participantsApi.accept(tripId);
-      await notificationsApi.deleteNotification(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch {
       // ignore
     }
@@ -209,9 +149,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     if (!tripId) return;
     try {
       await participantsApi.decline(tripId);
-      await notificationsApi.deleteNotification(n.id);
-      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.read) setUnreadCount((c) => Math.max(0, c - 1));
+      await deleteNotification(n.id);
     } catch {
       // ignore
     }

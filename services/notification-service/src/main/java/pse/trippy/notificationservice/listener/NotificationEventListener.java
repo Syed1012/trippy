@@ -18,11 +18,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pse.trippy.notificationservice.dto.response.NotificationResponse;
 import pse.trippy.notificationservice.logging.CorrelationIds;
 import pse.trippy.notificationservice.logging.LogSanitizer;
+import pse.trippy.notificationservice.model.entity.Notification;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.EmailService;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
 
 @Component
 @RequiredArgsConstructor
@@ -50,6 +53,7 @@ public class NotificationEventListener {
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
     private final pse.trippy.notificationservice.service.WebPushService webPushService;
+    private final SseNotificationService sseNotificationService;
 
     @RabbitListener(queues = "notification.events")
     public void handleEvent(Message rawMessage,
@@ -483,8 +487,29 @@ public class NotificationEventListener {
             return;
         }
         String resolvedActionUrl = inAppActionUrl(actionUrl);
-        notificationService.createNotification(parsedUserId, type, title, message,
+        Notification saved = notificationService.createNotification(parsedUserId, type, title, message,
                 resolvedActionUrl, metadata);
+
+        // Send via SSE for real-time delivery
+        try {
+            NotificationResponse response = new NotificationResponse(
+                    saved.getId(),
+                    saved.getId(),
+                    saved.getUserId(),
+                    saved.getType(),
+                    saved.getTitle(),
+                    saved.getMessage(),
+                    saved.getMessage(),
+                    saved.getActionUrl(),
+                    saved.getMetadata(),
+                    saved.isRead(),
+                    saved.getCreatedAt(),
+                    saved.getReadAt()
+            );
+            sseNotificationService.sendNotification(parsedUserId, response);
+        } catch (Exception ex) {
+            log.warn("Failed to send SSE notification", ex);
+        }
 
         try {
             Map<String, String> pushPayload = new HashMap<>();
