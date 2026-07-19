@@ -1,9 +1,9 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { notificationsApi, getAccessToken, type Notification } from "./api";
-import { useAuth } from "./auth-context";
-import { useToast } from "./toast";
+import { ApiError, notificationsApi, getAccessToken, type Notification } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/lib/toast";
 
 interface NotificationContextType {
   notifications: Notification[];
@@ -22,7 +22,7 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType | null>(null);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { addToast } = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -33,17 +33,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const reconnectDelayRef = useRef(1000); // Start reconnect delay at 1s
 
   const fetchUnreadCount = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isAuthLoading) return;
     try {
       const data = await notificationsApi.unreadCount();
       setUnreadCount(data.count);
     } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
       console.error("Failed to fetch unread count:", err);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAuthLoading]);
 
   const fetchNotifications = useCallback(async (page = 0, size = 20) => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isAuthLoading) return;
     setLoading(true);
     try {
       const data = await notificationsApi.list(page, size);
@@ -51,11 +52,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setTotalPages(data.totalPages);
       await fetchUnreadCount();
     } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
       console.error("Failed to fetch notifications:", err);
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, fetchUnreadCount]);
+  }, [isAuthenticated, isAuthLoading, fetchUnreadCount]);
 
   const markRead = useCallback(async (id: string) => {
     try {
@@ -94,7 +96,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   // Connect to SSE stream
   const connectSSE = useCallback(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isAuthLoading) return;
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -170,11 +172,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }, reconnectDelayRef.current);
     };
 
-  }, [isAuthenticated, addToast]);
+  }, [isAuthenticated, isAuthLoading, addToast]);
 
   // Handle connection & cleanup on auth changes
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isAuthLoading) {
       fetchNotifications();
       connectSSE();
     } else {
@@ -200,7 +202,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [isAuthenticated, fetchNotifications, connectSSE]);
+  }, [isAuthenticated, isAuthLoading, fetchNotifications, connectSSE]);
 
   return (
     <NotificationContext.Provider

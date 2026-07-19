@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { api } from './api';
-import { useAuth } from './auth-context';
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export function useWebPush() {
   const [isSupported, setIsSupported] = useState(false);
