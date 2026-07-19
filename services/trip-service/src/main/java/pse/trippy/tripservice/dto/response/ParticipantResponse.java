@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ParticipantResponse(
         UUID id,
         UUID userId,
+        String email,
         String role,
         String status,
         Instant joinedAt

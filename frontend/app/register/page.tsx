@@ -26,13 +26,24 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const queryNext = params.get("next");
+      if (queryNext) {
+        setNextUrl(queryNext);
+      }
+    }
+  }, []);
 
   // Redirect authenticated users away from register
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(ROUTES.home);
+      router.replace(nextUrl || ROUTES.home);
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, router, nextUrl]);
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
@@ -73,7 +84,10 @@ export default function RegisterPage() {
       const displayName = `${firstName.trim()} ${lastName.trim()}`;
       await register(email.trim(), password, displayName);
       addToast("Account created. You can sign in now.", "success");
-      router.push(`${ROUTES.login}?registered=true&email=${encodeURIComponent(email.trim())}`);
+      const redirectUrl = nextUrl
+        ? `${ROUTES.login}?registered=true&email=${encodeURIComponent(email.trim())}&next=${encodeURIComponent(nextUrl)}`
+        : `${ROUTES.login}?registered=true&email=${encodeURIComponent(email.trim())}`;
+      router.push(redirectUrl);
     } catch (err) {
       if (err instanceof ApiError) {
         const body = err.body as ApiErrorBody;

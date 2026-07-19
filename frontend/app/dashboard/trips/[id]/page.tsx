@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatDestinationInput } from "@/lib/destination-format";
 import {
   ArrowLeft,
+  ArrowRight,
   MapPin,
   Calendar,
   Users,
@@ -71,7 +72,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, ApiError, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -3272,9 +3273,13 @@ export default function TripDetailPage() {
   const [isOwnerOrEditor, setIsOwnerOrEditor] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
+  const [isInvited, setIsInvited] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [processingRequestUserId, setProcessingRequestUserId] = useState<string | null>(null);
+  const [isPrivateTrip, setIsPrivateTrip] = useState(false);
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
+  const [decliningInvite, setDecliningInvite] = useState(false);
 
   const applyParticipantFlags = useCallback(
     (data: TripDetail) => {
@@ -3284,10 +3289,12 @@ export default function TripDetailPage() {
         setIsOwnerOrEditor(me?.role === "OWNER" || me?.role === "EDITOR");
         setIsParticipant(!!me && (me.status === "ACCEPTED" || me.role === "OWNER"));
         setIsPendingApproval(!!me && me.status === "PENDING_APPROVAL");
+        setIsInvited(!!me && me.status === "INVITED");
       } else {
         setIsOwner(false);
         setIsParticipant(false);
         setIsPendingApproval(false);
+        setIsInvited(false);
       }
     },
     [user?.userId]
@@ -3296,11 +3303,13 @@ export default function TripDetailPage() {
   const enrichParticipants = useCallback(async (data: TripDetail) => {
     if (data.participants && data.participants.length > 0) {
       try {
-        const userIds = data.participants.map((p) => p.userId);
+        const userIds = data.participants.map((p) => p.userId).filter(Boolean);
+        if (userIds.length === 0) return data;
         const profiles = await usersApi.batchProfiles(userIds);
         const profileMap: Record<string, typeof profiles[number]> = {};
         for (const p of profiles) profileMap[p.id] = p;
         data.participants = data.participants.map((p) => {
+          if (!p.userId) return p;
           const profile = profileMap[p.userId];
           return {
             ...p,
@@ -3374,11 +3383,12 @@ export default function TripDetailPage() {
     }
   }
 
-  async function handleRevokeInvite(invitedUserId: string) {
+  async function handleRevokeInvite(participant: { userId?: string; email?: string }) {
     if (!tripId) return;
-    setProcessingRequestUserId(invitedUserId);
+    const trackingId = participant.userId || participant.email || "";
+    setProcessingRequestUserId(trackingId);
     try {
-      await participantsApi.reject(tripId, invitedUserId);
+      await participantsApi.reject(tripId, participant.userId || undefined, participant.email || undefined);
       addToast("Invitation revoked.", "success");
       await refreshTrip();
     } catch (err: unknown) {
@@ -3386,6 +3396,36 @@ export default function TripDetailPage() {
       addToast(msg, "error");
     } finally {
       setProcessingRequestUserId(null);
+    }
+  }
+
+  async function handleAcceptInvite() {
+    if (!tripId) return;
+    setAcceptingInvite(true);
+    try {
+      await participantsApi.accept(tripId);
+      addToast("You have joined the trip!", "success");
+      await refreshTrip();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to accept invite";
+      addToast(msg, "error");
+    } finally {
+      setAcceptingInvite(false);
+    }
+  }
+
+  async function handleDeclineInvite() {
+    if (!tripId) return;
+    setDecliningInvite(true);
+    try {
+      await participantsApi.decline(tripId);
+      addToast("You have declined the invite.", "info");
+      router.push("/");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to decline invite";
+      addToast(msg, "error");
+    } finally {
+      setDecliningInvite(false);
     }
   }
 
@@ -3472,7 +3512,14 @@ export default function TripDetailPage() {
           }
         }
       })
-      .catch(() => setError("Failed to load trip details"))
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          setIsPrivateTrip(true);
+          setError("This trip is private. If you have been invited, please sign in with the email the invite was sent to.");
+        } else {
+          setError("Failed to load trip details");
+        }
+      })
       .finally(() => setLoading(false));
   }, [tripId, user?.userId, enrichParticipants, applyParticipantFlags]);
 
@@ -3710,10 +3757,35 @@ export default function TripDetailPage() {
   if (error || !trip) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
-        <p className="text-muted">{error || "Trip not found"}</p>
-        <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
-          <ArrowLeft size={16} /> Back to trips
-        </Button>
+        {isPrivateTrip ? (
+          <>
+            <Lock size={40} className="text-muted opacity-50" />
+            <p className="text-muted text-center max-w-md">{error}</p>
+            {!user?.userId && (
+              <div className="flex gap-3">
+                <Button
+                  variant="primary"
+                  onClick={() => router.push(`/login?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}
+                >
+                  <ArrowRight size={16} /> Sign In
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => router.push(`/register?next=${encodeURIComponent(`/dashboard/trips/${tripId}`)}`)}
+                >
+                  <UserPlus size={16} /> Create Account
+                </Button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-muted">{error || "Trip not found"}</p>
+            <Button variant="secondary" onClick={() => router.push(user?.userId ? "/dashboard" : "/") }>
+              <ArrowLeft size={16} /> Back to trips
+            </Button>
+          </>
+        )}
       </div>
     );
   }
@@ -3767,6 +3839,47 @@ export default function TripDetailPage() {
             <p className="text-xs text-amber-700 dark:text-amber-300">Your request to join this trip is awaiting approval from the trip owner.</p>
           </div>
         </div>
+      )}
+
+      {/* Invitation accept/decline banner */}
+      {isInvited && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-blue-300/50 bg-blue-50 dark:bg-blue-900/20 px-5 py-4 flex items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800/40">
+              <Mail size={17} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">You&apos;ve been invited!</p>
+              <p className="text-xs text-blue-700 dark:text-blue-300">You have been invited to join this trip. Would you like to accept?</p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="text-xs"
+              disabled={decliningInvite}
+              onClick={handleDeclineInvite}
+            >
+              {decliningInvite ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
+              Decline
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="text-xs"
+              disabled={acceptingInvite}
+              onClick={handleAcceptInvite}
+            >
+              {acceptingInvite ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Accept & Join
+            </Button>
+          </div>
+        </motion.div>
       )}
 
       {/* ─── Hero Header ──────────────────────────────────────────── */}
@@ -4282,14 +4395,15 @@ export default function TripDetailPage() {
               </summary>
               <div className="flex flex-col gap-3 p-4 sm:p-5 pt-0 border-t border-border/50 mt-1">
                 {pendingInvites.map((p) => {
-                const name = p.displayName ?? "User";
+                const name = p.displayName ?? (p.email || "User");
                 const initials = name
                   .split(" ")
                   .map((n) => n[0])
                   .join("")
                   .toUpperCase()
                   .slice(0, 2);
-                const processing = processingRequestUserId === p.userId;
+                const trackingId = p.userId || p.email || p.participantId;
+                const processing = processingRequestUserId === trackingId;
                 return (
                   <div
                     key={p.participantId}
@@ -4302,7 +4416,12 @@ export default function TripDetailPage() {
                       </div>
                       <div className="min-w-0">
                         <span className="block text-xs font-semibold text-foreground truncate max-w-[160px]">{name}</span>
-                        <span className="text-[10px] text-muted">Invitation sent — awaiting response</span>
+                        {p.email && !p.userId && (
+                          <span className="block text-[10px] text-blue-500 truncate max-w-[160px]">{p.email}</span>
+                        )}
+                        <span className="text-[10px] text-muted">
+                          {p.userId ? "Invitation sent — awaiting response" : "Invited by email — no account yet"}
+                        </span>
                       </div>
                     </div>
                     <Button
@@ -4310,7 +4429,7 @@ export default function TripDetailPage() {
                       size="sm"
                       className="text-xs shrink-0"
                       disabled={processing}
-                      onClick={() => handleRevokeInvite(p.userId)}
+                      onClick={() => handleRevokeInvite({ userId: p.userId, email: p.email })}
                     >
                       Revoke
                     </Button>

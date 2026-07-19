@@ -575,7 +575,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, INVITEE_ID))
                     .thenReturn(Optional.of(pending));
 
-            ParticipantActionResponse response = participantService.rejectInvite(TRIP_ID, INVITEE_ID, OWNER_ID);
+            ParticipantActionResponse response = participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), OWNER_ID);
 
             assertThat(response.message()).contains("rejected");
             assertThat(response.participant()).isNull();
@@ -592,7 +592,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, INVITEE_ID))
                     .thenReturn(Optional.of(accepted));
 
-            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, INVITEE_ID, OWNER_ID))
+            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), OWNER_ID))
                     .isInstanceOf(InvalidTripDataException.class)
                     .hasMessageContaining("not in a pending or invited state");
         }
@@ -605,7 +605,7 @@ class ParticipantServiceTest {
             when(participantRepository.findByTripIdAndUserId(TRIP_ID, nonOwner))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, INVITEE_ID, nonOwner))
+            assertThatThrownBy(() -> participantService.rejectInvite(TRIP_ID, new InviteParticipantRequest(INVITEE_ID, null, null, null), nonOwner))
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessageContaining("owner");
         }

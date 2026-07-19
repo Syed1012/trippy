@@ -256,7 +256,7 @@ public class TripService {
 
     private void ensureParticipant(UUID tripId, UUID userId) {
         participantRepository.findByTripIdAndUserId(tripId, userId)
-                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED)
+                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED || p.getStatus() == ParticipantStatus.INVITED)
                 .orElseThrow(() -> new ForbiddenException("You are not a participant of this trip"));
     }
 
@@ -358,6 +358,7 @@ public class TripService {
         return new ParticipantResponse(
                 p.getId(),
                 p.getUserId(),
+                p.getEmail(),
                 p.getRole().name(),
                 p.getStatus().name(),
                 p.getJoinedAt()
