@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import pse.trippy.userservice.dto.request.UpdateProfileRequest;
 import pse.trippy.userservice.dto.response.UserProfileResponse;
 import pse.trippy.userservice.dto.response.UserPublicProfileResponse;
+import pse.trippy.userservice.dto.response.SubscriptionInfoResponse;
 import pse.trippy.userservice.exception.UserNotFoundException;
 import pse.trippy.userservice.mapper.UserMapper;
 import pse.trippy.userservice.model.entity.User;
@@ -119,5 +120,47 @@ public class UserProfileService {
                         .email(user.getEmail())
                         .build())
                 .toList();
+    }
+
+    /**
+     * Returns subscription plan and usage counters for a user.
+     *
+     * @param userId the user's UUID
+     * @return subscription info with plan and usage counters
+     * @throws UserNotFoundException if user not found
+     */
+    public SubscriptionInfoResponse getSubscriptionInfo(UUID userId) {
+        User user = findUser(userId);
+        return SubscriptionInfoResponse.builder()
+                .plan(user.getPlan())
+                .tripCount(user.getTripCount())
+                .generationCount(user.getGenerationCount())
+                .build();
+    }
+
+    /**
+     * Increments a subscription counter field for a user.
+     *
+     * @param userId the user's UUID
+     * @param field  "tripCount" or "generationCount"
+     * @throws UserNotFoundException if user not found
+     */
+    @Transactional
+    public void incrementSubscriptionField(UUID userId, String field) {
+        User user = findUser(userId);
+        
+        switch (field) {
+            case "tripCount":
+                user.setTripCount(user.getTripCount() + 1);
+                break;
+            case "generationCount":
+                user.setGenerationCount(user.getGenerationCount() + 1);
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown field: " + field);
+        }
+        
+        userRepository.save(user);
+        log.info("Subscription field '{}' incremented for user {}", field, userId);
     }
 }
