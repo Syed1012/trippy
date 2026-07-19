@@ -68,12 +68,28 @@ class WebPushServiceTest {
     }
 
     @Test
-    @DisplayName("unsubscribe deletes the subscription by endpoint")
-    void unsubscribeDeletesSubscription() {
+    @DisplayName("subscribing the same endpoint refreshes it instead of creating a duplicate")
+    void subscribeRefreshesExistingEndpoint() {
         webPushService.subscribe(USER_ID.toString(), ENDPOINT, P256DH, AUTH);
+        String refreshedUserId = UUID.randomUUID().toString();
+        webPushService.subscribe(refreshedUserId, ENDPOINT, "new-p256dh", "new-auth");
+
+        assertThat(subscriptionRepository.count()).isOne();
+        WebPushSubscription subscription = subscriptionRepository.findByEndpoint(ENDPOINT).orElseThrow();
+        assertThat(subscription.getUserId()).isEqualTo(refreshedUserId);
+        assertThat(subscription.getP256dh()).isEqualTo("new-p256dh");
+        assertThat(subscription.getAuth()).isEqualTo("new-auth");
+    }
+
+    @Test
+    @DisplayName("unsubscribe only deletes the authenticated user's subscription")
+    void unsubscribeDeletesOnlyMatchingUserSubscription() {
+        webPushService.subscribe(USER_ID.toString(), ENDPOINT, P256DH, AUTH);
+
+        webPushService.unsubscribe(UUID.randomUUID().toString(), ENDPOINT);
         assertThat(subscriptionRepository.findByEndpoint(ENDPOINT)).isPresent();
 
-        webPushService.unsubscribe(ENDPOINT);
+        webPushService.unsubscribe(USER_ID.toString(), ENDPOINT);
         assertThat(subscriptionRepository.findByEndpoint(ENDPOINT)).isEmpty();
     }
 }

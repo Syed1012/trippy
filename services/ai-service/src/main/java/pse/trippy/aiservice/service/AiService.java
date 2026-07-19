@@ -160,25 +160,28 @@ public class AiService {
 
     public ItineraryResponse generateItinerary(GenerateItineraryRequest request) {
         validateItineraryRequest(request);
+        UUID generationId = UUID.randomUUID();
+        ItineraryGenerationResult result = createItinerary(request, generationId);
+        saveGenerationHistory(request, result.response(), result.prompt(), historyStatus(result.response()));
+        return result.response();
+    }
+
+    private ItineraryGenerationResult createItinerary(GenerateItineraryRequest request, UUID generationId) {
         Map<LocalDate, Map<Integer, HourlyForecast>> hourlyWeatherMap = fetchHourlyWeatherMap(request);
         Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate = computeDailySummaries(hourlyWeatherMap);
         String prompt = buildItineraryPrompt(request, weatherByDate);
-        UUID generationId = UUID.randomUUID();
         log.debug("Generating itinerary for destination: {}", request.constraints().destination());
 
         try {
             String rawJson = requestAiWithRetry(prompt, ITINERARY_MAX_ATTEMPTS, ITINERARY_TIMEOUT);
             ItineraryResponse response = objectMapper.readValue(
                     extractJson(rawJson), ItineraryResponse.class);
-            if (response.getGenerationId() == null) {
-                response.setGenerationId(generationId);
-            }
+            response.setGenerationId(generationId);
             response.setGeneratedAt(Instant.now());
             response.setFallbackUsed(false);
             validateAiItineraryResponse(response, request);
             enrichItineraryWithHourlyWeather(response, request, weatherByDate, hourlyWeatherMap);
-            saveGenerationHistory(request, response, prompt, historyStatus(response));
-            return response;
+            return new ItineraryGenerationResult(response, prompt);
         } catch (Exception ex) {
             String fallbackReason = fallbackReason(ex);
             log.warn("AI itinerary generation using fallback catalogue reason={} error={}",
@@ -190,9 +193,8 @@ public class AiService {
             fallback.setFallbackReason(fallbackReason);
             fallback.setGeneratedAt(Instant.now());
             enrichItineraryWithHourlyWeather(fallback, request, weatherByDate, hourlyWeatherMap);
-            saveGenerationHistory(request, fallback, prompt, "FALLBACK");
             meterRegistry.counter("ai.itinerary.fallback", "reason", fallbackReason).increment();
-            return fallback;
+            return new ItineraryGenerationResult(fallback, prompt);
         }
     }
 
@@ -204,19 +206,11 @@ public class AiService {
             throw new IllegalStateException("Maximum retry attempts reached for this generation");
         }
 
-        history.setRetryCount(history.getRetryCount() + 1);
-        generationHistoryRepository.save(history);
-
         GenerateItineraryRequest request = objectMapper.convertValue(history.getRequestPayload(), GenerateItineraryRequest.class);
-        
-        // Use the existing generation ID for the retry
-        ItineraryResponse response = generateItinerary(request);
-        response.setGenerationId(generationId);
-        
-        // Ensure the updated history is saved with the original ID
-        saveGenerationHistory(request, response, buildItineraryPrompt(request, computeDailySummaries(fetchHourlyWeatherMap(request))), historyStatus(response));
-        
-        return response;
+        validateItineraryRequest(request);
+        ItineraryGenerationResult result = createItinerary(request, generationId);
+        updateGenerationHistory(history, request, result.response(), result.prompt());
+        return result.response();
     }
 
     public TravelAdviceResponse getTravelAdvice(TravelAdviceRequest request) {
@@ -1627,6 +1621,22 @@ public class AiService {
         }
     }
 
+    private void updateGenerationHistory(GenerationHistory history, GenerateItineraryRequest request,
+                                         ItineraryResponse response, String prompt) {
+        TripConstraints constraints = request.constraints();
+        history.setTripId(request.tripId());
+        history.setDestination(constraints.destination());
+        history.setStartDate(constraints.startDate());
+        history.setEndDate(constraints.endDate());
+        history.setPromptHash(hashPrompt(prompt));
+        history.setFallbackUsed(Boolean.TRUE.equals(response.getFallbackUsed()));
+        history.setRetryCount(history.getRetryCount() + 1);
+        history.setStatus(historyStatus(response));
+        history.setRequestPayload(objectMapper.convertValue(request, new TypeReference<Map<String, Object>>() {}));
+        history.setResponsePayload(objectMapper.convertValue(response, new TypeReference<Map<String, Object>>() {}));
+        generationHistoryRepository.save(history);
+    }
+
     private String hashPrompt(String prompt) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -1635,6 +1645,9 @@ public class AiService {
         } catch (NoSuchAlgorithmException ex) {
             return Integer.toHexString(prompt.hashCode());
         }
+    }
+
+    private record ItineraryGenerationResult(ItineraryResponse response, String prompt) {
     }
 
     private static class ProviderConfig {

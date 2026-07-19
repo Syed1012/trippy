@@ -87,7 +87,7 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
     List<Participant> findByTripIdsAndStatusIn(@Param("tripIds") Collection<UUID> tripIds,
                                                @Param("statuses") Collection<ParticipantStatus> statuses);
 
-    List<Participant> findByEmailAndUserIdIsNull(String email);
+    List<Participant> findByEmailIgnoreCaseAndUserIdIsNull(String email);
 
     Optional<Participant> findByTripIdAndEmail(UUID tripId, String email);
 
@@ -95,4 +95,7 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
 
     @Query(value = "SELECT CAST(id AS VARCHAR) FROM user_schema.users WHERE LOWER(email) = LOWER(:email)", nativeQuery = true)
     Optional<String> findUserIdByEmail(@Param("email") String email);
+
+    @Query(value = "SELECT email FROM user_schema.users WHERE id = :userId", nativeQuery = true)
+    Optional<String> findEmailByUserId(@Param("userId") UUID userId);
 }

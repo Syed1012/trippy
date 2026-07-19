@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -43,8 +44,8 @@ public class WebPushController {
     })
     @PostMapping("/subscribe")
     public ResponseEntity<Void> subscribe(
-            @Parameter(description = "User ID header") @RequestHeader(value = "X-User-Id", defaultValue = "test-user") String userId,
-            @RequestBody WebPushSubscriptionRequest request) {
+            @Parameter(description = "Authenticated user ID header") @RequestHeader("X-User-Id") String userId,
+            @Valid @RequestBody WebPushSubscriptionRequest request) {
         log.info("Received web push subscription for user: {}", userId);
         webPushService.subscribe(
                 userId,
@@ -60,10 +61,11 @@ public class WebPushController {
             @ApiResponse(responseCode = "204", description = "Subscription removed successfully")
     })
     @PostMapping("/unsubscribe")
-    public ResponseEntity<Void> unsubscribe(@RequestBody WebPushSubscriptionRequest request) {
-        log.info("Removing web push subscription for endpoint: {}", request.getEndpoint());
-        webPushService.unsubscribe(request.getEndpoint());
+    public ResponseEntity<Void> unsubscribe(
+            @Parameter(description = "Authenticated user ID header") @RequestHeader("X-User-Id") String userId,
+            @Valid @RequestBody WebPushSubscriptionRequest request) {
+        log.info("Removing web push subscription for user: {}", userId);
+        webPushService.unsubscribe(userId, request.getEndpoint());
         return ResponseEntity.noContent().build();
     }
 }
-

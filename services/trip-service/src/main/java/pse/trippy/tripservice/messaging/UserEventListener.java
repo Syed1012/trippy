@@ -4,12 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import pse.trippy.tripservice.config.RabbitMQConfig;
-import pse.trippy.tripservice.model.entity.Participant;
-import pse.trippy.tripservice.repository.ParticipantRepository;
+import pse.trippy.tripservice.service.PendingInviteLinkService;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,37 +15,36 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserEventListener {
 
-    private final ParticipantRepository participantRepository;
+    private final PendingInviteLinkService pendingInviteLinkService;
 
     @RabbitListener(queues = RabbitMQConfig.USER_REGISTERED_QUEUE)
-    @Transactional
     public void handleUserRegistered(Map<String, Object> event) {
-        log.info("Received user.registered event: {}", event);
+        log.info("Received user.registered event");
         try {
-            String email = (String) event.get("email");
-            String userIdStr = (String) event.get("userId");
+            String email = textValue(event.get("email"));
+            String userIdStr = textValue(event.get("userId"));
             if (email == null || userIdStr == null) {
                 log.warn("Missing email or userId in user.registered event");
                 return;
             }
 
             UUID userId = UUID.fromString(userIdStr);
-            List<Participant> pendingInvites = participantRepository.findByEmailAndUserIdIsNull(email);
-            if (!pendingInvites.isEmpty()) {
-                log.info("Linking {} pending invites for email {} to userId {}", pendingInvites.size(), email, userId);
-                for (Participant p : pendingInvites) {
-                    // Check if they are already a participant via some other means
-                    if (participantRepository.existsByTripIdAndUserId(p.getTrip().getId(), userId)) {
-                        log.warn("User {} is already a participant in trip {}. Deleting pending invite by email.", userId, p.getTrip().getId());
-                        participantRepository.delete(p);
-                    } else {
-                        p.setUserId(userId);
-                        participantRepository.save(p);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to process user.registered event", e);
+            int linkedCount = pendingInviteLinkService.linkPendingInvites(userId, email);
+            log.info("Linked {} pending trip invites to newly registered user {}", linkedCount, userId);
+        } catch (IllegalArgumentException ex) {
+            log.warn("Ignoring user.registered event with an invalid user ID");
+        } catch (RuntimeException ex) {
+            log.error("Failed to link pending trip invitations for a newly registered user", ex);
+            throw ex;
         }
     }
+
+    private String textValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString().trim();
+        return text.isEmpty() ? null : text;
+    }
+
 }

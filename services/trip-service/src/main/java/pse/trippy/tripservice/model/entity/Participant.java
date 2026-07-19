@@ -66,7 +66,9 @@ public class Participant {
     @JoinColumn(name = "trip_id", nullable = false, updatable = false)
     private Trip trip;
 
-    @Column(name = "user_id", updatable = false)
+    // Email-only invitations are created before a user account exists. The
+    // registration listener fills this field once the invitee signs up.
+    @Column(name = "user_id")
     private UUID userId;
 
     @Column(name = "email", length = 254)

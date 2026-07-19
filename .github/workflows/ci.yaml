@@ -88,9 +88,11 @@ jobs:
               - 'pom.xml'
             ai-service:
               - 'services/ai-service/**'
+              - '.github/workflows/ci.yaml'
               - 'pom.xml'
             notification-service:
               - 'services/notification-service/**'
+              - '.github/workflows/ci.yaml'
               - 'pom.xml'
             payment-service:
               - 'services/payment-service/**'
@@ -287,6 +289,10 @@ jobs:
           mvn install -N -B -DskipTests
           mvn -pl services/ai-service clean verify -B -DskipTests=false
 
+      - name: Run AI Service Static Analysis
+        run: |
+          mvn -pl services/ai-service -B -DskipTests pmd:check checkstyle:check spotbugs:check
+
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
@@ -318,6 +324,10 @@ jobs:
         run: |
           mvn install -N -B -DskipTests
           mvn -pl services/notification-service clean verify -B -DskipTests=false
+
+      - name: Run Notification Service Static Analysis
+        run: |
+          mvn -pl services/notification-service -B -DskipTests pmd:check checkstyle:check spotbugs:check
 
       - name: Upload Test Results
         if: always()

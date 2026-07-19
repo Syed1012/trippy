@@ -72,7 +72,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, Button, Badge, Avatar, generateAvatarUrl } from "@/components/ui";
-import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, ApiError, type Trip, type TripDetail, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
+import { tripsApi, itineraryApi, commentsApi, usersApi, participantsApi, preferencesApi, ensureTripCoverImage, ApiError, type Trip, type TripDetail, type Participant, type DayPlan, type Activity, type VoteSummary, type ActivityVoteSummary, type ActivityComment as ActivityCommentType, type UserPublicProfile, type TripType, type PreferredWeather, type BudgetTier, type UpdateItineraryRequest, type TripPreference } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn, tripIdFromSlug } from "@/lib/utils";
 import { useRightRail } from "@/lib/right-rail";
@@ -2477,17 +2477,47 @@ function VotingSettingsPanel({
 
 /* ─── Invite Modal ────────────────────────────────────────────────── */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RECENT_INVITES_STORAGE_PREFIX = "trippy_recent_invites:";
+
+function getRecentInviteStorageKey(tripId: string): string {
+  return `${RECENT_INVITES_STORAGE_PREFIX}${tripId}`;
+}
+
+function readRecentInviteEmails(tripId: string): string[] {
+  try {
+    const stored = window.localStorage.getItem(getRecentInviteStorageKey(tripId));
+    const emails = stored ? JSON.parse(stored) : [];
+    return Array.isArray(emails)
+      ? emails.filter((email): email is string => typeof email === "string" && EMAIL_PATTERN.test(email))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentInviteEmail(tripId: string, email: string): string[] {
+  const normalizedEmail = email.trim().toLowerCase();
+  const emails = [normalizedEmail, ...readRecentInviteEmails(tripId).filter((item) => item !== normalizedEmail)].slice(0, 10);
+  try {
+    window.localStorage.setItem(getRecentInviteStorageKey(tripId), JSON.stringify(emails));
+  } catch {
+    // Storage can be unavailable in private browsing; the current modal still retains the invite.
+  }
+  return emails;
+}
 
 function InviteModal({
   tripId,
   onClose,
   onInvited,
   currentUserName,
+  invitedParticipants,
 }: {
   tripId: string;
   onClose: () => void;
   onInvited: () => void;
   currentUserName: string;
+  invitedParticipants: Participant[];
 }) {
   const { addToast } = useToast();
   const { user } = useAuth();
@@ -2495,15 +2525,43 @@ function InviteModal({
   const [selectedUser, setSelectedUser] = useState<UserPublicProfile | null>(null);
   const [inviteMessage, setInviteMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [sentEmails, setSentEmails] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Search states
   const [searchResults, setSearchResults] = useState<UserPublicProfile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [recentEmailInvites, setRecentEmailInvites] = useState<string[]>([]);
+
+  useEffect(() => {
+    setRecentEmailInvites(readRecentInviteEmails(tripId));
+  }, [tripId]);
 
   const trimmedEmail = email.trim();
   const isValidEmail = EMAIL_PATTERN.test(trimmedEmail);
+  const normalizedEmail = trimmedEmail.toLowerCase();
+  const existingInvite = invitedParticipants.find((participant) =>
+    (selectedUser?.id && participant.userId === selectedUser.id)
+    || (!!normalizedEmail && participant.email?.toLowerCase() === normalizedEmail)
+  );
+  const wasPreviouslyInvited = Boolean(existingInvite)
+    || (!!normalizedEmail && recentEmailInvites.includes(normalizedEmail));
+  const recentInvites = invitedParticipants.filter((participant) =>
+    Boolean(participant.email || participant.displayName)
+  );
+  const localRecentInvites = recentEmailInvites
+    .filter((savedEmail) => !recentInvites.some((participant) => participant.email?.toLowerCase() === savedEmail))
+    .map((savedEmail) => ({
+      participantId: `local-${savedEmail}`,
+      email: savedEmail,
+      displayName: undefined,
+    }));
+  const allRecentInvites = [...recentInvites, ...localRecentInvites];
+  const matchingRecentInvites = allRecentInvites.filter((participant) => {
+    if (!trimmedEmail) return true;
+    const query = trimmedEmail.toLowerCase();
+    return participant.email?.toLowerCase().includes(query)
+      || participant.displayName?.toLowerCase().includes(query);
+  });
 
   // Debounced search for platform users based on input value
   useEffect(() => {
@@ -2553,8 +2611,9 @@ function InviteModal({
           currentUserName || undefined,
           selectedUser.displayName || undefined
         );
-        const displayName = selectedUser.displayName || selectedUser.email || "User";
-        setSentEmails((prev) => [displayName, ...prev.filter((e) => e !== displayName)]);
+        if (selectedUser.email) {
+          setRecentEmailInvites(saveRecentInviteEmail(tripId, selectedUser.email));
+        }
       } else {
         // Just email invite
         await participantsApi.inviteByEmail(
@@ -2563,7 +2622,7 @@ function InviteModal({
           inviteMessage.trim() || undefined,
           currentUserName || undefined
         );
-        setSentEmails((prev) => [trimmedEmail, ...prev.filter((e) => e !== trimmedEmail)]);
+        setRecentEmailInvites(saveRecentInviteEmail(tripId, trimmedEmail));
       }
       setEmail("");
       setSelectedUser(null);
@@ -2647,37 +2706,80 @@ function InviteModal({
             </div>
 
             {/* Suggestions list */}
-            {searchResults.length > 0 && (
+            {(searchResults.length > 0 || matchingRecentInvites.length > 0) && (
               <div className="border border-border rounded-2xl overflow-hidden max-h-40 overflow-y-auto bg-white divide-y divide-border shadow-sm">
-                <div className="px-3 py-1.5 bg-shore-50 text-[10px] font-semibold text-muted uppercase tracking-wider">
-                  Matching platform users
-                </div>
-                {searchResults.map((user) => (
-                  <button
-                    key={user.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedUser(user);
-                      setEmail(user.displayName || user.email || "");
-                      setSearchResults([]);
-                    }}
-                    className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
-                  >
-                    <div className="h-7 w-7 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-xs overflow-hidden shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={user.avatarUrl || generateAvatarUrl(user.displayName)} alt={user.displayName} className="h-full w-full object-cover" />
+                {matchingRecentInvites.length > 0 && (
+                  <>
+                    <div className="px-3 py-1.5 bg-shore-50 text-[10px] font-semibold text-muted uppercase tracking-wider">
+                      Recently invited
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-foreground truncate">{user.displayName}</p>
-                      <p className="text-[10px] text-muted truncate">{user.email}</p>
+                    {matchingRecentInvites.map((participant) => {
+                      const recipient = participant.email || participant.displayName || "Previously invited recipient";
+                      return (
+                        <button
+                          key={participant.participantId}
+                          type="button"
+                          onClick={() => {
+                            setSelectedUser(null);
+                            setEmail(participant.email || participant.displayName || "");
+                            setSearchResults([]);
+                          }}
+                          className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
+                        >
+                          <div className="h-7 w-7 rounded-full bg-green-50 flex items-center justify-center text-green-700 shrink-0">
+                            <Check size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-foreground truncate">{participant.displayName || recipient}</p>
+                            {participant.email && participant.displayName && (
+                              <p className="text-[10px] text-muted truncate">{participant.email}</p>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-medium text-green-700 shrink-0">Invited</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+                {searchResults.length > 0 && (
+                  <>
+                    <div className="px-3 py-1.5 bg-shore-50 text-[10px] font-semibold text-muted uppercase tracking-wider">
+                      Matching platform users
                     </div>
-                  </button>
-                ))}
+                    {searchResults.map((user) => (
+                      <button
+                        key={user.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setEmail(user.displayName || user.email || "");
+                          setSearchResults([]);
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-shore-50 transition-colors text-left cursor-pointer"
+                      >
+                        <div className="h-7 w-7 rounded-full bg-accent-500/10 flex items-center justify-center text-accent-700 font-bold text-xs overflow-hidden shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={user.avatarUrl || generateAvatarUrl(user.displayName)} alt={user.displayName} className="h-full w-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-foreground truncate">{user.displayName}</p>
+                          <p className="text-[10px] text-muted truncate">{user.email}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
+          {wasPreviouslyInvited && (
+            <div className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+              <Check size={14} className="mt-0.5 shrink-0" />
+              <p>An invitation has already been sent to {existingInvite?.email || existingInvite?.displayName || trimmedEmail || "this person"}.</p>
+            </div>
+          )}
           
           <textarea
             value={inviteMessage}
@@ -2690,11 +2792,11 @@ function InviteModal({
           
           <button
             onClick={handleSend}
-            disabled={(!selectedUser && !isValidEmail) || sending}
+            disabled={(!selectedUser && !isValidEmail) || sending || wasPreviouslyInvited}
             className={cn(
               "flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition-all cursor-pointer",
               "bg-accent-500 text-white hover:bg-accent-600 shadow-sm",
-              ((!selectedUser && !isValidEmail) || sending) && "opacity-60 cursor-not-allowed",
+              ((!selectedUser && !isValidEmail) || sending || wasPreviouslyInvited) && "opacity-60 cursor-not-allowed",
             )}
           >
             {sending ? (
@@ -2705,21 +2807,6 @@ function InviteModal({
           </button>
         </div>
 
-        {/* Sent list */}
-        {sentEmails.length > 0 && (
-          <div className="px-6 pb-6 max-h-48 overflow-y-auto space-y-2">
-            <p className="text-xs font-medium text-muted uppercase tracking-wide">Sent this session</p>
-            {sentEmails.map((sent) => (
-              <div
-                key={sent}
-                className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-3"
-              >
-                <Check size={14} className="text-green-600 shrink-0" />
-                <p className="text-sm text-foreground truncate flex-1">{sent}</p>
-              </div>
-            ))}
-          </div>
-        )}
       </motion.div>
     </motion.div>
   );
@@ -3315,6 +3402,7 @@ export default function TripDetailPage() {
             ...p,
             displayName: profile?.displayName ?? p.displayName,
             avatarUrl: profile?.avatarUrl ?? p.avatarUrl,
+            email: profile?.email ?? p.email,
           };
         });
       } catch {
@@ -4655,9 +4743,10 @@ export default function TripDetailPage() {
             onClose={() => setInviteOpen(false)}
             onInvited={() => {
               // Refresh trip data to show new participant
-              tripsApi.get(tripId).then((data) => setTrip(data)).catch(() => {});
+              void refreshTrip();
             }}
             currentUserName={user?.displayName ?? ""}
+            invitedParticipants={pendingInvites}
           />
         )}
       </AnimatePresence>

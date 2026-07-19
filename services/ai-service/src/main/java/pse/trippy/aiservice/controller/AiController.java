@@ -8,6 +8,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -140,18 +142,18 @@ public class AiController {
     @Operation(summary = "Get AI usage metrics", description = "Retrieves total AI tokens consumed, generation count, and usage quotas for a given user.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Usage metrics retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User usage record not found")
+            @ApiResponse(responseCode = "400", description = "Missing authenticated user context"),
+            @ApiResponse(responseCode = "403", description = "Usage requested for a different user")
     })
     @GetMapping({ "/usage", "/usage/{userId}" })
     public ResponseEntity<AiUsageResponse> getUsage(
             @Parameter(description = "Target User UUID (optional path variable)") @PathVariable(required = false) UUID userId,
-            @Parameter(description = "Target User UUID from Gateway header") @RequestHeader(value = "X-User-Id", required = false) UUID headerUserId,
+            @Parameter(description = "Authenticated User UUID from Gateway header") @RequestHeader("X-User-Id") UUID headerUserId,
             @Parameter(description = "Target User UUID (optional query parameter)") @RequestParam(value = "userId", required = false) UUID paramUserId) {
-        UUID targetUserId = userId != null ? userId : (headerUserId != null ? headerUserId : paramUserId);
-        if (targetUserId == null) {
-            throw new IllegalArgumentException("User ID must be provided via path, query parameter, or header");
+        UUID requestedUserId = userId != null ? userId : paramUserId;
+        if (requestedUserId != null && !requestedUserId.equals(headerUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Usage is only available for the authenticated user");
         }
-        return ResponseEntity.ok(aiUsageService.getUsage(targetUserId));
+        return ResponseEntity.ok(aiUsageService.getUsage(headerUserId));
     }
 }
-

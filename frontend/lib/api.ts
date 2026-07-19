@@ -519,6 +519,7 @@ interface RawTrip {
 interface RawParticipant {
   id: string;
   userId: string;
+  email?: string;
   role: "OWNER" | "EDITOR" | "VIEWER" | "MEMBER";
   status: "PENDING" | "PENDING_APPROVAL" | "ACCEPTED" | "DECLINED" | "LEFT" | "INVITED";
   joinedAt?: string;
@@ -561,6 +562,7 @@ function normalizeParticipant(raw: RawParticipant, tripId: string): Participant 
     participantId: raw.id,
     tripId,
     userId: raw.userId,
+    email: raw.email,
     role: raw.role,
     status: raw.status,
     invitedAt: undefined,

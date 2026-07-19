@@ -49,20 +49,31 @@ public class WebPushService {
     }
 
     public void subscribe(String userId, String endpoint, String p256dh, String auth) {
-        WebPushSubscription subscription = WebPushSubscription.builder()
-                .userId(userId)
-                .endpoint(endpoint)
-                .p256dh(p256dh)
-                .auth(auth)
-                .build();
+        WebPushSubscription subscription = repository.findByEndpoint(endpoint)
+                .map(existing -> {
+                    existing.setUserId(userId);
+                    existing.setP256dh(p256dh);
+                    existing.setAuth(auth);
+                    return existing;
+                })
+                .orElseGet(() -> WebPushSubscription.builder()
+                        .userId(userId)
+                        .endpoint(endpoint)
+                        .p256dh(p256dh)
+                        .auth(auth)
+                        .build());
         repository.save(subscription);
     }
 
-    public void unsubscribe(String endpoint) {
-        repository.deleteByEndpoint(endpoint);
+    public void unsubscribe(String userId, String endpoint) {
+        repository.deleteByEndpointAndUserId(endpoint, userId);
     }
 
     public void sendPushNotification(String userId, String payload) {
+        if (pushService == null) {
+            log.warn("Web Push is unavailable; skipping notification for user {}", userId);
+            return;
+        }
         List<WebPushSubscription> subscriptions = repository.findAllByUserId(userId);
         
         for (WebPushSubscription sub : subscriptions) {
