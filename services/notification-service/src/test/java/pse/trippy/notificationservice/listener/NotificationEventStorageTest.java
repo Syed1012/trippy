@@ -46,6 +46,18 @@ class NotificationEventStorageTest {
     @MockBean
     private SseNotificationService sseNotificationService;
 
+    @MockBean
+    private pse.trippy.notificationservice.service.NotificationPreferenceService notificationPreferenceService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.mockito.Mockito.when(notificationPreferenceService.isChannelEnabled(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+            .thenReturn(true);
+    }
+
     @Test
     @DisplayName("trip invitation event stores an in-app notification")
     void tripInvitationEventStoresNotification() {

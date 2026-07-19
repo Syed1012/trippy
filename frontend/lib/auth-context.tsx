@@ -36,26 +36,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On mount, try to restore session from stored token
   useEffect(() => {
+    const handleUnauthorized = () => {
+      clearTokens();
+      setUser(null);
+    };
+
+    window.addEventListener("unauthorized", handleUnauthorized);
+
     const token = getAccessToken();
     if (!token) {
       setIsLoading(false);
-      return;
+    } else {
+      // First, immediately restore user from JWT claims (instant, no network)
+      const cachedUser = getUserFromToken(token);
+      if (cachedUser) {
+        setUser(cachedUser);
+      }
+
+      // Then try to refresh the token to get a fresh one
+      refreshAccessToken()
+        .then((res) => setUser(res.user))
+        .catch(() => {
+          clearTokens();
+          setUser(null);
+        })
+        .finally(() => setIsLoading(false));
     }
 
-    // First, immediately restore user from JWT claims (instant, no network)
-    const cachedUser = getUserFromToken(token);
-    if (cachedUser) {
-      setUser(cachedUser);
-    }
-
-    // Then try to refresh the token to get a fresh one
-    refreshAccessToken()
-      .then((res) => setUser(res.user))
-      .catch(() => {
-        clearTokens();
-        setUser(null);
-      })
-      .finally(() => setIsLoading(false));
+    return () => {
+      window.removeEventListener("unauthorized", handleUnauthorized);
+    };
   }, []);
 
   const login = useCallback(

@@ -148,6 +148,9 @@ public class AiController {
             @Parameter(description = "Target User UUID from Gateway header") @RequestHeader(value = "X-User-Id", required = false) UUID headerUserId,
             @Parameter(description = "Target User UUID (optional query parameter)") @RequestParam(value = "userId", required = false) UUID paramUserId) {
         UUID targetUserId = userId != null ? userId : (headerUserId != null ? headerUserId : paramUserId);
+        if (targetUserId == null) {
+            throw new IllegalArgumentException("User ID must be provided via path, query parameter, or header");
+        }
         return ResponseEntity.ok(aiUsageService.getUsage(targetUserId));
     }
 }

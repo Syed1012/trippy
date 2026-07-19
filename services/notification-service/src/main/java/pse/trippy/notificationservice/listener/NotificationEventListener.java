@@ -22,8 +22,10 @@ import pse.trippy.notificationservice.dto.response.NotificationResponse;
 import pse.trippy.notificationservice.logging.CorrelationIds;
 import pse.trippy.notificationservice.logging.LogSanitizer;
 import pse.trippy.notificationservice.model.entity.Notification;
+import pse.trippy.notificationservice.model.enums.NotificationChannel;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.EmailService;
+import pse.trippy.notificationservice.service.NotificationPreferenceService;
 import pse.trippy.notificationservice.service.NotificationService;
 import pse.trippy.notificationservice.service.SseNotificationService;
 
@@ -54,6 +56,7 @@ public class NotificationEventListener {
     private final ObjectMapper objectMapper;
     private final pse.trippy.notificationservice.service.WebPushService webPushService;
     private final SseNotificationService sseNotificationService;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @RabbitListener(queues = "notification.events")
     public void handleEvent(Message rawMessage,
@@ -227,20 +230,23 @@ public class NotificationEventListener {
                 log.info("Processing trip invitation: inviteeId={} tripId={} tripTitle={} inviterName={}",
                         inviteeId, tripId, tripTitle, inviterName);
 
-                sendTemplate(inviteeEmail, subject,
-                        "trip-invite",
-                        variables("inviteeName", inviteeName,
-                                "userName", inviteeName,
-                                "inviterName", inviterName,
-                                "tripTitle", tripTitle,
-                                "tripName", tripTitle,
-                                "destination", fallback(destination, ""),
-                                "dateRange", dateRange,
-                                "tripSummary", tripSummary,
-                                "tripDescription", fallback(tripDescription, ""),
-                                "inviteMessage", fallback(inviteMessage, ""),
-                                "dashboardUrl", emailUrl(actionUrl),
-                                "link", emailUrl(actionUrl)));
+                boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(inviteeId), NotificationType.TRIP_INVITE, NotificationChannel.EMAIL);
+                if (emailEnabled) {
+                    sendTemplate(inviteeEmail, subject,
+                            "trip-invite",
+                            variables("inviteeName", inviteeName,
+                                    "userName", inviteeName,
+                                    "inviterName", inviterName,
+                                    "tripTitle", tripTitle,
+                                    "tripName", tripTitle,
+                                    "destination", fallback(destination, ""),
+                                    "dateRange", dateRange,
+                                    "tripSummary", tripSummary,
+                                    "tripDescription", fallback(tripDescription, ""),
+                                    "inviteMessage", fallback(inviteMessage, ""),
+                                    "dashboardUrl", emailUrl(actionUrl),
+                                    "link", emailUrl(actionUrl)));
+                }
 
                 createNotification(inviteeId, NotificationType.TRIP_INVITE,
                         "Trip Invitation",
@@ -273,17 +279,20 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=trip.joined recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, joinerName + " joined " + tripTitle,
-                    "trip-joined",
-                    variables("userName", userName,
-                            "inviterName", userName,
-                            "inviteeName", joinerName,
-                            "joinerName", joinerName,
-                            "participantName", joinerName,
-                            "tripTitle", tripTitle,
-                            "tripName", tripTitle,
-                            "dashboardUrl", emailUrl(actionUrl),
-                            "link", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.TRIP_JOINED, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, joinerName + " joined " + tripTitle,
+                        "trip-joined",
+                        variables("userName", userName,
+                                "inviterName", userName,
+                                "inviteeName", joinerName,
+                                "joinerName", joinerName,
+                                "participantName", joinerName,
+                                "tripTitle", tripTitle,
+                                "tripName", tripTitle,
+                                "dashboardUrl", emailUrl(actionUrl),
+                                "link", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.TRIP_JOINED,
                     "Trip Joined",
@@ -347,12 +356,15 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=trip.updated recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, "Trip updated: " + tripTitle,
-                    "trip-updated",
-                    variables("userName", userName,
-                            "tripTitle", tripTitle,
-                            "updatedBy", updatedBy,
-                            "dashboardUrl", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.TRIP_UPDATED, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, "Trip updated: " + tripTitle,
+                        "trip-updated",
+                        variables("userName", userName,
+                                "tripTitle", tripTitle,
+                                "updatedBy", updatedBy,
+                                "dashboardUrl", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.TRIP_UPDATED,
                     "Trip Updated",
@@ -373,13 +385,16 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=payment.completed recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, "Payment successful - " + amount + " EUR for " + planName,
-                    "payment-success",
-                    variables("userName", userName,
-                            "amount", amount,
-                            "planName", planName,
-                            "dashboardUrl", emailUrl(actionUrl),
-                            "link", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.PAYMENT_SUCCESS, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, "Payment successful - " + amount + " EUR for " + planName,
+                        "payment-success",
+                        variables("userName", userName,
+                                "amount", amount,
+                                "planName", planName,
+                                "dashboardUrl", emailUrl(actionUrl),
+                                "link", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.PAYMENT_SUCCESS,
                     "Payment Successful",
@@ -398,11 +413,14 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=payment.failed recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, "Payment could not be processed",
-                    "payment-failed",
-                    variables("userName", userName,
-                            "dashboardUrl", emailUrl(actionUrl),
-                            "link", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.PAYMENT_FAILED, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, "Payment could not be processed",
+                        "payment-failed",
+                        variables("userName", userName,
+                                "dashboardUrl", emailUrl(actionUrl),
+                                "link", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.PAYMENT_FAILED,
                     "Payment Failed",
@@ -425,16 +443,19 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=ai.itinerary.generated recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, "Your Trippy itinerary is ready",
-                    "itinerary-ready",
-                    variables("userName", userName,
-                            "tripTitle", tripTitle,
-                            "tripName", tripTitle,
-                            "generationId", generationId,
-                            "destination", destination,
-                            "tripUrl", emailUrl(actionUrl),
-                            "dashboardUrl", emailUrl(actionUrl),
-                            "link", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.ITINERARY_READY, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, "Your Trippy itinerary is ready",
+                        "itinerary-ready",
+                        variables("userName", userName,
+                                "tripTitle", tripTitle,
+                                "tripName", tripTitle,
+                                "generationId", generationId,
+                                "destination", destination,
+                                "tripUrl", emailUrl(actionUrl),
+                                "dashboardUrl", emailUrl(actionUrl),
+                                "link", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.ITINERARY_READY,
                     "Itinerary Ready",
@@ -455,12 +476,15 @@ public class NotificationEventListener {
 
             log.info("Processing notification event type=system.notification recipient={}",
                     LogSanitizer.maskEmail(email));
-            sendTemplate(email, title, "system-notification",
-                    variables("userName", userName,
-                            "title", title,
-                            "message", message,
-                            "actionUrl", emailUrl(actionUrl),
-                            "link", emailUrl(actionUrl)));
+            boolean emailEnabled = notificationPreferenceService.isChannelEnabled(uuid(userId), NotificationType.SYSTEM, NotificationChannel.EMAIL);
+            if (emailEnabled) {
+                sendTemplate(email, title, "system-notification",
+                        variables("userName", userName,
+                                "title", title,
+                                "message", message,
+                                "actionUrl", emailUrl(actionUrl),
+                                "link", emailUrl(actionUrl)));
+            }
 
             createNotification(userId, NotificationType.SYSTEM,
                     title,
@@ -486,40 +510,49 @@ public class NotificationEventListener {
         if (parsedUserId == null) {
             return;
         }
-        String resolvedActionUrl = inAppActionUrl(actionUrl);
-        Notification saved = notificationService.createNotification(parsedUserId, type, title, message,
-                resolvedActionUrl, metadata);
 
-        // Send via SSE for real-time delivery
-        try {
-            NotificationResponse response = new NotificationResponse(
-                    saved.getId(),
-                    saved.getId(),
-                    saved.getUserId(),
-                    saved.getType(),
-                    saved.getTitle(),
-                    saved.getMessage(),
-                    saved.getMessage(),
-                    saved.getActionUrl(),
-                    saved.getMetadata(),
-                    saved.isRead(),
-                    saved.getCreatedAt(),
-                    saved.getReadAt()
-            );
-            sseNotificationService.sendNotification(parsedUserId, response);
-        } catch (Exception ex) {
-            log.warn("Failed to send SSE notification", ex);
+        boolean inAppEnabled = notificationPreferenceService.isChannelEnabled(parsedUserId, type, NotificationChannel.IN_APP);
+        boolean pushEnabled = notificationPreferenceService.isChannelEnabled(parsedUserId, type, NotificationChannel.PUSH);
+
+        if (inAppEnabled) {
+            String resolvedActionUrl = inAppActionUrl(actionUrl);
+            Notification saved = notificationService.createNotification(parsedUserId, type, title, message,
+                    resolvedActionUrl, metadata);
+
+            // Send via SSE for real-time delivery
+            try {
+                NotificationResponse response = new NotificationResponse(
+                        saved.getId(),
+                        saved.getId(),
+                        saved.getUserId(),
+                        saved.getType(),
+                        saved.getTitle(),
+                        saved.getMessage(),
+                        saved.getMessage(),
+                        saved.getActionUrl(),
+                        saved.getMetadata(),
+                        saved.isRead(),
+                        saved.getCreatedAt(),
+                        saved.getReadAt()
+                );
+                sseNotificationService.sendNotification(parsedUserId, response);
+            } catch (Exception ex) {
+                log.warn("Failed to send SSE notification", ex);
+            }
         }
 
-        try {
-            Map<String, String> pushPayload = new HashMap<>();
-            pushPayload.put("title", title);
-            pushPayload.put("body", message);
-            pushPayload.put("url", resolvedActionUrl);
-            String payloadJson = objectMapper.writeValueAsString(pushPayload);
-            webPushService.sendPushNotification(userId, payloadJson);
-        } catch (Exception ex) {
-            log.warn("Failed to send web push notification", ex);
+        if (pushEnabled) {
+            try {
+                String resolvedActionUrl = inAppActionUrl(actionUrl);
+                Map<String, String> pushPayload = new HashMap<>();
+                pushPayload.put("title", title);
+                pushPayload.put("body", message);
+                pushPayload.put("url", resolvedActionUrl);
+                String payloadJson = objectMapper.writeValueAsString(pushPayload);
+                webPushService.sendPushNotification(userId, payloadJson);
+            } catch (Exception ex) {
+                log.warn("Failed to send web push notification", ex);
+            }
         }
     }
 

@@ -39,8 +39,18 @@ class NotificationEventListenerTest {
     @Mock
     private pse.trippy.notificationservice.service.WebPushService webPushService;
 
+    @Mock
+    private pse.trippy.notificationservice.service.NotificationPreferenceService notificationPreferenceService;
+
     @InjectMocks
     private NotificationEventListener listener;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient()
+            .when(notificationPreferenceService.isChannelEnabled(any(), any(), any()))
+            .thenReturn(true);
+    }
 
     @Test
     @DisplayName("user.registered event triggers verification email")
