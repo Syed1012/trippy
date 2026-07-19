@@ -23,3 +23,6 @@ spring:
   payment:
     service:
       url: http://localhost:8086
+  ai:
+    openai:
+      api-key: dummy-key
