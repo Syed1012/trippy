@@ -10,6 +10,7 @@ export function useWebPush() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsSupported(true);
       setPermission(Notification.permission);
       
