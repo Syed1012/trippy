@@ -38,6 +38,7 @@ import {
 } from "@/lib/pending-trip";
 import { useToast } from "@/lib/toast";
 import { cn, tripSlug } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
 
 const STATUS_TABS = [
   { key: "", label: "All trips" },
@@ -275,6 +276,8 @@ export default function DashboardPage() {
         initialValues={createInitialValues}
       />
 
+
+
       {/* Auto-create overlay — shown while a trip drafted on the landing page is
           saved straight to the DB after sign-in, for a seamless handoff. */}
       <AnimatePresence>
@@ -416,7 +419,7 @@ export default function DashboardPage() {
               className="flex flex-col items-start gap-4 lg:items-end"
             >
               <button
-                onClick={() => setCreateOpen(true)}
+                onClick={() => router.push(ROUTES.home)}
                 className={cn(
                   "group relative inline-flex items-center gap-2.5 overflow-hidden",
                   "rounded-2xl px-6 py-3.5 font-bold text-white glow-accent",
@@ -562,7 +565,7 @@ export default function DashboardPage() {
 
               {!searchQuery && (
                 <button
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => router.push(ROUTES.home)}
                   className={cn(
                     "relative mt-8 group inline-flex items-center gap-2.5 overflow-hidden",
                     "rounded-2xl px-7 py-3.5 font-bold text-white glow-accent",

@@ -30,7 +30,7 @@ export default function RegisterPage() {
   // Redirect authenticated users away from register
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace(ROUTES.dashboard);
+      router.replace(ROUTES.home);
     }
   }, [authLoading, isAuthenticated, router]);
 
