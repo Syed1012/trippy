@@ -435,9 +435,9 @@ export default function LandingPage() {
                   <Button
                     type="submit"
                     size="lg"
-                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#3a2b1e_0%,#271c12_55%,#180f09_100%)] px-5 !text-white ring-1 ring-inset ring-[#f0b091]/30 shadow-[inset_0_1px_0_rgba(255,224,196,0.16),0_18px_36px_-20px_rgba(24,15,9,0.92),0_0_28px_-10px_rgba(240,176,145,0.5)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.08] hover:shadow-[inset_0_1px_0_rgba(255,224,196,0.24),0_26px_50px_-22px_rgba(24,15,9,0.95),0_0_36px_-8px_rgba(240,176,145,0.62)] active:translate-y-0 active:brightness-100"
                   >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0b091]/15 text-[#f7c9a8] ring-1 ring-inset ring-[#f0b091]/25">
                       <Stamp size={15} />
                     </span>
                     <span className="flex min-w-0 flex-col items-start text-left leading-tight">
@@ -452,9 +452,9 @@ export default function LandingPage() {
                     type="button"
                     size="lg"
                     onClick={() => openAIBuilder({ autoGenerate: true })}
-                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#3a2b1e_0%,#271c12_55%,#180f09_100%)] px-5 !text-white ring-1 ring-inset ring-[#f0b091]/30 shadow-[inset_0_1px_0_rgba(255,224,196,0.16),0_18px_36px_-20px_rgba(24,15,9,0.92),0_0_28px_-10px_rgba(240,176,145,0.5)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.08] hover:shadow-[inset_0_1px_0_rgba(255,224,196,0.24),0_26px_50px_-22px_rgba(24,15,9,0.95),0_0_36px_-8px_rgba(240,176,145,0.62)] active:translate-y-0 active:brightness-100"
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
                   >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0b091]/15 text-[#f7c9a8] ring-1 ring-inset ring-[#f0b091]/25">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
                       <Sparkles size={15} className="transition-transform duration-300 group-hover:rotate-[18deg] group-hover:scale-110" />
                     </span>
                     <span className="flex min-w-0 flex-col items-start text-left leading-tight">
