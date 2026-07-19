@@ -88,6 +88,11 @@ management:
     readinessstate:
       enabled: true
 
+web-push:
+  public-key: ${VAPID_PUBLIC_KEY}
+  private-key: ${VAPID_PRIVATE_KEY}
+  subject: ${VAPID_SUBJECT:mailto:admin@trippy.com}
+
 logging:
   level:
     pse.trippy.notificationservice: INFO

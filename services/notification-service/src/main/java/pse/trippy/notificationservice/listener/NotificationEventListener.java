@@ -49,6 +49,7 @@ public class NotificationEventListener {
     private final EmailService emailService;
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
+    private final pse.trippy.notificationservice.service.WebPushService webPushService;
 
     @RabbitListener(queues = "notification.events")
     public void handleEvent(Message rawMessage,
@@ -481,8 +482,20 @@ public class NotificationEventListener {
         if (parsedUserId == null) {
             return;
         }
+        String resolvedActionUrl = inAppActionUrl(actionUrl);
         notificationService.createNotification(parsedUserId, type, title, message,
-                inAppActionUrl(actionUrl), metadata);
+                resolvedActionUrl, metadata);
+
+        try {
+            Map<String, String> pushPayload = new HashMap<>();
+            pushPayload.put("title", title);
+            pushPayload.put("body", message);
+            pushPayload.put("url", resolvedActionUrl);
+            String payloadJson = objectMapper.writeValueAsString(pushPayload);
+            webPushService.sendPushNotification(userId, payloadJson);
+        } catch (Exception ex) {
+            log.warn("Failed to send web push notification", ex);
+        }
     }
 
     private String tripUrl(String tripId) {
