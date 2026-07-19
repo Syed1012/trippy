@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import io.micrometer.core.instrument.MeterRegistry;
 import pse.trippy.aiservice.dto.request.AiChatRequest;
 import pse.trippy.aiservice.dto.request.DestinationSuggestionRequest;
 import pse.trippy.aiservice.dto.request.GenerateItineraryRequest;
@@ -85,6 +86,7 @@ public class AiService {
     private final ExecutorService aiBlockingExecutor;
     private final FallbackDestinationCatalogue fallbackDestinationCatalogue;
     private final FallbackItineraryGenerator fallbackItineraryGenerator;
+    private final MeterRegistry meterRegistry;
 
     @Value("${spring.ai.openai.api-key}")
     private String apiKey;
@@ -189,8 +191,32 @@ public class AiService {
             fallback.setGeneratedAt(Instant.now());
             enrichItineraryWithHourlyWeather(fallback, request, weatherByDate, hourlyWeatherMap);
             saveGenerationHistory(request, fallback, prompt, "FALLBACK");
+            meterRegistry.counter("ai.itinerary.fallback", "reason", fallbackReason).increment();
             return fallback;
         }
+    }
+
+    public ItineraryResponse retryItinerary(UUID generationId) {
+        GenerationHistory history = generationHistoryRepository.findByGenerationId(generationId)
+                .orElseThrow(() -> new IllegalArgumentException("Generation ID not found"));
+
+        if (history.getRetryCount() >= 3) {
+            throw new IllegalStateException("Maximum retry attempts reached for this generation");
+        }
+
+        history.setRetryCount(history.getRetryCount() + 1);
+        generationHistoryRepository.save(history);
+
+        GenerateItineraryRequest request = objectMapper.convertValue(history.getRequestPayload(), GenerateItineraryRequest.class);
+        
+        // Use the existing generation ID for the retry
+        ItineraryResponse response = generateItinerary(request);
+        response.setGenerationId(generationId);
+        
+        // Ensure the updated history is saved with the original ID
+        saveGenerationHistory(request, response, buildItineraryPrompt(request, computeDailySummaries(fetchHourlyWeatherMap(request))), historyStatus(response));
+        
+        return response;
     }
 
     public TravelAdviceResponse getTravelAdvice(TravelAdviceRequest request) {

@@ -69,6 +69,9 @@ public class GenerationHistory {
     @Column(name = "fallback_used", nullable = false)
     private boolean fallbackUsed = false;
 
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount = 0;
+
     @Column(name = "status", nullable = false, length = 20)
     private String status = "SUCCESS";
 
@@ -93,7 +96,7 @@ public class GenerationHistory {
     @Builder
     private GenerationHistory(UUID id, UUID generationId, UUID tripId, String destination,
                               LocalDate startDate, LocalDate endDate, String promptHash,
-                              boolean fallbackUsed, String status,
+                              boolean fallbackUsed, int retryCount, String status,
                               Map<String, Object> requestPayload,
                               Map<String, Object> responsePayload,
                               Instant createdAt) {
@@ -105,6 +108,7 @@ public class GenerationHistory {
         this.endDate = endDate;
         this.promptHash = promptHash;
         this.fallbackUsed = fallbackUsed;
+        this.retryCount = retryCount;
         this.status = status == null ? "SUCCESS" : status;
         setRequestPayload(requestPayload);
         setResponsePayload(responsePayload);

@@ -628,7 +628,7 @@ export default function TripFullScreenView({
               </div>
             </div>
           ) : draftTrip.aiItinerary && draftTrip.aiItinerary.length > 0 ? (
-            <div className="relative">
+            <div className="relative pb-24">
               {/* Loading overlay while chat is regenerating */}
               <AnimatePresence>
                 {chatLoading && (
@@ -1030,7 +1030,7 @@ export default function TripFullScreenView({
           ) : null}
 
           {/* Save bar */}
-          <div className="sticky bottom-0 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
+          <div className="sticky bottom-0 z-20 bg-gradient-to-t from-[#f7f6f3] via-[#f7f6f3]/95 to-transparent pt-6 pb-6 space-y-3">
             {onVisibilityChange && (
               <div className="flex items-center justify-center gap-2">
                 <button

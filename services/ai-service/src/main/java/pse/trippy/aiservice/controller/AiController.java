@@ -1,6 +1,7 @@
 package pse.trippy.aiservice.controller;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -66,6 +67,16 @@ public class AiController {
     public ResponseEntity<ItineraryResponse> generateItinerary(
             @Valid @RequestBody GenerateItineraryRequest request) {
         return ResponseEntity.ok(aiService.generateItinerary(request));
+    }
+
+    /**
+     * POST /ai/itineraries/{generationId}/retry
+     * Retries a failed or fallback itinerary generation. Max 3 retries.
+     */
+    @PostMapping("/itineraries/{generationId}/retry")
+    public ResponseEntity<ItineraryResponse> retryItinerary(
+            @PathVariable java.util.UUID generationId) {
+        return ResponseEntity.ok(aiService.retryItinerary(generationId));
     }
 
     /**
