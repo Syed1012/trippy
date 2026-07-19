@@ -29,7 +29,7 @@ import Button from "@/components/ui/Button";
 import GlassCard from "@/components/ui/GlassCard";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import {
-  getAccessToken,
+  getValidAccessToken,
   tripsApi,
   itineraryApi,
   preferencesApi,
@@ -256,6 +256,7 @@ export interface AIBuilderRequest {
   preferences?: string;
   customNotes?: string;
   autoGenerate?: boolean;
+  travelerType?: string;
 }
 
 interface AITripBuilderModalProps {
@@ -399,7 +400,7 @@ interface AiRequestPayload {
 async function fetchAiSuggestions(payload: AiRequestPayload): Promise<DestinationSuggestionItem[]> {
   const response = await fetch("/api/ai/destination-suggestions", {
     method: "POST",
-    headers: aiRequestHeaders(),
+    headers: await aiRequestHeaders(),
     body: JSON.stringify(payload),
   });
 
@@ -417,8 +418,8 @@ async function fetchAiSuggestions(payload: AiRequestPayload): Promise<Destinatio
   return suggestions;
 }
 
-function aiRequestHeaders(): Record<string, string> {
-  const token = getAccessToken();
+async function aiRequestHeaders(): Promise<Record<string, string>> {
+  const token = await getValidAccessToken();
   return token
     ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
     : { "Content-Type": "application/json" };
@@ -429,6 +430,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [people, setPeople] = useState(2);
+  const [travelerType, setTravelerType] = useState("");
 
   const [budget, setBudget] = useState("");
   const [diet, setDiet] = useState("");
@@ -467,6 +469,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       parts.push(endDate ? `Travel dates: ${startDate} to ${endDate}.` : `Travel date: ${startDate} for a one-day trip.`);
     }
     if (people) parts.push(`${people} traveler(s).`);
+    if (travelerType) parts.push(`Traveler group: ${travelerType}.`);
     if (selectedFilters.length) parts.push(`Trip style: ${selectedFilters.join(", ")}.`);
     if (budget) parts.push(`Budget: ${budget}.`);
     if (diet) parts.push(`Diet: ${diet}.`);
@@ -480,7 +483,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     }
 
     return parts.join(" ");
-  }, [city, startDate, endDate, people, selectedFilters, budget, diet, preferences, customPreference]);
+  }, [city, startDate, endDate, people, travelerType, selectedFilters, budget, diet, preferences, customPreference]);
 
   const pendingAutoGenerate = useRef(false);
 
@@ -497,6 +500,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       setDiet(initialRequest.diet || "");
       setPreferences(initialRequest.preferences || "");
       setCustomPreference(initialRequest.customNotes || "");
+      setTravelerType(initialRequest.travelerType || "");
       setShowAdvanced(Boolean(initialRequest.budget || initialRequest.diet || initialRequest.preferences || initialRequest.customNotes));
 
       if (
@@ -548,6 +552,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
         diet,
         preferences,
         customPreference,
+        travelerType,
       },
     });
 
@@ -907,6 +912,38 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                   </div>
 
                   <div>
+                    <p className="text-xs text-muted mb-2">Traveler type</p>
+                    <div className="flex flex-wrap gap-2">
+                      {["Solo", "Couple", "Friends", "Family"].map((type) => {
+                        const active = travelerType === type;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              const newType = active ? "" : type;
+                              setTravelerType(newType);
+                              if (newType) {
+                                if (newType === "Solo") setPeople(1);
+                                else if (newType === "Couple") setPeople(2);
+                                else if (newType === "Friends" || newType === "Family") {
+                                  if (people <= 2) setPeople(4);
+                                }
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors cursor-pointer ${active
+                                ? "bg-trippy-500/15 border-trippy-500/30 text-foreground font-semibold"
+                                : "bg-transparent border-border text-muted hover:text-foreground"
+                              }`}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
                     <p className="text-xs text-muted mb-2">Direct filters</p>
                     <div className="flex flex-wrap gap-2">
                       {QUICK_FILTERS.map((filter) => {
@@ -1010,6 +1047,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                         setPreferences("");
                         setCustomPreference("");
                         setSelectedFilters([]);
+                        setTravelerType("");
                         setResults([]);
                         setAlsoExplore([]);
                         setReply("");
@@ -1138,7 +1176,7 @@ function TripResultCard({
     try {
       const res = await fetch("/api/ai/itineraries", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           constraints: {
             destination: draftTrip.destination,
@@ -1498,7 +1536,7 @@ function TripResultCard({
                           const tripCtx = `Trip: ${draftTrip.title}\nDestination: ${draftTrip.destination}\nDuration: ${draftTrip.duration}`;
                           const res = await fetch("/api/ai/chat", {
                             method: "POST",
-                            headers: aiRequestHeaders(),
+                            headers: await aiRequestHeaders(),
                             body: JSON.stringify({
                               messages: updated.map(m => ({ role: m.role, content: m.content })),
                               tripContext: tripCtx,

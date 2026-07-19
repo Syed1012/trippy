@@ -41,6 +41,14 @@ spring:
 server:
   port: 8081
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+
 trippy:
   jwt:
     access-token-expiry-seconds: ${JWT_ACCESS_TOKEN_EXPIRY_SECONDS:900}
