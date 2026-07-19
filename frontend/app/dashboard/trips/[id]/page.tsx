@@ -3780,7 +3780,11 @@ export default function TripDetailPage() {
             : "bg-gradient-to-br from-trippy-600 via-trippy-700 to-trippy-800"
         )}
       >
-        {/* AI-generated cover as a softly blurred backdrop (fades in when loaded) */}
+        {/* AI-generated cover as a softly blurred backdrop (fades in when loaded).
+            The underlying gradient/bg-black container is the fallback if the
+            Pollinations-hosted image 404s, times out, or is rate-limited — the
+            onError handlers hide the broken <img> so that shows through cleanly
+            instead of a broken-image icon or a permanently blank backdrop. */}
         {trip.coverImageUrl && (
           isAiTrip ? (
             <>
@@ -3790,6 +3794,7 @@ export default function TripDetailPage() {
                 alt=""
                 aria-hidden
                 className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-100 scale-105 blur-[2px]"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
               <div className="pointer-events-none absolute inset-0 bg-black/30 bg-gradient-to-t from-black/80 via-black/20 to-black/10" />
             </>
@@ -3802,6 +3807,7 @@ export default function TripDetailPage() {
                 aria-hidden
                 className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover opacity-0 blur-[3px] transition-opacity duration-1000"
                 onLoad={(e) => { e.currentTarget.style.opacity = "0.7"; }}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-trippy-900/78 via-trippy-800/68 to-trippy-900/85" />
             </>
