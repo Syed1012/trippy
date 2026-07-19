@@ -9,8 +9,14 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -36,9 +42,14 @@ public class ChatPresenceService {
     private static final String PRESENCE_KEY       = "presence:trip:%s";
     /** Safety-net TTL — a room key expires 24 h after the last join. */
     static final Duration       PRESENCE_TTL       = Duration.ofHours(24);
+        static final Duration       DISCONNECT_GRACE   = Duration.ofSeconds(15);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider;
+        private final ScheduledExecutorService removalScheduler =
+            Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual()
+                .name("chat-presence-cleanup-", 0).factory());
+        private final Map<String, ScheduledFuture<?>> pendingRemovals = new ConcurrentHashMap<>();
 
     /**
      * Adds a user to a trip's chat room and broadcasts the updated participant list.
@@ -48,6 +59,11 @@ public class ChatPresenceService {
     public boolean addUser(UUID tripId, UUID userId) {
         String key     = key(tripId);
         String member  = userId.toString();
+
+        ScheduledFuture<?> pendingRemoval = pendingRemovals.remove(memberKey(tripId, userId));
+        if (pendingRemoval != null) {
+            pendingRemoval.cancel(false);
+        }
 
         Long added = redisTemplate.opsForSet().add(key, member);
         redisTemplate.expire(key, PRESENCE_TTL);  // reset safety-net TTL on activity
@@ -65,6 +81,34 @@ public class ChatPresenceService {
      * Removes a user from a trip's chat room and broadcasts the updated participant list.
      */
     public void removeUser(UUID tripId, UUID userId) {
+        ScheduledFuture<?> pendingRemoval = pendingRemovals.remove(memberKey(tripId, userId));
+        if (pendingRemoval != null) {
+            pendingRemoval.cancel(false);
+        }
+        removeUserNow(tripId, userId);
+    }
+
+    /**
+     * Delays transport-disconnect cleanup so a brief WebSocket reconnect does not
+     * appear as a user leaving and rejoining the room.
+     */
+    public void scheduleRemoval(UUID tripId, UUID userId) {
+        String memberKey = memberKey(tripId, userId);
+        pendingRemovals.compute(memberKey, (ignored, existing) -> {
+            if (existing != null) {
+                existing.cancel(false);
+            }
+            return removalScheduler.schedule(
+                    () -> {
+                        pendingRemovals.remove(memberKey);
+                        removeUserNow(tripId, userId);
+                    },
+                    DISCONNECT_GRACE.toMillis(),
+                    TimeUnit.MILLISECONDS);
+        });
+    }
+
+    private void removeUserNow(UUID tripId, UUID userId) {
         String key    = key(tripId);
         String member = userId.toString();
 
@@ -102,6 +146,10 @@ public class ChatPresenceService {
 
     private static String key(UUID tripId) {
         return String.format(PRESENCE_KEY, tripId);
+    }
+
+    private static String memberKey(UUID tripId, UUID userId) {
+        return tripId + ":" + userId;
     }
 }
 

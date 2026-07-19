@@ -88,6 +88,7 @@ class JwtAuthenticationFilterTest {
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("USER");
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Email")).isEqualTo("user@example.com");
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Plan")).isEqualTo("PREMIUM");
+        assertThat(mutated.getRequest().getHeaders().getFirst("X-User-DisplayName")).isEqualTo("Test User");
         assertThat(mutated.getRequest().getHeaders().containsKey(HttpHeaders.AUTHORIZATION)).isFalse();
     }
 
@@ -223,6 +224,7 @@ class JwtAuthenticationFilterTest {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject("user-uuid-123")
                 .claim("email", "user@example.com")
+                .claim("displayName", "Test User")
                 .claim("role", "USER")
                 .claim("plan", "PREMIUM")
                 .expirationTime(Date.from(expiry))
