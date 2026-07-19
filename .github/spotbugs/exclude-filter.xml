@@ -9,6 +9,10 @@
         <Class name="~pse\.trippy\.notificationservice\.dto\..*"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
+    <Match>
+        <Class name="~pse\.trippy\.aiservice\.recommendation\.dto\..*"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
 
     <!-- Baseline: notification metadata is stored as a JSON-backed JPA map and kept mutable for ORM binding. -->
     <Match>
@@ -26,7 +30,23 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
+        <Class name="~pse\.trippy\.aiservice\.(health|image\.service|recommendation\.service)\..*"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
         <Class name="pse.trippy.notificationservice.health.DatabaseHealthIndicator"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Baseline: immutable fallback catalogue data is loaded from bundled JSON and shared read-only. -->
+    <Match>
+        <Class name="~pse\.trippy\.aiservice\.service\.fallback\.(FallbackActivity|FallbackDestinationProfile|FallbackDestinationCatalogue)"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,CT_CONSTRUCTOR_THROW"/>
+    </Match>
+
+    <!-- Legacy private helper is intentionally retained for reflective weather-adaptation tests. -->
+    <Match>
+        <Class name="pse.trippy.aiservice.service.AiService"/>
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD"/>
     </Match>
 </FindBugsFilter>

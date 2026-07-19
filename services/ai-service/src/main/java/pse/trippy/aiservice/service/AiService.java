@@ -931,7 +931,11 @@ public class AiService {
                         if (!result.isEmpty()) return result;
                     }
                 }
-            } catch (Exception ex) {
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                log.warn("OpenWeather hourly lookup interrupted, falling back to Open-Meteo error={}",
+                        LogSanitizer.safeError(ex));
+            } catch (IOException | IllegalStateException ex) {
                 log.warn("OpenWeather hourly lookup failed, falling back to Open-Meteo error={}", LogSanitizer.safeError(ex));
             }
         }

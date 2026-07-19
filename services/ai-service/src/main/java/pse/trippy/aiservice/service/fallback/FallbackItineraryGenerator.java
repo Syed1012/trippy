@@ -277,7 +277,7 @@ public class FallbackItineraryGenerator {
         }
         String pace = pacePreference == null ? "MODERATE" : pacePreference.trim().toUpperCase(Locale.ROOT);
         if ("PACKED".equals(pace)) {
-            return dayNumber % 2 == 1;
+            return (dayNumber & 1) != 0;
         }
         if ("SLOW".equals(pace)) {
             return dayNumber == 3 || dayNumber == days;
