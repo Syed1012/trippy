@@ -52,7 +52,7 @@ const TRIP_TYPE_FILTERS = ["Beach", "Adventure", "City", "Nature", "Culture", "W
 
 const NO_PREFERENCE_LABEL = "No preference";
 
-const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "Luxury"];
+const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Economy", "Moderate", "Premium", "Luxury"];
 
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
