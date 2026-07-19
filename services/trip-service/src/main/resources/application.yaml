@@ -75,4 +75,4 @@ logging:
 
 payment:
   service:
-    url: http://localhost:8086
+    url: localhost:8086
