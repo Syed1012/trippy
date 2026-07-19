@@ -3,6 +3,7 @@ package pse.trippy.tripservice.service;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -86,6 +87,7 @@ public class ParticipantService {
     public ParticipantActionResponse inviteByEmail(UUID tripId, InviteByEmailRequest request, UUID inviterId) {
         log.info("Inviting by email to trip {} by inviter {}", tripId, inviterId);
         Trip trip = findTripOrThrow(tripId);
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
 
         // Any accepted participant can share the trip via email
         participantRepository.findByTripIdAndUserId(tripId, inviterId)
@@ -98,7 +100,7 @@ public class ParticipantService {
             throw new InvalidTripDataException("Trip has reached maximum number of participants");
         }
 
-        Optional<String> existingUserUuidStr = participantRepository.findUserIdByEmail(request.email());
+        Optional<String> existingUserUuidStr = participantRepository.findUserIdByEmail(email);
         UUID userId = existingUserUuidStr.map(UUID::fromString).orElse(null);
 
         if (userId != null) {
@@ -106,7 +108,7 @@ public class ParticipantService {
                 throw new InvalidTripDataException("User is already a participant or has a pending invite for this trip");
             }
         } else {
-            if (participantRepository.existsByTripIdAndEmail(tripId, request.email())) {
+            if (participantRepository.existsByTripIdAndEmail(tripId, email)) {
                 throw new InvalidTripDataException("An invite has already been sent to this email address");
             }
         }
@@ -114,13 +116,13 @@ public class ParticipantService {
         Participant participant = Participant.builder()
                 .trip(trip)
                 .userId(userId)
-                .email(request.email())
+                .email(email)
                 .role(ParticipantRole.MEMBER)
                 .status(ParticipantStatus.INVITED)
                 .build();
         participant = participantRepository.save(participant);
 
-        publishEmailInvitation(trip, request.email(), inviterId, request.message(), request.inviterName());
+        publishEmailInvitation(trip, email, inviterId, request.message(), request.inviterName());
 
         return new ParticipantActionResponse("Invitation email sent", toResponse(participant));
     }
@@ -185,7 +187,7 @@ public class ParticipantService {
     @Transactional
     public ParticipantActionResponse acceptInvite(UUID tripId, UUID userId, String displayName) {
         log.info("User {} accepting invite for trip {}", userId, tripId);
-        findTripOrThrow(tripId);
+        Trip trip = findTripOrThrow(tripId);
 
         Participant participant = participantRepository.findByTripIdAndUserId(tripId, userId)
                 .orElseThrow(() -> new InvalidTripDataException("No invitation found for this trip"));
@@ -199,7 +201,7 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         log.info("User {} joined trip {} successfully", userId, tripId);
-        publishEvent("trip.participant.joined", tripId, userId, displayName);
+        publishParticipantJoinedEvent(trip, userId, displayName);
 
         return new ParticipantActionResponse("Invitation accepted successfully", toResponse(participant));
     }
@@ -419,6 +421,33 @@ public class ParticipantService {
         event.put("timestamp", Instant.now().toString());
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.approved", event);
+    }
+
+    private void publishParticipantJoinedEvent(Trip trip, UUID inviteeId, String displayName) {
+        Participant owner = participantRepository.findByTripId(trip.getId()).stream()
+                .filter(p -> p.getRole() == ParticipantRole.OWNER)
+                .findFirst()
+                .orElse(null);
+        if (owner == null || owner.getUserId() == null) {
+            log.warn("Trip {} has no owner to notify about accepted invitation", trip.getId());
+            return;
+        }
+
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", "trip.participant.joined");
+        event.put("tripId", trip.getId().toString());
+        event.put("tripTitle", trip.getTitle());
+        event.put("userId", owner.getUserId().toString());
+        event.put("inviterId", owner.getUserId().toString());
+        event.put("inviteeId", inviteeId.toString());
+        event.put("participantId", inviteeId.toString());
+        event.put("timestamp", Instant.now().toString());
+        if (displayName != null && !displayName.isBlank()) {
+            event.put("inviteeName", displayName);
+            event.put("joinedBy", displayName);
+        }
+
+        rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.joined", event);
     }
 
     private void publishInviteNotification(Trip trip, UUID inviteeId, String inviteeEmail, String inviteeName, UUID inviterId, String message, String inviterName) {

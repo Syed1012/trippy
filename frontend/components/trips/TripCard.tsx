@@ -204,7 +204,7 @@ export default function TripCard({
         )}
         {invited && (
           <div className="mt-auto w-full rounded-xl bg-accent-50 border border-accent-200 px-3 py-2.5 text-center text-xs font-bold text-accent-700">
-            ✉️ Invited — respond in notifications
+            ✉️ You&apos;re invited — open this trip to accept or decline
           </div>
         )}
       </div>

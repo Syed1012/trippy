@@ -42,14 +42,18 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TripService {
 
+    private static final SubscriptionResponse FREE_SUBSCRIPTION =
+            new SubscriptionResponse("FREE", true, "EUR", null);
+
     private final TripRepository tripRepository;
     private final ParticipantRepository participantRepository;
     private final RabbitTemplate rabbitTemplate;
     private final SubscriptionClient subscriptionClient;
+    private final PendingInviteLinkService pendingInviteLinkService;
 
     @Transactional
     public TripResponse createTrip(CreateTripRequest request, UUID userId) {
-        SubscriptionResponse subscription = subscriptionClient.getSubscription(userId);
+        SubscriptionResponse subscription = getSubscriptionOrDefault(userId);
 
         long ownedTrips = participantRepository.countByUserIdAndRole(userId, ParticipantRole.OWNER);
 
@@ -90,8 +94,9 @@ public class TripService {
         return toTripResponse(trip);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TripPageResponse listMyTrips(UUID userId, int page, int size) {
+        pendingInviteLinkService.linkPendingInvitesForUser(userId);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "startDate"));
         Page<Trip> tripPage = tripRepository.findTripsByParticipantUserId(userId, pageRequest);
 
@@ -252,6 +257,20 @@ public class TripService {
     private Trip findTripOrThrow(UUID tripId) {
         return tripRepository.findById(tripId)
                 .orElseThrow(() -> new TripNotFoundException(tripId));
+    }
+
+    private SubscriptionResponse getSubscriptionOrDefault(UUID userId) {
+        try {
+            SubscriptionResponse subscription = subscriptionClient.getSubscription(userId);
+            if (subscription == null || subscription.plan() == null || subscription.plan().isBlank()) {
+                throw new IllegalStateException("Subscription response is missing a plan");
+            }
+            return subscription;
+        } catch (RuntimeException ex) {
+            log.warn("Subscription lookup unavailable for user {}; applying FREE plan limits errorType={}",
+                    userId, ex.getClass().getSimpleName());
+            return FREE_SUBSCRIPTION;
+        }
     }
 
     private void ensureParticipant(UUID tripId, UUID userId) {

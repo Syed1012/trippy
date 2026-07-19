@@ -17,4 +17,7 @@ public interface WebPushSubscriptionRepository extends JpaRepository<WebPushSubs
     
     @Transactional
     void deleteByEndpoint(String endpoint);
+
+    @Transactional
+    long deleteByEndpointAndUserId(String endpoint, String userId);
 }

@@ -162,7 +162,7 @@ public class RabbitMQConfig {
     @Bean
     public DefaultClassMapper trustedClassMapper() {
         DefaultClassMapper classMapper = new DefaultClassMapper();
-        classMapper.setTrustedPackages("*");
+        classMapper.setTrustedPackages("java.util", "pse.trippy");
         return classMapper;
     }
 
