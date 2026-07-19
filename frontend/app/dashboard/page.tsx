@@ -146,7 +146,21 @@ export default function DashboardPage() {
         );
         router.replace(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        console.log("TRIP ERROR:", err);
+        setAutoCreating(false);
+
+        const code = err instanceof ApiError ? err.body?.error ?? err.body?.message : (err as Error)?.message;
+
+        if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
+          addToast(
+            "You've reached the free plan limit. Upgrade to continue creating trips.",
+            "warning",
+          );
+          router.replace("/dashboard/payments?upgradeRequired=true");
+          return;
+        }
+
         // Keep the user's work: open the modal pre-filled so they can retry.
         setAutoCreating(false);
         setCreateInitialValues(values);

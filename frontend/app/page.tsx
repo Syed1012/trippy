@@ -35,7 +35,7 @@ import { savePendingTrip } from "@/lib/pending-trip";
 import { formatDestinationInput } from "@/lib/destination-format";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
-import { tripsApi, participantsApi, type Trip } from "@/lib/api";
+import { tripsApi, participantsApi, ApiError, type Trip } from "@/lib/api";
 import { tripSlug } from "@/lib/utils";
 import TripCard from "@/components/trips/TripCard";
 import { useToast } from "@/lib/toast";
@@ -211,6 +211,40 @@ export default function LandingPage() {
       setJoiningTripId(null);
     }
   }
+
+  async function checkLimitThenOpenAI() {
+    try {
+      // Call your existing backend trip creation API
+      await tripsApi.create({
+        title: searchQuery || "AI Trip",
+        destination: searchQuery || "AI Trip",
+        startDate,
+        endDate,
+        visibility: "PRIVATE",
+      });
+
+      // If allowed → open AI builder
+      openAIBuilder({ autoGenerate: true });
+
+    } catch (err: any) {
+      const code =
+        err instanceof ApiError
+          ? err.body?.error ?? err.body?.message
+          : err?.message;
+
+      if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
+        addToast(
+          "You've reached the free plan limit. Upgrade to continue creating trips.",
+          "warning"
+        );
+        router.push("/dashboard/payments?upgradeRequired=true");
+        return;
+      }
+
+      addToast("Failed to start AI planning", "error");
+    }
+  }
+
 
   const hasTicketData = Boolean(
     searchQuery.trim() ||
@@ -482,7 +516,7 @@ export default function LandingPage() {
                   <Button
                     type="button"
                     size="lg"
-                    onClick={() => openAIBuilder({ autoGenerate: true })}
+                    onClick={checkLimitThenOpenAI}
                     className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
                   >
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
