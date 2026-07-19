@@ -24,7 +24,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,8 +58,8 @@ class WebSocketAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         interceptor = new WebSocketAuthChannelInterceptor(
-                jwtDecoder, tripServiceClient, chatPresenceService,
-                chatMessageService, disconnectListener, moderationService);
+            jwtDecoder, tripServiceClient, chatPresenceService,
+            disconnectListener, moderationService);
     }
 
     // --------------------------------------------------------------- SUBSCRIBE
@@ -72,8 +71,6 @@ class WebSocketAuthChannelInterceptorTest {
         UUID userId = UUID.randomUUID();
 
         when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(true);
-
         Message<?> result = interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
 
         assertThat(result).isNotNull();
@@ -99,7 +96,7 @@ class WebSocketAuthChannelInterceptorTest {
         UUID tripId = UUID.randomUUID();
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/trips/" + tripId + "/messages");
+        accessor.setDestination("/topic/trips." + tripId + ".messages");
         Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
         assertThatThrownBy(() -> interceptor.preSend(message, channel))
@@ -108,32 +105,15 @@ class WebSocketAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("broadcasts system join message for first-time subscriber")
-    void broadcastsJoinMessageForNewSubscriber() {
+    @DisplayName("message subscription updates presence without group membership messages")
+    void subscriptionUpdatesPresenceWithoutMembershipMessage() {
         UUID tripId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(true);
-
         interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
 
-        verify(chatMessageService).sendMessage(
-                eq(tripId), eq(userId), eq("System"),
-                eq("Alice joined the chat"), any());
-    }
-
-    @Test
-    @DisplayName("does not broadcast join message for already-connected user")
-    void doesNotBroadcastForExistingUser() {
-        UUID tripId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-
-        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
-        when(chatPresenceService.addUser(tripId, userId)).thenReturn(false);
-
-        interceptor.preSend(createSubscribeMessage(tripId, userId, "Alice"), channel);
-
+        verify(chatPresenceService).addUser(tripId, userId);
         verify(chatMessageService, never()).sendMessage(any(), any(), any(), any(), any());
     }
 
@@ -146,7 +126,7 @@ class WebSocketAuthChannelInterceptorTest {
         when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/trips/" + tripId + "/participants");
+        accessor.setDestination("/topic/trips." + tripId + ".participants");
         accessor.addNativeHeader("X-User-Id", userId.toString());
         Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
@@ -163,11 +143,13 @@ class WebSocketAuthChannelInterceptorTest {
     @Test
     @DisplayName("SEND passes through for non-banned, non-muted user")
     void sendPassesThroughForCleanUser() {
+        UUID tripId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
         when(moderationService.isBanned(userId)).thenReturn(false);
         when(moderationService.isMuted(userId)).thenReturn(false);
 
-        Message<?> result = interceptor.preSend(createSendMessage(userId), channel);
+        Message<?> result = interceptor.preSend(createSendMessage(tripId, userId), channel);
 
         assertThat(result).isNotNull();
     }
@@ -175,10 +157,12 @@ class WebSocketAuthChannelInterceptorTest {
     @Test
     @DisplayName("SEND is rejected when user is banned")
     void sendRejectedForBannedUser() {
+        UUID tripId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
         when(moderationService.isBanned(userId)).thenReturn(true);
 
-        assertThatThrownBy(() -> interceptor.preSend(createSendMessage(userId), channel))
+        assertThatThrownBy(() -> interceptor.preSend(createSendMessage(tripId, userId), channel))
                 .isInstanceOf(MessageDeliveryException.class)
                 .hasMessageContaining("banned");
     }
@@ -186,25 +170,41 @@ class WebSocketAuthChannelInterceptorTest {
     @Test
     @DisplayName("SEND is rejected when user is muted")
     void sendRejectedForMutedUser() {
+        UUID tripId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(true);
         when(moderationService.isBanned(userId)).thenReturn(false);
         when(moderationService.isMuted(userId)).thenReturn(true);
 
-        assertThatThrownBy(() -> interceptor.preSend(createSendMessage(userId), channel))
+        assertThatThrownBy(() -> interceptor.preSend(createSendMessage(tripId, userId), channel))
                 .isInstanceOf(MessageDeliveryException.class)
                 .hasMessageContaining("muted");
     }
 
     @Test
-    @DisplayName("SEND with no resolvable userId passes through without checks")
-    void sendPassesThroughWhenUserIdUnresolvable() {
+    @DisplayName("SEND with no resolvable userId is rejected")
+    void sendRejectedWhenUserIdUnresolvable() {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
         accessor.setDestination("/app/trips/" + UUID.randomUUID() + "/send");
         Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
-        Message<?> result = interceptor.preSend(message, channel);
+        assertThatThrownBy(() -> interceptor.preSend(message, channel))
+                .isInstanceOf(MessageDeliveryException.class)
+                .hasMessageContaining("Unauthenticated");
+        verify(moderationService, never()).isBanned(any());
+    }
 
-        assertThat(result).isNotNull();
+    @Test
+    @DisplayName("SEND is rejected when user is not a trip participant")
+    void sendRejectedForNonParticipant() {
+        UUID tripId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(tripServiceClient.isParticipant(tripId, userId)).thenReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(createSendMessage(tripId, userId), channel))
+                .isInstanceOf(MessageDeliveryException.class)
+                .hasMessageContaining("not a participant");
+
         verify(moderationService, never()).isBanned(any());
     }
 
@@ -212,16 +212,16 @@ class WebSocketAuthChannelInterceptorTest {
 
     private Message<?> createSubscribeMessage(UUID tripId, UUID userId, String displayName) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/trips/" + tripId + "/messages");
+        accessor.setDestination("/topic/trips." + tripId + ".messages");
         accessor.addNativeHeader("X-User-Id", userId.toString());
         accessor.addNativeHeader("X-User-DisplayName", displayName);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }
 
     /** Creates a SEND message with the userId in session attributes (simulates post-CONNECT state). */
-    private Message<?> createSendMessage(UUID userId) {
+    private Message<?> createSendMessage(UUID tripId, UUID userId) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
-        accessor.setDestination("/app/trips/" + UUID.randomUUID() + "/send");
+        accessor.setDestination("/app/trips/" + tripId + "/send");
         accessor.setUser(new Principal() {
             @Override public String getName() { return userId.toString(); }
         });

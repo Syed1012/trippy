@@ -45,6 +45,9 @@ spring:
       mail:
         smtp:
           auth: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
           starttls:
             enable: true
   rabbitmq:
@@ -53,9 +56,29 @@ spring:
     username: ${MQ_USERNAME}
     password: ${MQ_PASSWORD}
     virtual-host: ${RABBITMQ_DEFAULT_VHOST:trippy}
+    listener:
+      simple:
+        concurrency: 3
+        max-concurrency: 10
+        prefetch: 10
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000ms
+          multiplier: 2.0
+          max-interval: 10000ms
 
 server:
   port: 8085
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
 
 management:
   endpoints:
@@ -72,6 +95,11 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+
+web-push:
+  public-key: ${VAPID_PUBLIC_KEY}
+  private-key: ${VAPID_PRIVATE_KEY}
+  subject: ${VAPID_SUBJECT:mailto:admin@trippy.com}
 
 logging:
   level:

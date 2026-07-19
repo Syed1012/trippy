@@ -66,17 +66,18 @@ public class ParticipantController {
             @PathVariable UUID tripId,
             @Valid @RequestBody InviteParticipantRequest request,
             @RequestHeader("X-User-Id") UUID userId) {
-        log.info("POST /trips/{}/participants/reject — Reject user={}, by={}", tripId, request.userId(), userId);
-        ParticipantActionResponse response = participantService.rejectInvite(tripId, request.userId(), userId);
+        log.info("POST /trips/{}/participants/reject — Reject request={}, by={}", tripId, request, userId);
+        ParticipantActionResponse response = participantService.rejectInvite(tripId, request, userId);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/accept")
     public ResponseEntity<ParticipantActionResponse> accept(
             @PathVariable UUID tripId,
-            @RequestHeader("X-User-Id") UUID userId) {
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(value = "X-User-DisplayName", required = false) String displayName) {
         log.info("POST /trips/{}/participants/accept — user={}", tripId, userId);
-        ParticipantActionResponse response = participantService.acceptInvite(tripId, userId);
+        ParticipantActionResponse response = participantService.acceptInvite(tripId, userId, displayName);
         return ResponseEntity.ok(response);
     }
 
@@ -104,9 +105,10 @@ public class ParticipantController {
     @DeleteMapping("/leave")
     public ResponseEntity<Void> leave(
             @PathVariable UUID tripId,
-            @RequestHeader("X-User-Id") UUID userId) {
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(value = "X-User-DisplayName", required = false) String displayName) {
         log.info("DELETE /trips/{}/participants/leave — user={}", tripId, userId);
-        participantService.leaveTrip(tripId, userId);
+        participantService.leaveTrip(tripId, userId, displayName);
         return ResponseEntity.noContent().build();
     }
 
@@ -117,6 +119,15 @@ public class ParticipantController {
         log.info("GET /trips/{}/participants — user={}", tripId, userId);
         List<ParticipantResponse> response = participantService.listParticipants(tripId, userId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<Void> checkMembership(
+            @PathVariable UUID tripId,
+            @PathVariable UUID userId) {
+        return participantService.isAcceptedParticipant(tripId, userId)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 
     @DeleteMapping("/kick/{targetUserId}")

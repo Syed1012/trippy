@@ -1,5 +1,25 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const getApiBaseUrl = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  if (typeof window !== "undefined") {
+    try {
+      const url = new URL(envUrl);
+      const isLocalOrIp =
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        /^(\d{1,3}\.){3}\d{1,3}$/.test(url.hostname);
+
+      if (isLocalOrIp) {
+        url.hostname = window.location.hostname;
+      }
+      return url.toString().replace(/\/$/, "");
+    } catch {
+      return `http://${window.location.hostname}:8080`;
+    }
+  }
+  return envUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const TOKEN_KEY = "trippy_access_token";
 const REFRESH_KEY = "trippy_refresh_token";
@@ -11,6 +31,18 @@ const REFRESH_KEY = "trippy_refresh_token";
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
+}
+
+export async function getValidAccessToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  const payload = decodeJwtPayload(token);
+  const expiresAt = typeof payload.exp === "number" ? payload.exp * 1000 : 0;
+  if (expiresAt > Date.now() + 30_000) return token;
+
+  const refreshed = await refreshAccessToken();
+  return refreshed.accessToken;
 }
 
 export function getRefreshToken(): string | null {
@@ -82,22 +114,33 @@ export interface ApiErrorBody {
   details?: ApiFieldError[];
 }
 
+interface ApiRequestOptions extends RequestInit {
+  auth?: boolean;
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestOptions = {},
 ): Promise<T> {
+  const { auth = true, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   };
 
-  const token = getAccessToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (auth) {
+    try {
+      const token = await getValidAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch (e) {
+      console.warn("Failed to get valid access token", e);
+    }
   }
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
 
@@ -109,6 +152,17 @@ async function request<T>(
   // 204 No Content — nothing to parse
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+async function requestPublic<T>(path: string): Promise<T> {
+  try {
+    return await request<T>(path);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return request<T>(path, { auth: false });
+    }
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -290,6 +344,7 @@ export interface Participant {
   participantId: string;
   tripId: string;
   userId: string;
+  email?: string;
   displayName?: string;
   avatarUrl?: string;
   role: "OWNER" | "EDITOR" | "VIEWER" | "MEMBER";
@@ -486,13 +541,23 @@ export const tripsApi = {
   list: async (page = 0, size = 12) =>
     normalizeTripPage(await api.get<RawTripPage>(`/trips?page=${page}&size=${size}`)),
   listPublic: async (page = 0, size = 12) =>
-    normalizeTripPage(await api.get<RawTripPage>(`/trips/public?page=${page}&size=${size}`)),
+    normalizeTripPage(await requestPublic<RawTripPage>(`/trips/public?page=${page}&size=${size}`)),
   search: async (q: string, page = 0, size = 12) =>
     normalizeTripPage(
       await api.get<RawTripPage>(`/trips?search=${encodeURIComponent(q)}&page=${page}&size=${size}`),
     ),
   get: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/${id}`)),
   getShared: async (id: string) => normalizeTripDetail(await api.get<RawTripDetail>(`/trips/shared/${id}`)),
+  getAccessible: async (id: string) => {
+    try {
+      return await tripsApi.get(id);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        return tripsApi.getShared(id);
+      }
+      throw error;
+    }
+  },
   create: async (data: CreateTripRequest) => normalizeTrip(await api.post<RawTrip>("/trips", data), 1),
   update: (id: string, data: Partial<CreateTripRequest>) =>
     api.patch<RawTrip>(`/trips/${id}`, data).then((trip) => normalizeTrip(trip)),
@@ -684,14 +749,14 @@ export async function ensureTripCoverImage(
 /* ------------------------------------------------------------------ */
 
 export const participantsApi = {
-  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string) =>
-    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName }),
+  invite: (tripId: string, userId: string, email?: string, message?: string, inviterName?: string, inviteeName?: string) =>
+    api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite`, { userId, email, message, inviterName, inviteeName }),
   inviteByEmail: (tripId: string, email: string, message?: string, inviterName?: string) =>
     api.post<{ message: string; participant?: unknown }>(`/trips/${tripId}/participants/invite-by-email`, { email, message, inviterName }),
   approve: (tripId: string, userId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/approve`, { userId }),
-  reject: (tripId: string, userId: string) =>
-    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId }),
+  reject: (tripId: string, userId?: string, email?: string) =>
+    api.post<{ message: string }>(`/trips/${tripId}/participants/reject`, { userId, email }),
   accept: (tripId: string) =>
     api.post<{ message: string }>(`/trips/${tripId}/participants/accept`, {}),
   decline: (tripId: string) =>
@@ -800,6 +865,16 @@ export const itineraryApi = {
     normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/${tripId}/itinerary`)),
   getShared: async (tripId: string) =>
     normalizeItinerary(await api.get<RawItineraryResponse>(`/trips/shared/${tripId}/itinerary`)),
+  getAccessible: async (tripId: string) => {
+    try {
+      return await itineraryApi.get(tripId);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        return itineraryApi.getShared(tripId);
+      }
+      throw error;
+    }
+  },
   update: async (tripId: string, data: UpdateItineraryRequest) =>
     normalizeItinerary(await api.put<RawItineraryResponse>(`/trips/${tripId}/itinerary`, data)),
   castVote: (tripId: string, dayNumber: number, voteType: "UPVOTE" | "DOWNVOTE") =>
@@ -1009,11 +1084,9 @@ export const chatApi = {
     api.get<ChatMessagePage>(`/trips/${tripId}/chat/messages?page=${page}&size=${size}`),
   sendMessage: (tripId: string, content: string) =>
     api.post<ChatMessage>(`/trips/${tripId}/chat/messages`, { content }),
-  uploadFile: async (tripId: string, file: File, senderId: string, senderDisplayName: string): Promise<ChatMessage> => {
+  uploadFile: async (tripId: string, file: File): Promise<ChatMessage> => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("senderId", senderId);
-    formData.append("senderDisplayName", senderDisplayName);
     const token = getAccessToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -1024,6 +1097,15 @@ export const chatApi = {
     });
     if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
     return res.json();
+  },
+  getAttachment: async (fileUrl: string): Promise<Blob> => {
+    const token = await getValidAccessToken();
+    const encodedPath = fileUrl.split("/").map(encodeURIComponent).join("/");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/chats/files/${encodedPath}`, { headers });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
+    return res.blob();
   },
   getParticipants: (tripId: string) =>
     api.get<string[]>(`/chats/${tripId}/participants`),

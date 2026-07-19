@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import pse.trippy.notificationservice.dto.response.NotificationResponse;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,11 +30,14 @@ class NotificationControllerTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private SseNotificationService sseNotificationService;
+
     private NotificationController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new NotificationController(notificationService);
+        controller = new NotificationController(notificationService, sseNotificationService);
     }
 
     @Test

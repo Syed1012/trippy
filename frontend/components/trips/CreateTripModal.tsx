@@ -28,6 +28,7 @@ import {
   Snowflake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDestinationInput } from "@/lib/destination-format";
 import type {
   CreateTripRequest,
   TripType,
@@ -128,7 +129,7 @@ function TripPreviewCard({
       <div className="p-5 space-y-3">
         <div>
           <motion.p
-            key={title || "placeholder"}
+            key={`title-${title || "placeholder"}`}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-base font-bold text-white truncate"
@@ -136,7 +137,7 @@ function TripPreviewCard({
             {title || "Your next adventure"}
           </motion.p>
           <motion.div
-            key={destination || "dest-placeholder"}
+            key={`destination-${destination || "placeholder"}`}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-1.5 mt-1"
@@ -200,7 +201,7 @@ export default function CreateTripModal({
   useEffect(() => {
     if (!open || !initialValues) return;
     if (initialValues.title) setTitle(initialValues.title);
-    if (initialValues.destination) setDestination(initialValues.destination);
+    if (initialValues.destination) setDestination(formatDestinationInput(initialValues.destination));
     if (initialValues.startDate) setStartDate(initialValues.startDate);
     if (initialValues.endDate) setEndDate(initialValues.endDate);
     if (initialValues.tripType) setTripType(initialValues.tripType);
@@ -494,7 +495,7 @@ export default function CreateTripModal({
                           type="text"
                           placeholder="Barcelona, Spain"
                           value={destination}
-                          onChange={(e) => setDestination(e.target.value)}
+                          onChange={(e) => setDestination(formatDestinationInput(e.target.value))}
                           required
                           className="w-full rounded-xl border border-border bg-shore-50 py-3 pl-10 pr-4 text-sm text-foreground placeholder:text-muted/50 transition-all duration-200 focus:border-accent-400 focus:outline-none focus:ring-2 focus:ring-accent-200/50 focus:bg-white hover:border-accent-300"
                         />

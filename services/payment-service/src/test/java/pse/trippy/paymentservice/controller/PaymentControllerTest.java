@@ -87,14 +87,12 @@ class PaymentControllerTest {
     }
 
     @Test
-    @DisplayName("POST /payments/checkout returns transaction on success")
+    @DisplayName("POST /payments/checkout returns Stripe payment link on success")
     void checkoutReturnsOk() throws Exception {
         UUID userId = UUID.randomUUID();
-        UUID txnId = UUID.randomUUID();
 
         CheckoutResponse response = CheckoutResponse.builder()
-                .transactionId(txnId)
-                .status("COMPLETED")
+                .url("https://buy.stripe.com/test_00waEXcEXcn4bGfgPa0co02")
                 .build();
 
         when(paymentService.checkout(eq(userId), any(CheckoutRequest.class)))
@@ -102,8 +100,7 @@ class PaymentControllerTest {
 
         String json = """
                 {
-                "planId": "premium_monthly",
-                "paymentMethodId": "%s"
+                "planId": "PREMIUM"
                 }
                 """.formatted(UUID.randomUUID());
 
@@ -112,16 +109,15 @@ class PaymentControllerTest {
                         .header("X-User-Id", userId.toString())
                         .content(json))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.transactionId").value(txnId.toString()))
-                .andExpect(jsonPath("$.status").value("COMPLETED"));
-    }
+                .andExpect(jsonPath("$.url").value("https://buy.stripe.com/test_00waEXcEXcn4bGfgPa0co02"));
+        }
+
 
     @Test
     @DisplayName("POST /payments/checkout without auth returns 403")
     void checkoutWithoutAuthReturns401() throws Exception {
         CheckoutRequest request = CheckoutRequest.builder()
                 .planId("PREMIUM")
-                .paymentMethodId("pm_test_123")
                 .build();
 
         mockMvc.perform(post("/payments/checkout")

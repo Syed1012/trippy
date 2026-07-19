@@ -3,448 +3,201 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Check,
-  Crown,
-  Loader2,
-  CreditCard,
-  Plus,
-  Trash2,
-  Sparkles,
-  Building2,
-  Zap,
+  Check, Crown, Loader2, Building2, Zap, ShieldCheck, Info, ExternalLink
 } from "lucide-react";
-import { motion } from "framer-motion";
-import { GlassCard, Button, Badge } from "@/components/ui";
-import { paymentsApi, type SubscriptionInfo, type PaymentMethod, type TransactionRecord } from "@/lib/api";
+import { GlassCard, Button } from "@/components/ui";
+import { paymentsApi, type SubscriptionInfo, type TransactionRecord } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
-interface PlanInfo {
-  id: string;
-  planId: string;
-  name: string;
-  price: number;
-  interval: string;
-  icon: typeof Crown;
-  features: string[];
-  tripsLimit: number;
-  aiGenerationsLimit: number;
-  highlight?: boolean;
-}
+const PLANS = [
+  { id: "free", planId: "FREE", name: "Free", price: 0, interval: "forever", icon: Zap,
+    features: ["Up to 3 trips", "Basic itinerary", "Trip chat", "5 AI generations/month"] },
 
-const PLANS: PlanInfo[] = [
-  {
-    id: "free",
-    planId: "",
-    name: "Free",
-    price: 0,
-    interval: "forever",
-    icon: Zap,
-    features: ["Up to 3 trips", "Basic itinerary", "Trip chat", "5 AI generations/month"],
-    tripsLimit: 3,
-    aiGenerationsLimit: 5,
-  },
-  {
-    id: "premium",
-    planId: "PREMIUM",
-    name: "Premium",
-    price: 9.99,
-    interval: "month",
-    icon: Crown,
-    highlight: true,
-    features: [
-      "Unlimited trips",
-      "AI-powered itineraries",
-      "File attachments in chat",
-      "50 AI generations/month",
-      "Priority support",
-    ],
-    tripsLimit: -1,
-    aiGenerationsLimit: 50,
-  },
-  {
-    id: "pro",
-    planId: "ENTERPRISE",
-    name: "Pro",
-    price: 29.99,
-    interval: "month",
-    icon: Building2,
-    features: [
-      "Everything in Premium",
-      "Unlimited AI generations",
-      "Custom branding",
-      "Team management",
-      "API access",
-      "Dedicated support",
-    ],
-    tripsLimit: -1,
-    aiGenerationsLimit: -1,
-  },
+  { id: "premium", planId: "PREMIUM", name: "Premium", price: 9.99, interval: "month", icon: Crown, highlight: true,
+    features: ["Unlimited trips", "AI itineraries", "50 AI generations/month", "Priority support"] },
+
+  { id: "enterprise", planId: "ENTERPRISE", name: "Enterprise", price: 29.99, interval: "month", icon: Building2,
+    features: ["Everything in Premium", "Unlimited AI", "Team management", "API access"] },
 ];
 
 export default function PaymentPage() {
-  const searchParams = useSearchParams();
   const { addToast } = useToast();
-
-  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [checkoutLoading, setCheckoutLoading] = useState<string>("");
-  const [cancelLoading, setCancelLoading] = useState(false);
-  const [showAddCard, setShowAddCard] = useState(false);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
-  // Check success param
   useEffect(() => {
-    if (searchParams.get("success") === "true") {
-      addToast("Subscription updated successfully!", "success");
+    if (searchParams.get("success")) {
+      addToast("Payment successful! Your plan is being updated.", "success");
     }
-  }, [searchParams, addToast]);
+    void loadData();
+  }, [searchParams]);
 
   async function loadData() {
-    const [sub, meth, txns] = await Promise.all([
-      paymentsApi.getSubscription().catch(() => null),
-      paymentsApi.getMethods().catch(() => []),
-      paymentsApi.getTransactions().catch(() => []),
-    ]);
-
-    setSubscription(sub);
-    setMethods(meth);
-    setTransactions(txns);
-    setLoading(false);
+    try {
+      const [sub, txns] = await Promise.all([
+        paymentsApi.getSubscription().catch(() => null),
+        paymentsApi.getTransactions().catch(() => []),
+      ]);
+      setSubscription(sub);
+      setTransactions(txns || []);
+    } finally { setLoading(false); }
   }
 
-  // Load data
-  useEffect(() => {
-    setLoading(true);
-    loadData();
-  }, []);
+  const activePlanId = subscription?.plan?.toUpperCase() || "FREE";
 
-  async function handleCheckout(planId: string) {
-    if (methods.length === 0) {
-      addToast("Please add a payment method first", "error");
-      setShowAddCard(true);
+  async function handleSelectPlan(plan: any) {
+      // If user already has a paid plan, block switching
+    const isPaidPlan = activePlanId !== "FREE";
+    const isTryingPaidPlan = plan.planId !== "FREE";
+
+    if (isPaidPlan && isTryingPaidPlan) {
+      addToast(
+        `You already have an active ${subscription?.plan} plan. You can choose a new paid plan after ${subscription?.currentPeriodEnd}.`,
+        "error"
+      );
       return;
     }
-    const defaultMethod = methods.find((m) => m.isDefault) ?? methods[0];
-    setCheckoutLoading(planId);
+
+    if (plan.planId === activePlanId) return;
+
+    setCheckoutLoading(plan.planId);
     try {
-      await paymentsApi.checkout(planId, defaultMethod.paymentMethodId);
-      addToast("Subscription updated!", "success");
-      await loadData();
+      const response = await paymentsApi.checkout(plan.planId, "");
+      if (response.transactionId) {
+        addToast("Checkout initiated. Transaction ID: " + response.transactionId, "success");
+        void loadData();
+      }
+      else throw new Error("No transaction ID received");
     } catch {
-      addToast("Payment failed. Please try again.", "error");
+      addToast("Failed to initiate checkout. Please try again.", "error");
     } finally {
-      setCheckoutLoading("");
+      setCheckoutLoading(null);
     }
   }
 
-  async function handleCancel() {
-    if (!confirm("Are you sure you want to cancel your subscription? It will remain active until the end of your billing period.")) return;
-    setCancelLoading(true);
+  async function handleCancelPlan() {
     try {
-      await paymentsApi.cancelSubscription(false);
-      await loadData();
-      addToast("Subscription will be cancelled at the end of this billing period", "info");
+      setCheckoutLoading("cancel");
+      await paymentsApi.cancelSubscription();
+      addToast("Your plan will cancel at the end of the billing period.", "success");
+      await loadData(); // refresh subscription info
     } catch {
-      addToast("Failed to cancel subscription", "error");
+      addToast("Failed to cancel your plan. Please try again.", "error");
     } finally {
-      setCancelLoading(false);
+      setCheckoutLoading(null);
     }
   }
 
-  async function handleAddCard(e: React.FormEvent) {
-    e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const data = new FormData(form);
-    try {
-      const method = await paymentsApi.addMethod({
-        brand: data.get("brand") as string,
-        last4: data.get("last4") as string,
-        expiryMonth: parseInt(data.get("expiryMonth") as string),
-        expiryYear: parseInt(data.get("expiryYear") as string),
-        setAsDefault: true,
-      });
-      setMethods((prev) => [...prev, method]);
-      setShowAddCard(false);
-      await loadData();
-      addToast("Payment method added", "success");
-    } catch {
-      addToast("Failed to add payment method", "error");
-    }
-  }
-
-  async function handleDeleteMethod(id: string) {
-    try {
-      await paymentsApi.deleteMethod(id);
-      setMethods((prev) => prev.filter((m) => m.paymentMethodId !== id));
-      await loadData();
-      addToast("Payment method removed", "success");
-    } catch {
-      addToast("Failed to remove payment method", "error");
-    }
-  }
-
-  const currentPlan = subscription?.plan ?? "FREE";
-
-  if (loading) {
+  if (loading)
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 size={32} className="animate-spin text-trippy-500" />
+        <Loader2 className="animate-spin text-trippy-500" size={32} />
       </div>
     );
-  }
 
   return (
-    <div className="space-y-10">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          Plans & Billing
-        </h1>
-        <p className="mt-1 text-muted">
-          Choose the plan that fits your travel style
-        </p>
-      </motion.div>
+    <div className="max-w-6xl mx-auto space-y-10 px-4 pb-20">
+      <header className="flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Plans & Billing</h1>
+          {/* <p className="text-muted-foreground text-sm">Secure payments powered by Stripe</p> */}
+        </div>
+      </header>
 
-      {/* Current subscription status */}
-      {subscription && subscription.plan !== "FREE" && (
-        <GlassCard className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <Badge variant="success">{subscription.status}</Badge>
-              <span className="font-semibold">{subscription.plan} Plan</span>
+      {/* Subscription Status */}
+      {activePlanId !== "FREE" && subscription && (
+        <GlassCard className={cn("border-l-4", subscription.cancelAtPeriodEnd ? "border-l-yellow-500" : "border-l-trippy-500")}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <ShieldCheck className="text-trippy-500" size={32} />
+              <div>
+                <p className="font-bold">{subscription.plan} Plan Active</p>
+                <p className="text-xs text-muted-foreground">
+                  {subscription.cancelAtPeriodEnd ? "Reverts to Free on " : "Renews on "} {subscription.currentPeriodEnd}
+                </p>
+              </div>
             </div>
-            {subscription.currentPeriodEnd && (
-              <p className="text-sm text-muted mt-1">
-                {subscription.cancelAtPeriodEnd
-                  ? `Cancels on ${subscription.currentPeriodEnd}`
-                  : `Renews on ${subscription.currentPeriodEnd}`}
-              </p>
+            {!subscription.cancelAtPeriodEnd && (
+              <Button
+                variant="ghost"
+                className="text-destructive text-xs"
+                disabled={checkoutLoading === "cancel"}
+                onClick={handleCancelPlan}
+              >
+                {checkoutLoading === "cancel"
+                  ? <Loader2 className="animate-spin" size={14} />
+                  : "Cancel Plan"}
+              </Button>
             )}
           </div>
-          {!subscription.cancelAtPeriodEnd && (
-            <Button variant="ghost" size="sm" onClick={handleCancel} disabled={cancelLoading}>
-              {cancelLoading ? <Loader2 size={14} className="animate-spin" /> : "Cancel subscription"}
-            </Button>
-          )}
         </GlassCard>
       )}
 
-      {/* Plan cards */}
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {PLANS.map((plan) => {
-          const isCurrent = currentPlan === plan.name.toUpperCase();
-          const Icon = plan.icon;
+      {/* Plans */}
+      <div className="grid gap-6 md:grid-cols-3">
+        {PLANS.map((plan) => (
+          <GlassCard key={plan.id} className={cn("relative flex flex-col", plan.highlight && "ring-2 ring-trippy-500")}>
+            <div className="mb-6">
+              <plan.icon className="text-trippy-500 mb-4" size={28} />
+              <h3 className="font-bold text-xl">{plan.name}</h3>
+              <p className="text-2xl font-black mt-2">
+                €{plan.price}<span className="text-xs font-normal">/{plan.interval}</span>
+              </p>
+            </div>
 
-          return (
-            <motion.div
-              key={plan.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: PLANS.indexOf(plan) * 0.1 }}
-            >
-              <GlassCard
-                variant={plan.highlight ? "strong" : "default"}
-                className={cn(
-                  "relative flex flex-col h-full",
-                  plan.highlight && "ring-2 ring-trippy-500/30",
-                )}
-              >
-                {plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge variant="default">
-                      <Sparkles size={10} className="mr-1" /> Most Popular
-                    </Badge>
-                  </div>
-                )}
+            <ul className="flex-1 space-y-3 mb-8">
+              {plan.features.map((f) => (
+                <li key={f} className="flex gap-2 text-xs text-muted-foreground">
+                  <Check size={14} className="text-success" /> {f}
+                </li>
+              ))}
+            </ul>
 
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-trippy-500/10">
-                    <Icon size={20} className="text-trippy-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold">{plan.name}</h3>
-                    <p className="text-muted text-sm">
-                      {plan.price === 0 ? (
-                        "Free"
-                      ) : (
-                        <>
-                          €{plan.price}
-                          <span className="text-xs">/{plan.interval}</span>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <ul className="flex-1 space-y-2 mb-6">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm">
-                      <Check size={14} className="mt-0.5 text-success shrink-0" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {isCurrent ? (
-                  <Button variant="secondary" className="w-full" disabled>
-                    Current Plan
-                  </Button>
-                ) : plan.planId ? (
-                  <Button
-                    className="w-full"
-                    onClick={() => handleCheckout(plan.planId)}
-                    disabled={!!checkoutLoading}
-                  >
-                    {checkoutLoading === plan.planId ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : isCurrent ? (
-                      "Current Plan"
-                    ) : currentPlan === "FREE" ? (
-                      "Subscribe"
-                    ) : (
-                      "Upgrade"
-                    )}
-                  </Button>
-                ) : null}
-              </GlassCard>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      {/* Payment Methods */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Payment Methods</h2>
-        <div className="space-y-3">
-          {methods.map((m) => (
-            <GlassCard key={m.paymentMethodId} className="flex items-center gap-4 p-4">
-              <CreditCard size={20} className="text-trippy-500" />
-              <div className="flex-1">
-                <p className="text-sm font-medium capitalize">
-                  {m.brand} •••• {m.last4}
-                </p>
-                <p className="text-xs text-muted">
-                  Expires {m.expiryMonth}/{m.expiryYear}
-                  {m.isDefault && " · Default"}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleDeleteMethod(m.paymentMethodId)}
-              >
-                <Trash2 size={14} />
-              </Button>
-            </GlassCard>
-          ))}
-
-          {methods.length === 0 && !showAddCard && (
-            <p className="text-sm text-muted">No payment methods added yet.</p>
-          )}
-
-          {showAddCard ? (
-            <GlassCard className="p-4">
-              <form onSubmit={handleAddCard} className="space-y-4">
-                <h4 className="font-medium text-sm">Add Payment Method</h4>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <select
-                    name="brand"
-                    className="glass-sm px-3 py-2 text-sm text-foreground"
-                    required
-                  >
-                    <option value="visa">Visa</option>
-                    <option value="mastercard">Mastercard</option>
-                    <option value="amex">Amex</option>
-                  </select>
-                  <input
-                    name="last4"
-                    placeholder="Last 4 digits"
-                    maxLength={4}
-                    pattern="\d{4}"
-                    className="glass-sm px-3 py-2 text-sm text-foreground placeholder:text-muted"
-                    required
-                  />
-                  <input
-                    name="expiryMonth"
-                    placeholder="MM"
-                    type="number"
-                    min={1}
-                    max={12}
-                    className="glass-sm px-3 py-2 text-sm text-foreground placeholder:text-muted"
-                    required
-                  />
-                  <input
-                    name="expiryYear"
-                    placeholder="YYYY"
-                    type="number"
-                    min={2024}
-                    max={2035}
-                    className="glass-sm px-3 py-2 text-sm text-foreground placeholder:text-muted"
-                    required
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" type="button" onClick={() => setShowAddCard(false)}>
-                    Cancel
-                  </Button>
-                  <Button size="sm" type="submit">
-                    Add Card
-                  </Button>
-                </div>
-              </form>
-            </GlassCard>
-          ) : (
             <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowAddCard(true)}
+              className="w-full"
+              variant={activePlanId === plan.planId ? "secondary" : "primary"}
+              disabled={activePlanId === plan.planId || checkoutLoading === plan.planId}
+              onClick={() => handleSelectPlan(plan)}
             >
-              <Plus size={14} /> Add payment method
+              {checkoutLoading === plan.planId
+                ? <Loader2 className="animate-spin" />
+                : activePlanId === plan.planId
+                  ? "Current Plan"
+                  : "Upgrade Now"}
             </Button>
-          )}
-        </div>
-      </div>
-      {/* Billing History */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Billing History</h2>
-        {transactions.length > 0 ? (
-          <GlassCard className="overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.transactionId} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3">
-                      {new Date(tx.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">{tx.description}</td>
-                    <td className="px-4 py-3">
-                      {new Intl.NumberFormat(undefined, {
-                        style: "currency",
-                        currency: tx.currency,
-                      }).format(Number(tx.amount))}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={tx.status === "COMPLETED" ? "success" : "default"}>
-                        {tx.status === "COMPLETED" ? "Paid" : tx.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </GlassCard>
-        ) : (
-          <p className="text-sm text-muted">No billing history yet.</p>
-        )}
+        ))}
+      </div>
+
+      {/* Billing History */}
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Info size={20} className="text-trippy-500" /> Billing History
+        </h2>
+        <GlassCard className="p-0 overflow-hidden bg-muted/10 border-none">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-muted/50 uppercase font-bold text-muted-foreground">
+              <tr>
+                <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4">Description</th>
+                <th className="px-6 py-4 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/20">
+              {transactions.map((tx) => (
+                <tr key={tx.transactionId} className="hover:bg-white/5 transition-colors">
+                  <td className="px-6 py-4">{new Date(tx.createdAt).toLocaleDateString()}</td>
+                  <td className="px-6 py-4">{tx.description}</td>
+                  <td className="px-6 py-4 text-right font-bold">€{tx.amount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </GlassCard>
       </div>
     </div>
   );

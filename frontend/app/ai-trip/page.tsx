@@ -66,6 +66,7 @@ interface AiTripPageState {
     diet?: string;
     preferences?: string;
     customPreference?: string;
+    travelerType?: string;
   };
   savedTripId?: string;
 }
@@ -200,7 +201,7 @@ function AiTripPageContent() {
         const updatePayload: Partial<CreateTripRequest> = {
           title: trip.title,
           destination: trip.destination,
-          description: trip.reason || trip.highlights.join(", ") || undefined,
+          description: ((trip.reason || trip.highlights.join(", ") || "").trim() + " [AI_GENERATED]").trim(),
           startDate,
           endDate,
           visibility: saveVisibility,
@@ -213,7 +214,7 @@ function AiTripPageContent() {
         const createPayload: CreateTripRequest = {
           title: trip.title,
           destination: trip.destination,
-          description: trip.reason || trip.highlights.join(", ") || undefined,
+          description: ((trip.reason || trip.highlights.join(", ") || "").trim() + " [AI_GENERATED]").trim(),
           startDate,
           endDate,
           visibility: saveVisibility,

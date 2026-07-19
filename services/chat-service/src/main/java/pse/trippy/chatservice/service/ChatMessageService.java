@@ -46,7 +46,7 @@ public class ChatMessageService {
                                            String senderDisplayName, String content,
                                            MessageType messageType) {
 
-        ChatRoom room = chatRoomService.getRoomByTripId(tripId);
+        ChatRoom room = chatRoomService.getOrCreateRoomByTripId(tripId);
 
         ChatMessage message = chatMessageRepository.save(ChatMessage.builder()
                 .chatRoom(room)
@@ -63,7 +63,7 @@ public class ChatMessageService {
 
         // Broadcast to STOMP subscribers
         messagingTemplate.convertAndSend(
-                "/topic/trips/" + tripId + "/messages", response);
+                "/topic/trips." + tripId + ".messages", response);
 
         return response;
     }
@@ -74,7 +74,7 @@ public class ChatMessageService {
      */
     @Transactional(readOnly = true)
     public MessageHistoryResponse getMessageHistory(UUID tripId, int page, int size, Instant before) {
-        ChatRoom room = chatRoomService.getRoomByTripId(tripId);
+        ChatRoom room = chatRoomService.getOrCreateRoomByTripId(tripId);
         PageRequest pageRequest = PageRequest.of(page, size);
 
         Page<ChatMessage> messagePage;
@@ -109,7 +109,7 @@ public class ChatMessageService {
                 ? MessageType.IMAGE
                 : MessageType.FILE;
 
-        ChatRoom room = chatRoomService.getRoomByTripId(tripId);
+        ChatRoom room = chatRoomService.getOrCreateRoomByTripId(tripId);
 
         ChatMessage message = chatMessageRepository.save(ChatMessage.builder()
                 .chatRoom(room)
@@ -134,7 +134,7 @@ public class ChatMessageService {
         ChatMessageResponse response = toResponse(message, attachment);
 
         messagingTemplate.convertAndSend(
-                "/topic/trips/" + tripId + "/messages", response);
+                "/topic/trips." + tripId + ".messages", response);
 
         return response;
     }

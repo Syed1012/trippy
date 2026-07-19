@@ -16,8 +16,6 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 import pse.trippy.chatservice.client.TripServiceClient;
-import pse.trippy.chatservice.model.enums.MessageType;
-import pse.trippy.chatservice.service.ChatMessageService;
 import pse.trippy.chatservice.service.ChatPresenceService;
 import pse.trippy.chatservice.service.ModerationService;
 
@@ -34,7 +32,7 @@ import java.util.regex.Pattern;
  *       principal (WS Auth Hardening). No client-supplied X-User-Id is trusted
  *       on connect.</li>
  *   <li>On STOMP SUBSCRIBE — verifies trip participation using the server-derived
- *       principal and broadcasts system join messages.</li>
+ *       principal.</li>
  * </ol>
  *
  * <p>User identity for all subsequent STOMP frames is derived from
@@ -51,12 +49,13 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern TOPIC_PATTERN =
-            Pattern.compile("^/topic/trips/([0-9a-fA-F\\-]+)/(messages|participants|typing)$");
+            Pattern.compile("^/topic/trips\\.([0-9a-fA-F\\-]+)\\.(messages|participants|typing)$");
+        private static final Pattern APP_DESTINATION_PATTERN =
+            Pattern.compile("^/app/trips/([0-9a-fA-F\\-]+)/(send|typing)$");
 
     private final JwtDecoder jwtDecoder;
     private final TripServiceClient tripServiceClient;
     private final ChatPresenceService chatPresenceService;
-    private final ChatMessageService chatMessageService;
     private final WebSocketDisconnectListener disconnectListener;
     private final ModerationService moderationService;
 
@@ -64,13 +63,11 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             JwtDecoder jwtDecoder,
             TripServiceClient tripServiceClient,
             ChatPresenceService chatPresenceService,
-            @org.springframework.context.annotation.Lazy ChatMessageService chatMessageService,
             @org.springframework.context.annotation.Lazy WebSocketDisconnectListener disconnectListener,
             ModerationService moderationService) {
         this.jwtDecoder = jwtDecoder;
         this.tripServiceClient = tripServiceClient;
         this.chatPresenceService = chatPresenceService;
-        this.chatMessageService = chatMessageService;
         this.disconnectListener = disconnectListener;
         this.moderationService = moderationService;
     }
@@ -166,9 +163,35 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
      * Banned and muted users receive a rejection.
      */
     private void handleSend(StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        if (destination == null) {
+            return;
+        }
+
+        Matcher matcher = APP_DESTINATION_PATTERN.matcher(destination);
+        if (!matcher.matches()) {
+            return;
+        }
+
         UUID userId = resolveUserId(accessor);
         if (userId == null) {
-            return; // unauthenticated — CONNECT guard handles this
+            throw new MessageDeliveryException("Unauthenticated chat message");
+        }
+
+        UUID tripId;
+        try {
+            tripId = UUID.fromString(matcher.group(1));
+        } catch (IllegalArgumentException e) {
+            throw new MessageDeliveryException("Invalid trip id in destination");
+        }
+
+        if (!tripServiceClient.isParticipant(tripId, userId)) {
+            log.warn("Rejected SEND from user {} to trip {} — not a participant", userId, tripId);
+            throw new MessageDeliveryException("User is not a participant of trip " + tripId);
+        }
+
+        if ("leave".equals(matcher.group(2))) {
+            return;
         }
 
         if (moderationService.isBanned(userId)) {
@@ -206,7 +229,6 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         // Prefer server-derived identity; fall back to X-User-Id only for
         // backwards-compat with the API gateway HTTP path (non-WS requests).
         UUID userId = resolveUserId(accessor);
-        String displayName = resolveDisplayName(accessor);
 
         if (userId == null) {
             throw new MessageDeliveryException("Missing X-User-Id header");
@@ -220,28 +242,12 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
         log.info("User {} verified as participant for trip {} ({})", userId, tripId, topicSuffix);
 
-        // Presence tracking + join-message side effects only apply to the main
-        // messages topic. /participants and /typing are read-only views.
-        if (!"messages".equals(topicSuffix)) {
-            return;
-        }
-
-        boolean newJoin = chatPresenceService.addUser(tripId, userId);
-        if (newJoin) {
-            String name = (displayName != null && !displayName.isBlank()) ? displayName : "A user";
-
+        if ("messages".equals(topicSuffix)) {
+            chatPresenceService.addUser(tripId, userId);
             String sessionId = accessor.getSessionId();
             if (sessionId != null) {
-                disconnectListener.trackSubscription(sessionId, tripId, userId, displayName);
-            }
-
-            try {
-                chatMessageService.sendMessage(
-                        tripId, userId, "System",
-                        name + " joined the chat",
-                        MessageType.SYSTEM);
-            } catch (Exception e) {
-                log.warn("Failed to send join message for user {} in trip {}", userId, tripId, e);
+                disconnectListener.trackSubscription(
+                        sessionId, tripId, userId, resolveDisplayName(accessor));
             }
         }
     }

@@ -20,6 +20,7 @@ import {
   Globe,
   Utensils,
   MapPin,
+  Users,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
@@ -31,6 +32,7 @@ import TripTicket from "@/components/landing/TripTicket";
 import { Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth-context";
 import { savePendingTrip } from "@/lib/pending-trip";
+import { formatDestinationInput } from "@/lib/destination-format";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
 import { tripsApi, participantsApi, type Trip } from "@/lib/api";
@@ -50,11 +52,13 @@ const TRIP_TYPE_FILTERS = ["Beach", "Adventure", "City", "Nature", "Culture", "W
 
 const NO_PREFERENCE_LABEL = "No preference";
 
-const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Budget", "Moderate", "Premium", "Luxury"];
+const BUDGET_OPTIONS = [NO_PREFERENCE_LABEL, "Economy", "Moderate", "Premium", "Luxury"];
 
 const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain"];
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
+
+const COMPANION_OPTIONS = [NO_PREFERENCE_LABEL, "Solo", "Couple", "Friends", "Family"];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -119,6 +123,7 @@ export default function LandingPage() {
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
+  const [companionPreference, setCompanionPreference] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
@@ -213,7 +218,8 @@ export default function LandingPage() {
       activeFilters.length > 0 ||
       heroBudget ||
       dietPreference ||
-      pacePreference,
+      pacePreference ||
+      companionPreference,
   );
 
   const ticketReady = Boolean(
@@ -225,7 +231,7 @@ export default function LandingPage() {
 
   const stashPendingTrip = () => {
     savePendingTrip({
-      destination: searchQuery.trim(),
+      destination: formatDestinationInput(searchQuery).trim(),
       startDate,
       endDate: endDate || startDate,
       filters: activeFilters,
@@ -311,17 +317,27 @@ export default function LandingPage() {
     }
 
     setDateError("");
+    let peopleCount = people;
+    if (companionPreference === "Solo") {
+      peopleCount = 1;
+    } else if (companionPreference === "Couple") {
+      peopleCount = 2;
+    } else if (companionPreference === "Friends" || companionPreference === "Family") {
+      peopleCount = 4;
+    }
+
     setAiBuilderRequest({
       requestId: nextRequestId(),
       city: trimmedCity,
       startDate: start,
       endDate: normalizedEnd,
-      people,
+      people: peopleCount,
       budget: budget || undefined,
       filters,
       diet: diet || undefined,
       preferences: preferences || undefined,
       autoGenerate,
+      travelerType: companionPreference || undefined,
     });
     setShowAIBuilder(true);
   };
@@ -429,7 +445,7 @@ export default function LandingPage() {
                         value={searchQuery}
                         onFocus={() => setFocusedField("destination")}
                         onBlur={() => setFocusedField(null)}
-                        onChange={(event) => setSearchQuery(event.target.value)}
+                        onChange={(event) => setSearchQuery(formatDestinationInput(event.target.value))}
                         placeholder={typedIdea || "Two weeks in Japan with great food"}
                         className="mt-1 w-full bg-transparent text-base font-semibold text-[#17211f] outline-none placeholder:text-[#8c978f]"
                       />
@@ -450,9 +466,9 @@ export default function LandingPage() {
                   <Button
                     type="submit"
                     size="lg"
-                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#3a2b1e_0%,#271c12_55%,#180f09_100%)] px-5 !text-white ring-1 ring-inset ring-[#f0b091]/30 shadow-[inset_0_1px_0_rgba(255,224,196,0.16),0_18px_36px_-20px_rgba(24,15,9,0.92),0_0_28px_-10px_rgba(240,176,145,0.5)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.08] hover:shadow-[inset_0_1px_0_rgba(255,224,196,0.24),0_26px_50px_-22px_rgba(24,15,9,0.95),0_0_36px_-8px_rgba(240,176,145,0.62)] active:translate-y-0 active:brightness-100"
                   >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0b091]/15 text-[#f7c9a8] ring-1 ring-inset ring-[#f0b091]/25">
                       <Stamp size={15} />
                     </span>
                     <span className="flex min-w-0 flex-col items-start text-left leading-tight">
@@ -467,9 +483,9 @@ export default function LandingPage() {
                     type="button"
                     size="lg"
                     onClick={() => openAIBuilder({ autoGenerate: true })}
-                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#3a2b1e_0%,#271c12_55%,#180f09_100%)] px-5 !text-white ring-1 ring-inset ring-[#f0b091]/30 shadow-[inset_0_1px_0_rgba(255,224,196,0.16),0_18px_36px_-20px_rgba(24,15,9,0.92),0_0_28px_-10px_rgba(240,176,145,0.5)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.08] hover:shadow-[inset_0_1px_0_rgba(255,224,196,0.24),0_26px_50px_-22px_rgba(24,15,9,0.95),0_0_36px_-8px_rgba(240,176,145,0.62)] active:translate-y-0 active:brightness-100"
+                    className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
                   >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0b091]/15 text-[#f7c9a8] ring-1 ring-inset ring-[#f0b091]/25">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
                       <Sparkles size={15} className="transition-transform duration-300 group-hover:rotate-[18deg] group-hover:scale-110" />
                     </span>
                     <span className="flex min-w-0 flex-col items-start text-left leading-tight">
@@ -522,6 +538,14 @@ export default function LandingPage() {
                   selected={Boolean(pacePreference)}
                   options={PACE_OPTIONS}
                   onChange={setPacePreference}
+                />
+                <PlannerChoiceGroup
+                  icon={<Users size={12} />}
+                  label="Group"
+                  value={companionPreference}
+                  selected={Boolean(companionPreference)}
+                  options={COMPANION_OPTIONS}
+                  onChange={setCompanionPreference}
                 />
               </motion.div>
 
@@ -603,7 +627,7 @@ export default function LandingPage() {
                       </div>
                     ) : (
                       <div className="text-center py-12 rounded-[1.5rem] border border-dashed border-[#e2d6c1] bg-[#f8efe1]/40">
-                        <p className="text-sm text-[#5f6f69]">You haven't created any trips yet.</p>
+                        <p className="text-sm text-[#5f6f69]">You haven&apos;t created any trips yet.</p>
                       </div>
                     )}
                   </div>
@@ -762,7 +786,7 @@ export default function LandingPage() {
                 Join Public Trip
               </h3>
               <p className="mt-2 text-sm text-[#5f6f69]">
-                Introduce yourself to the organizer. Let them know why you'd like to join their trip!
+                Introduce yourself to the organizer. Let them know why you&apos;d like to join their trip!
               </p>
 
               <textarea

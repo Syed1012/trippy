@@ -88,6 +88,7 @@ class JwtAuthenticationFilterTest {
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Role")).isEqualTo("USER");
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Email")).isEqualTo("user@example.com");
         assertThat(mutated.getRequest().getHeaders().getFirst("X-User-Plan")).isEqualTo("PREMIUM");
+        assertThat(mutated.getRequest().getHeaders().getFirst("X-User-DisplayName")).isEqualTo("Test User");
         assertThat(mutated.getRequest().getHeaders().containsKey(HttpHeaders.AUTHORIZATION)).isFalse();
     }
 
@@ -137,6 +138,36 @@ class JwtAuthenticationFilterTest {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void filter_publicTripsWithoutAuth_passesThrough() {
+        MockServerHttpRequest request = MockServerHttpRequest.get("/trips/public").build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        when(chain.filter(exchange)).thenReturn(Mono.empty());
+
+        filter.filter(exchange, chain).block();
+
+        verify(chain).filter(exchange);
+    }
+
+    @Test
+    void filter_publicTripsWithJwt_injectsUserHeaders() throws Exception {
+        String token = buildToken(Instant.now().plusSeconds(300), privateKey);
+        when(jwksClient.getPublicKey()).thenReturn(publicKey);
+        when(redisTemplate.hasKey(anyString())).thenReturn(Mono.just(false));
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/trips/public")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        ArgumentCaptor<ServerWebExchange> captor = ArgumentCaptor.forClass(ServerWebExchange.class);
+        when(chain.filter(captor.capture())).thenReturn(Mono.empty());
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(captor.getValue().getRequest().getHeaders().getFirst("X-User-Id"))
+                .isEqualTo("user-uuid-123");
     }
 
     @Test
@@ -193,6 +224,7 @@ class JwtAuthenticationFilterTest {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject("user-uuid-123")
                 .claim("email", "user@example.com")
+                .claim("displayName", "Test User")
                 .claim("role", "USER")
                 .claim("plan", "PREMIUM")
                 .expirationTime(Date.from(expiry))

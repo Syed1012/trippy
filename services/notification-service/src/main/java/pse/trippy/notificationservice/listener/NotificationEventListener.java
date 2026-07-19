@@ -18,11 +18,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import pse.trippy.notificationservice.dto.response.NotificationResponse;
 import pse.trippy.notificationservice.logging.CorrelationIds;
 import pse.trippy.notificationservice.logging.LogSanitizer;
+import pse.trippy.notificationservice.model.entity.Notification;
 import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.service.EmailService;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
 
 @Component
 @RequiredArgsConstructor
@@ -49,6 +52,8 @@ public class NotificationEventListener {
     private final EmailService emailService;
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
+    private final pse.trippy.notificationservice.service.WebPushService webPushService;
+    private final SseNotificationService sseNotificationService;
 
     @RabbitListener(queues = "notification.events")
     public void handleEvent(Message rawMessage,
@@ -59,7 +64,13 @@ public class NotificationEventListener {
         try {
             log.info("Received notification event routingKey={}", LogSanitizer.safeDetail(routingKey));
             Object payload = deserializePayload(rawMessage);
-            dispatchEvent(payload, routingKey);
+            try {
+                dispatchEvent(payload, routingKey);
+            } catch (Exception ex) {
+                log.error("Failed to process event routingKey={} error={}", 
+                        LogSanitizer.safeDetail(routingKey), LogSanitizer.safeError(ex));
+                throw ex;
+            }
         } finally {
             MDC.remove(CorrelationIds.MDC_KEY);
         }
@@ -475,8 +486,41 @@ public class NotificationEventListener {
         if (parsedUserId == null) {
             return;
         }
-        notificationService.createNotification(parsedUserId, type, title, message,
-                inAppActionUrl(actionUrl), metadata);
+        String resolvedActionUrl = inAppActionUrl(actionUrl);
+        Notification saved = notificationService.createNotification(parsedUserId, type, title, message,
+                resolvedActionUrl, metadata);
+
+        // Send via SSE for real-time delivery
+        try {
+            NotificationResponse response = new NotificationResponse(
+                    saved.getId(),
+                    saved.getId(),
+                    saved.getUserId(),
+                    saved.getType(),
+                    saved.getTitle(),
+                    saved.getMessage(),
+                    saved.getMessage(),
+                    saved.getActionUrl(),
+                    saved.getMetadata(),
+                    saved.isRead(),
+                    saved.getCreatedAt(),
+                    saved.getReadAt()
+            );
+            sseNotificationService.sendNotification(parsedUserId, response);
+        } catch (Exception ex) {
+            log.warn("Failed to send SSE notification", ex);
+        }
+
+        try {
+            Map<String, String> pushPayload = new HashMap<>();
+            pushPayload.put("title", title);
+            pushPayload.put("body", message);
+            pushPayload.put("url", resolvedActionUrl);
+            String payloadJson = objectMapper.writeValueAsString(pushPayload);
+            webPushService.sendPushNotification(userId, payloadJson);
+        } catch (Exception ex) {
+            log.warn("Failed to send web push notification", ex);
+        }
     }
 
     private String tripUrl(String tripId) {

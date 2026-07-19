@@ -29,7 +29,7 @@ import Button from "@/components/ui/Button";
 import GlassCard from "@/components/ui/GlassCard";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import {
-  getAccessToken,
+  getValidAccessToken,
   tripsApi,
   itineraryApi,
   preferencesApi,
@@ -48,6 +48,7 @@ import { useToast } from "@/lib/toast";
 import { tripSlug } from "@/lib/utils";
 import { ROUTES } from "@/lib/routes";
 import { saveAiTripRouteState } from "@/lib/ai-trip-route-state";
+import { formatDestinationInput } from "@/lib/destination-format";
 
 /* ── Beautiful Loading Screen ─────────────────────────────────────── */
 const LOADING_MESSAGES = [
@@ -255,6 +256,7 @@ export interface AIBuilderRequest {
   preferences?: string;
   customNotes?: string;
   autoGenerate?: boolean;
+  travelerType?: string;
 }
 
 interface AITripBuilderModalProps {
@@ -398,7 +400,7 @@ interface AiRequestPayload {
 async function fetchAiSuggestions(payload: AiRequestPayload): Promise<DestinationSuggestionItem[]> {
   const response = await fetch("/api/ai/destination-suggestions", {
     method: "POST",
-    headers: aiRequestHeaders(),
+    headers: await aiRequestHeaders(),
     body: JSON.stringify(payload),
   });
 
@@ -416,8 +418,8 @@ async function fetchAiSuggestions(payload: AiRequestPayload): Promise<Destinatio
   return suggestions;
 }
 
-function aiRequestHeaders(): Record<string, string> {
-  const token = getAccessToken();
+async function aiRequestHeaders(): Promise<Record<string, string>> {
+  const token = await getValidAccessToken();
   return token
     ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
     : { "Content-Type": "application/json" };
@@ -428,6 +430,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [people, setPeople] = useState(2);
+  const [travelerType, setTravelerType] = useState("");
 
   const [budget, setBudget] = useState("");
   const [diet, setDiet] = useState("");
@@ -466,6 +469,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       parts.push(endDate ? `Travel dates: ${startDate} to ${endDate}.` : `Travel date: ${startDate} for a one-day trip.`);
     }
     if (people) parts.push(`${people} traveler(s).`);
+    if (travelerType) parts.push(`Traveler group: ${travelerType}.`);
     if (selectedFilters.length) parts.push(`Trip style: ${selectedFilters.join(", ")}.`);
     if (budget) parts.push(`Budget: ${budget}.`);
     if (diet) parts.push(`Diet: ${diet}.`);
@@ -479,7 +483,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     }
 
     return parts.join(" ");
-  }, [city, startDate, endDate, people, selectedFilters, budget, diet, preferences, customPreference]);
+  }, [city, startDate, endDate, people, travelerType, selectedFilters, budget, diet, preferences, customPreference]);
 
   const pendingAutoGenerate = useRef(false);
 
@@ -487,7 +491,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
     if (!open) return;
 
     if (initialRequest?.requestId) {
-      setCity(initialRequest.city || "");
+      setCity(formatDestinationInput(initialRequest.city || ""));
       setStartDate(initialRequest.startDate || "");
       setEndDate(initialRequest.endDate || "");
       setPeople(initialRequest.people || 2);
@@ -496,6 +500,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       setDiet(initialRequest.diet || "");
       setPreferences(initialRequest.preferences || "");
       setCustomPreference(initialRequest.customNotes || "");
+      setTravelerType(initialRequest.travelerType || "");
       setShowAdvanced(Boolean(initialRequest.budget || initialRequest.diet || initialRequest.preferences || initialRequest.customNotes));
 
       if (
@@ -547,6 +552,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
         diet,
         preferences,
         customPreference,
+        travelerType,
       },
     });
 
@@ -579,7 +585,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       const createPayload: CreateTripRequest = {
         title: trip.title,
         destination: trip.destination,
-        description: trip.reason || trip.highlights.join(", ") || undefined,
+        description: ((trip.reason || trip.highlights.join(", ") || "").trim() + " [AI_GENERATED]").trim(),
         startDate,
         endDate: effectiveEndDate,
         visibility,
@@ -872,7 +878,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                       City
                       <input
                         value={city}
-                        onChange={(e) => setCity(e.target.value)}
+                        onChange={(e) => setCity(formatDestinationInput(e.target.value))}
                         placeholder="Delhi, Paris, Tokyo..."
                         className="mt-1 w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-trippy-500/50"
                       />
@@ -903,6 +909,38 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                     {!startDate && (
                       <p className="text-[10px] text-red-400 mt-1">Select your travel date to continue</p>
                     )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-muted mb-2">Traveler type</p>
+                    <div className="flex flex-wrap gap-2">
+                      {["Solo", "Couple", "Friends", "Family"].map((type) => {
+                        const active = travelerType === type;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              const newType = active ? "" : type;
+                              setTravelerType(newType);
+                              if (newType) {
+                                if (newType === "Solo") setPeople(1);
+                                else if (newType === "Couple") setPeople(2);
+                                else if (newType === "Friends" || newType === "Family") {
+                                  if (people <= 2) setPeople(4);
+                                }
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs rounded-full border transition-colors cursor-pointer ${active
+                                ? "bg-trippy-500/15 border-trippy-500/30 text-foreground font-semibold"
+                                : "bg-transparent border-border text-muted hover:text-foreground"
+                              }`}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div>
@@ -1009,6 +1047,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                         setPreferences("");
                         setCustomPreference("");
                         setSelectedFilters([]);
+                        setTravelerType("");
                         setResults([]);
                         setAlsoExplore([]);
                         setReply("");
@@ -1045,7 +1084,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
                         {alsoExplore.map((s, i) => (
                           <button
                             key={`${s.city}-${i}`}
-                            onClick={() => setCity(s.city || "")}
+                            onClick={() => setCity(formatDestinationInput(s.city || ""))}
                             className="text-xs bg-surface border border-border px-3 py-1 rounded-full text-foreground hover:border-trippy-500/40 hover:bg-trippy-500/5 transition-colors cursor-pointer"
                           >
                             {s.city}{s.country ? `, ${s.country}` : ""}
@@ -1137,7 +1176,7 @@ function TripResultCard({
     try {
       const res = await fetch("/api/ai/itineraries", {
         method: "POST",
-        headers: aiRequestHeaders(),
+        headers: await aiRequestHeaders(),
         body: JSON.stringify({
           constraints: {
             destination: draftTrip.destination,
@@ -1497,7 +1536,7 @@ function TripResultCard({
                           const tripCtx = `Trip: ${draftTrip.title}\nDestination: ${draftTrip.destination}\nDuration: ${draftTrip.duration}`;
                           const res = await fetch("/api/ai/chat", {
                             method: "POST",
-                            headers: aiRequestHeaders(),
+                            headers: await aiRequestHeaders(),
                             body: JSON.stringify({
                               messages: updated.map(m => ({ role: m.role, content: m.content })),
                               tripContext: tripCtx,

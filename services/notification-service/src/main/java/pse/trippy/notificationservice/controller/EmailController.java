@@ -1,5 +1,9 @@
 package pse.trippy.notificationservice.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +24,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/notifications/email")
 @RequiredArgsConstructor
+@Tag(name = "Email Dispatch", description = "Endpoints for triggering transactional HTML and plain text emails")
 public class EmailController {
 
         private final EmailService emailService;
@@ -27,6 +32,11 @@ public class EmailController {
         @Value("${app.base-url:https://trippy.app}")
         private String appBaseUrl = "https://trippy.app";
 
+        @Operation(summary = "Send custom template email", description = "Sends a custom Thymeleaf template email with dynamic key-value variables.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Email successfully queued for delivery"),
+                        @ApiResponse(responseCode = "400", description = "Invalid request payload")
+        })
         @PostMapping("/send")
         public ResponseEntity<EmailSentResponse> sendEmail(
                         @RequestBody @Valid SendEmailRequest request) {
@@ -36,6 +46,11 @@ public class EmailController {
                 return ResponseEntity.ok(new EmailSentResponse(true, "Email queued for delivery"));
         }
 
+        @Operation(summary = "Send account verification email", description = "Sends an email verification code to a newly registered user.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Verification email queued"),
+                        @ApiResponse(responseCode = "400", description = "Invalid request parameters")
+        })
         @PostMapping("/verification")
         public ResponseEntity<EmailSentResponse> sendVerification(
                         @RequestBody @Valid VerificationEmailRequest request) {
@@ -48,6 +63,11 @@ public class EmailController {
                 return ResponseEntity.ok(new EmailSentResponse(true, "Verification email queued"));
         }
 
+        @Operation(summary = "Send welcome email", description = "Sends a welcome email to newly verified users containing dashboard quick links.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Welcome email queued"),
+                        @ApiResponse(responseCode = "400", description = "Invalid request payload")
+        })
         @PostMapping("/welcome")
         public ResponseEntity<EmailSentResponse> sendWelcome(
                         @RequestBody @Valid WelcomeEmailRequest request) {
@@ -63,6 +83,11 @@ public class EmailController {
                 return ResponseEntity.ok(new EmailSentResponse(true, "Welcome email queued"));
         }
 
+        @Operation(summary = "Send password reset email", description = "Sends a password reset link email to an existing user.")
+        @ApiResponses(value = {
+                        @ApiResponse(responseCode = "200", description = "Password reset email queued"),
+                        @ApiResponse(responseCode = "400", description = "Invalid request payload")
+        })
         @PostMapping("/password-reset")
         public ResponseEntity<EmailSentResponse> sendPasswordReset(
                         @RequestBody @Valid PasswordResetEmailRequest request) {
@@ -75,3 +100,4 @@ public class EmailController {
                 return ResponseEntity.ok(new EmailSentResponse(true, "Password reset email queued"));
         }
 }
+

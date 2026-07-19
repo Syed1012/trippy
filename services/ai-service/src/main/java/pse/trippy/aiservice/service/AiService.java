@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import io.micrometer.core.instrument.MeterRegistry;
 import pse.trippy.aiservice.dto.request.AiChatRequest;
 import pse.trippy.aiservice.dto.request.DestinationSuggestionRequest;
 import pse.trippy.aiservice.dto.request.GenerateItineraryRequest;
@@ -77,6 +78,7 @@ public class AiService {
     private static final String AI_MALFORMED_RESPONSE = "AI_MALFORMED_RESPONSE";
     private static final String AI_SCHEMA_INVALID = "AI_SCHEMA_INVALID";
     private static final String AI_UNUSABLE_RESPONSE = "AI_UNUSABLE_RESPONSE";
+    private static final int MIN_ACTIVITIES_PER_DAY = 5;
 
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
@@ -84,6 +86,7 @@ public class AiService {
     private final ExecutorService aiBlockingExecutor;
     private final FallbackDestinationCatalogue fallbackDestinationCatalogue;
     private final FallbackItineraryGenerator fallbackItineraryGenerator;
+    private final MeterRegistry meterRegistry;
 
     @Value("${spring.ai.openai.api-key}")
     private String apiKey;
@@ -102,6 +105,21 @@ public class AiService {
 
     @Value("${trippy.ai.groq.model:llama-3.3-70b-versatile}")
     private String groqModel;
+
+    @Value("${trippy.ai.groq.api-key1:${GROQ_API_KEY1:}}")
+    private String groqApiKey1;
+
+    @Value("${trippy.ai.opencode.api-key:${Opencode_API_KEY:}}")
+    private String opencodeApiKey;
+
+    @Value("${trippy.ai.opencode.base-url:https://opencode.ai/zen/go/v1}")
+    private String opencodeBaseUrl;
+
+    @Value("${trippy.ai.opencode.model:openai/gpt-4o}")
+    private String opencodeModel;
+
+    private final java.util.concurrent.atomic.AtomicInteger activeProviderIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicLong lastFailureTime = new java.util.concurrent.atomic.AtomicLong(0);
 
     @Value("${trippy.weather.openweather-api-key:}")
     private String openWeatherApiKey;
@@ -142,7 +160,9 @@ public class AiService {
 
     public ItineraryResponse generateItinerary(GenerateItineraryRequest request) {
         validateItineraryRequest(request);
-        String prompt = buildItineraryPrompt(request);
+        Map<LocalDate, Map<Integer, HourlyForecast>> hourlyWeatherMap = fetchHourlyWeatherMap(request);
+        Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate = computeDailySummaries(hourlyWeatherMap);
+        String prompt = buildItineraryPrompt(request, weatherByDate);
         UUID generationId = UUID.randomUUID();
         log.debug("Generating itinerary for destination: {}", request.constraints().destination());
 
@@ -156,7 +176,7 @@ public class AiService {
             response.setGeneratedAt(Instant.now());
             response.setFallbackUsed(false);
             validateAiItineraryResponse(response, request);
-            enrichItinerary(response, request);
+            enrichItineraryWithHourlyWeather(response, request, weatherByDate, hourlyWeatherMap);
             saveGenerationHistory(request, response, prompt, historyStatus(response));
             return response;
         } catch (Exception ex) {
@@ -169,10 +189,34 @@ public class AiService {
             fallback.setFallbackUsed(true);
             fallback.setFallbackReason(fallbackReason);
             fallback.setGeneratedAt(Instant.now());
-            enrichItinerary(fallback, request);
+            enrichItineraryWithHourlyWeather(fallback, request, weatherByDate, hourlyWeatherMap);
             saveGenerationHistory(request, fallback, prompt, "FALLBACK");
+            meterRegistry.counter("ai.itinerary.fallback", "reason", fallbackReason).increment();
             return fallback;
         }
+    }
+
+    public ItineraryResponse retryItinerary(UUID generationId) {
+        GenerationHistory history = generationHistoryRepository.findByGenerationId(generationId)
+                .orElseThrow(() -> new IllegalArgumentException("Generation ID not found"));
+
+        if (history.getRetryCount() >= 3) {
+            throw new IllegalStateException("Maximum retry attempts reached for this generation");
+        }
+
+        history.setRetryCount(history.getRetryCount() + 1);
+        generationHistoryRepository.save(history);
+
+        GenerateItineraryRequest request = objectMapper.convertValue(history.getRequestPayload(), GenerateItineraryRequest.class);
+        
+        // Use the existing generation ID for the retry
+        ItineraryResponse response = generateItinerary(request);
+        response.setGenerationId(generationId);
+        
+        // Ensure the updated history is saved with the original ID
+        saveGenerationHistory(request, response, buildItineraryPrompt(request, computeDailySummaries(fetchHourlyWeatherMap(request))), historyStatus(response));
+        
+        return response;
     }
 
     public TravelAdviceResponse getTravelAdvice(TravelAdviceRequest request) {
@@ -383,9 +427,9 @@ public class AiService {
                 throw new FallbackTriggerException(AI_SCHEMA_INVALID,
                         "AI itinerary contained duplicate day numbers");
             }
-            if (day.getActivities() == null || day.getActivities().isEmpty()) {
+            if (day.getActivities() == null || day.getActivities().size() < MIN_ACTIVITIES_PER_DAY) {
                 throw new FallbackTriggerException(AI_UNUSABLE_RESPONSE,
-                        "AI itinerary contained a day without activities");
+                        "AI itinerary contained fewer than " + MIN_ACTIVITIES_PER_DAY + " activities for a day");
             }
         }
     }
@@ -449,6 +493,10 @@ public class AiService {
     }
 
     private String buildItineraryPrompt(GenerateItineraryRequest req) {
+        return buildItineraryPrompt(req, Map.of());
+    }
+
+    private String buildItineraryPrompt(GenerateItineraryRequest req, Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate) {
         TripConstraints c = req.constraints();
         StringBuilder sb = new StringBuilder();
         sb.append("You are a professional travel planner. Create a detailed day-by-day itinerary.\n\n");
@@ -460,6 +508,15 @@ public class AiService {
         }
         if (c.budgetLevel() != null) sb.append("Budget level: ").append(c.budgetLevel()).append("\n");
         if (req.tone() != null) sb.append("Tone: ").append(req.tone()).append("\n");
+
+        if (weatherByDate != null && !weatherByDate.isEmpty()) {
+            sb.append("Real-time Destination Weather Forecast:\n");
+            weatherByDate.forEach((date, w) -> {
+                sb.append("  - ").append(date).append(": ").append(w.getCondition())
+                  .append(" (").append(w.getTemperatureCelsius()).append("°C)\n");
+            });
+            sb.append("WEATHER DIRECTIVE: Match activities with forecast. If rain, drizzle, thunderstorm or snow is forecasted, schedule indoor activities (museums, galleries, covered markets, indoor dining).\n");
+        }
 
         if (req.userPrompt() != null && !req.userPrompt().isBlank())
             sb.append("Special instructions: ").append(req.userPrompt()).append("\n");
@@ -476,6 +533,15 @@ public class AiService {
         }
 
         sb.append("""
+
+                Itinerary quality requirements:
+                - Return exactly one day object for every calendar date in the requested range.
+                - Each day must contain 5 to 6 practical activities. Use 7 only when the requested pace is PACKED.
+                - Cover the whole usable day: morning, late morning, lunch or food stop, afternoon, early evening, and optional dinner/night activity.
+                - Use real venues, neighborhoods, viewpoints, stations, restaurants/markets, beaches, museums, or routes for the destination.
+                - Do not use placeholders like "explore the city", "flexible activity", or generic hotel check-in as most of the day.
+                - Sequence activities by realistic geography and travel time. A full-day tour counts as one activity, so still include meals and evening context around it.
+                - Include plausible durationMinutes, category, cost, tips, bookingRequired, Google Maps URL, and coordinates whenever possible.
 
                 Respond ONLY with a valid JSON object (no markdown, no extra text):
                 {
@@ -622,6 +688,22 @@ public class AiService {
     }
 
     private void enrichItinerary(ItineraryResponse response, GenerateItineraryRequest request) {
+        enrichItinerary(response, request, Map.of());
+    }
+
+    private void enrichItinerary(ItineraryResponse response, GenerateItineraryRequest request,
+                                Map<LocalDate, ItineraryResponse.WeatherSummary> prefetchedWeather) {
+        Map<LocalDate, Map<Integer, HourlyForecast>> hourlyMap = fetchHourlyWeatherMap(request);
+        Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate =
+                (prefetchedWeather != null && !prefetchedWeather.isEmpty())
+                        ? prefetchedWeather
+                        : computeDailySummaries(hourlyMap);
+        enrichItineraryWithHourlyWeather(response, request, weatherByDate, hourlyMap);
+    }
+
+    private void enrichItineraryWithHourlyWeather(ItineraryResponse response, GenerateItineraryRequest request,
+                                                   Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate,
+                                                   Map<LocalDate, Map<Integer, HourlyForecast>> hourlyWeatherMap) {
         if (response.getDailyPlan() == null || response.getDailyPlan().isEmpty()) {
             ItineraryResponse fallback = buildFallbackItinerary(request, "AI returned an empty itinerary");
             response.setDailyPlan(fallback.getDailyPlan());
@@ -636,7 +718,6 @@ public class AiService {
             response.setTravelTips(List.of("Confirm opening hours before visiting major attractions."));
         }
 
-        Map<LocalDate, ItineraryResponse.WeatherSummary> weatherByDate = fetchWeatherSummaries(request);
         boolean includeTransport = request.preferences() == null || request.preferences().includeTransport();
         LocalDate startDate = request.constraints().startDate();
 
@@ -654,9 +735,39 @@ public class AiService {
             if (day.getWeather() == null || isUnavailableWeather(day.getWeather())) {
                 day.setWeather(weatherByDate.getOrDefault(date, unavailableWeather()));
             }
+
+            Map<Integer, HourlyForecast> dayHourly = hourlyWeatherMap != null ? hourlyWeatherMap.getOrDefault(date, Map.of()) : Map.of();
             if (day.getActivities() == null) {
                 day.setActivities(List.of());
+            } else {
+                String adaptedTime = null;
+                boolean activityAdapted = false;
+
+                for (ItineraryResponse.Activity activity : day.getActivities()) {
+                    int hour = parseHour(activity.getTime());
+                    HourlyForecast hf = findClosestHourlyForecast(dayHourly, hour);
+                    if (hf != null) {
+                        activity.setWeatherCondition(hf.condition());
+                        activity.setWeatherTemp(hf.temperatureCelsius());
+                        activity.setIsRainy(hf.isRainy());
+                    } else if (day.getWeather() != null && !isUnavailableWeather(day.getWeather())) {
+                        activity.setWeatherCondition(day.getWeather().getCondition());
+                        activity.setWeatherTemp(day.getWeather().getTemperatureCelsius());
+                        activity.setIsRainy(isRainyWeather(day.getWeather()));
+                    }
+
+                    if (!Boolean.TRUE.equals(response.getFallbackUsed()) && Boolean.TRUE.equals(activity.getIsRainy()) && isOutdoorActivity(activity)) {
+                        adaptOutdoorActivityToIndoor(activity);
+                        activity.setTips("Weather adaptation (" + defaultString(activity.getTime(), "Day") + " " + defaultString(activity.getWeatherCondition(), "Rain") + "): Indoor venue selected due to forecasted rain.");
+                        activityAdapted = true;
+                        if (adaptedTime == null && activity.getTime() != null) adaptedTime = activity.getTime();
+                    }
+                }
+                if (activityAdapted && day.getWeather() != null) {
+                    day.getWeather().setAdvice("Rain forecasted around " + (adaptedTime != null ? adaptedTime : "the day") + " — outdoor activity updated to indoor alternative.");
+                }
             }
+
             if (includeTransport && (day.getTransportRecommendations() == null
                     || day.getTransportRecommendations().isEmpty())) {
                 day.setTransportRecommendations(buildTransportRecommendations(day.getActivities()));
@@ -676,15 +787,27 @@ public class AiService {
         while (!current.isAfter(end) && dayNumber <= 14) {
             List<ItineraryResponse.Activity> activities = new ArrayList<>();
             activities.add(ItineraryResponse.Activity.builder()
-                    .time("09:30")
+                    .time("09:00")
+                    .durationMinutes(60)
+                    .title("Arrival briefing and central orientation")
+                    .description("Start in the most central area, confirm transit passes, and mark the day's key stops.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("FREE_TIME")
+                    .estimatedCost("€0")
+                    .tips("Use this block to reduce friction before the sightseeing-heavy part of the day.")
+                    .bookingRequired(false)
+                    .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("10:30")
                     .durationMinutes(120)
-                    .title("Explore " + constraints.destination())
-                    .description("Start with a central landmark or neighborhood walk to get oriented.")
+                    .title("Major landmark and neighborhood walk")
+                    .description("Visit a signature landmark, then walk nearby streets to understand the local layout.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
                     .category("SIGHTSEEING")
-                    .estimatedCost("Varies")
-                    .tips("Check local opening hours before leaving.")
+                    .estimatedCost("€0-€25")
+                    .tips("Check ticket windows and opening hours before leaving.")
                     .bookingRequired(false)
                     .build());
             if (includeMeals) {
@@ -704,15 +827,41 @@ public class AiService {
             activities.add(ItineraryResponse.Activity.builder()
                     .time("15:00")
                     .durationMinutes(120)
-                    .title("Flexible afternoon activity")
-                    .description("Visit a museum, market, park, or viewpoint based on group energy.")
+                    .title("Museum, market, or cultural stop")
+                    .description("Choose a high-value indoor or cultural stop that matches the group's interests.")
                     .location(constraints.destination())
                     .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
-                    .category("ACTIVITY")
+                    .category("CULTURE")
                     .estimatedCost("€0-€25")
                     .tips("Keep this flexible if weather or travel delays change the day.")
                     .bookingRequired(false)
                     .build());
+            activities.add(ItineraryResponse.Activity.builder()
+                    .time("17:30")
+                    .durationMinutes(90)
+                    .title("Scenic viewpoint or relaxed local district")
+                    .description("Wind down with a viewpoint, waterfront, park, or atmospheric local quarter.")
+                    .location(constraints.destination())
+                    .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                    .category("SIGHTSEEING")
+                    .estimatedCost("€0-€15")
+                    .tips("Good timing for photos and a lower-pressure group check-in.")
+                    .bookingRequired(false)
+                    .build());
+            if (activities.size() < MIN_ACTIVITIES_PER_DAY) {
+                activities.add(ItineraryResponse.Activity.builder()
+                        .time("19:30")
+                        .durationMinutes(90)
+                        .title("Evening food and next-day planning")
+                        .description("Pick a convenient dinner area and review the next day's route while everyone is together.")
+                        .location(constraints.destination())
+                        .googleMapsUrl(googleMapsDirectionsUrl(constraints.destination()))
+                        .category("FOOD")
+                        .estimatedCost("€20-€40")
+                        .tips("Reserve if the group is larger than four people.")
+                        .bookingRequired(false)
+                        .build());
+            }
 
             ItineraryResponse.DayPlan day = ItineraryResponse.DayPlan.builder()
                     .dayNumber(dayNumber)
@@ -743,66 +892,187 @@ public class AiService {
                 .build();
     }
 
-    private Map<LocalDate, ItineraryResponse.WeatherSummary> fetchWeatherSummaries(GenerateItineraryRequest request) {
-        if (openWeatherApiKey == null || openWeatherApiKey.isBlank()) {
-            return Map.of();
-        }
+    public record HourlyForecast(
+            String timeStr,
+            int hour,
+            String condition,
+            Double temperatureCelsius,
+            boolean isRainy,
+            int precipProb
+    ) {}
 
-        try {
-            String encodedDestination = URLEncoder.encode(
-                    request.constraints().destination(), StandardCharsets.UTF_8);
-            String geoUrl = appendQuery(openWeatherGeocodingUrl,
-                    "q=" + encodedDestination + "&limit=1&appid=" + encodeQueryParam(openWeatherApiKey));
-            JsonNode geo = sendJsonGet(geoUrl, WEATHER_REQUEST_TIMEOUT, "OpenWeather geocoding");
-            if (!geo.isArray() || geo.isEmpty()) {
-                return Map.of();
-            }
+    private Map<LocalDate, Map<Integer, HourlyForecast>> fetchHourlyWeatherMap(GenerateItineraryRequest request) {
+        if (openWeatherApiKey != null && !openWeatherApiKey.isBlank()) {
+            try {
+                String encodedDestination = URLEncoder.encode(
+                        request.constraints().destination(), StandardCharsets.UTF_8);
+                String geoUrl = appendQuery(openWeatherGeocodingUrl,
+                        "q=" + encodedDestination + "&limit=1&appid=" + encodeQueryParam(openWeatherApiKey));
+                JsonNode geo = sendJsonGet(geoUrl, WEATHER_REQUEST_TIMEOUT, "OpenWeather geocoding");
+                if (geo.isArray() && !geo.isEmpty()) {
+                    double lat = geo.get(0).path("lat").asDouble();
+                    double lon = geo.get(0).path("lon").asDouble();
+                    String forecastUrl = appendQuery(openWeatherForecastUrl,
+                            "lat=" + lat + "&lon=" + lon + "&units=metric&appid=" + encodeQueryParam(openWeatherApiKey));
+                    JsonNode list = sendJsonGet(forecastUrl, WEATHER_REQUEST_TIMEOUT, "OpenWeather forecast")
+                            .path("list");
+                    if (list.isArray() && !list.isEmpty()) {
+                        Map<LocalDate, Map<Integer, HourlyForecast>> result = new LinkedHashMap<>();
+                        for (JsonNode item : list) {
+                            String dtTxt = item.path("dt_txt").asText("");
+                            String[] parts = dtTxt.split(" ");
+                            if (parts.length < 2) continue;
+                            Optional<LocalDate> date = parseDate(parts[0]);
+                            if (date.isEmpty()) continue;
 
-            double lat = geo.get(0).path("lat").asDouble();
-            double lon = geo.get(0).path("lon").asDouble();
-            String forecastUrl = appendQuery(openWeatherForecastUrl,
-                    "lat=" + lat + "&lon=" + lon + "&units=metric&appid=" + encodeQueryParam(openWeatherApiKey));
-            JsonNode list = sendJsonGet(forecastUrl, WEATHER_REQUEST_TIMEOUT, "OpenWeather forecast")
-                    .path("list");
-            if (!list.isArray()) {
-                return Map.of();
-            }
+                            int hour = parseHour(parts[1]);
+                            double temp = item.path("main").path("temp").asDouble(20.0);
+                            String condition = item.path("weather").path(0).path("main").asText("Clear");
+                            int pop = (int) (item.path("pop").asDouble(0.0) * 100);
+                            boolean isRainy = isRainyCondition(condition) || pop >= 60;
 
-            Map<LocalDate, List<Double>> temps = new LinkedHashMap<>();
-            Map<LocalDate, List<String>> conditions = new LinkedHashMap<>();
-            for (JsonNode item : list) {
-                Optional<LocalDate> date = parseDate(item.path("dt_txt").asText("").split(" ")[0]);
-                if (date.isEmpty()) {
-                    continue;
+                            HourlyForecast h = new HourlyForecast(
+                                    parts[1].substring(0, Math.min(5, parts[1].length())),
+                                    hour, condition, Math.round(temp * 10.0) / 10.0, isRainy, pop
+                            );
+                            result.computeIfAbsent(date.get(), k -> new LinkedHashMap<>()).put(hour, h);
+                        }
+                        if (!result.isEmpty()) return result;
+                    }
                 }
-                temps.computeIfAbsent(date.get(), ignored -> new ArrayList<>())
-                        .add(item.path("main").path("temp").asDouble());
-                conditions.computeIfAbsent(date.get(), ignored -> new ArrayList<>())
-                        .add(item.path("weather").path(0).path("main").asText("Forecast"));
+            } catch (Exception ex) {
+                log.warn("OpenWeather hourly lookup failed, falling back to Open-Meteo error={}", LogSanitizer.safeError(ex));
             }
+        }
+        return fetchOpenMeteoHourlyWeather(request.constraints().destination());
+    }
 
-            Map<LocalDate, ItineraryResponse.WeatherSummary> summaries = new LinkedHashMap<>();
-            temps.forEach((date, values) -> {
-                double average = values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-                String condition = mostCommon(conditions.getOrDefault(date, List.of()), "Forecast");
-                summaries.put(date, ItineraryResponse.WeatherSummary.builder()
-                        .condition(condition)
-                        .temperatureCelsius(Math.round(average * 10.0) / 10.0)
-                        .advice(weatherAdvice(condition))
-                        .build());
-            });
-            return summaries;
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            log.warn("Weather lookup interrupted");
-            return Map.of();
-        } catch (IOException | IllegalArgumentException | IllegalStateException ex) {
-            log.warn("Weather lookup failed error={}", LogSanitizer.safeError(ex));
-            return Map.of();
-        } catch (Exception ex) {
-            log.warn("Weather lookup failed error={}", LogSanitizer.safeError(ex));
+    private Map<LocalDate, Map<Integer, HourlyForecast>> fetchOpenMeteoHourlyWeather(String destination) {
+        if (destination == null || destination.isBlank()) {
             return Map.of();
         }
+        try {
+            String encodedDestination = URLEncoder.encode(destination, StandardCharsets.UTF_8);
+            String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + encodedDestination + "&count=1";
+            JsonNode geo = sendJsonGet(geoUrl, WEATHER_REQUEST_TIMEOUT, "Open-Meteo geocoding");
+            JsonNode results = geo.path("results");
+            if (!results.isArray() || results.isEmpty()) {
+                return Map.of();
+            }
+
+            double lat = results.get(0).path("latitude").asDouble();
+            double lon = results.get(0).path("longitude").asDouble();
+
+            String forecastUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
+                    + "&hourly=temperature_2m,precipitation_probability,weathercode&timezone=auto";
+            JsonNode res = sendJsonGet(forecastUrl, WEATHER_REQUEST_TIMEOUT, "Open-Meteo forecast");
+            JsonNode hourly = res.path("hourly");
+            JsonNode timeArr = hourly.path("time");
+            JsonNode tempArr = hourly.path("temperature_2m");
+            JsonNode codeArr = hourly.path("weathercode");
+            JsonNode popArr = hourly.path("precipitation_probability");
+
+            if (!timeArr.isArray() || timeArr.isEmpty()) {
+                return Map.of();
+            }
+
+            Map<LocalDate, Map<Integer, HourlyForecast>> result = new LinkedHashMap<>();
+            for (int i = 0; i < timeArr.size(); i++) {
+                String dateTimeStr = timeArr.get(i).asText();
+                String[] parts = dateTimeStr.split("T");
+                if (parts.length < 2) continue;
+                Optional<LocalDate> dateOpt = parseDate(parts[0]);
+                if (dateOpt.isEmpty()) continue;
+
+                int hour = parseHour(parts[1]);
+                double temp = tempArr.path(i).asDouble(20.0);
+                int code = codeArr.path(i).asInt(0);
+                int pop = popArr.path(i).asInt(0);
+
+                String condition = wmoCodeToCondition(code);
+                boolean isRainy = wmoCodeIsRainy(code) || pop >= 60;
+
+                HourlyForecast item = new HourlyForecast(
+                        parts[1].substring(0, Math.min(5, parts[1].length())),
+                        hour, condition, Math.round(temp * 10.0) / 10.0, isRainy, pop
+                );
+
+                result.computeIfAbsent(dateOpt.get(), k -> new LinkedHashMap<>()).put(hour, item);
+            }
+            return result;
+        } catch (Exception ex) {
+            log.warn("Open-Meteo hourly weather lookup failed error={}", LogSanitizer.safeError(ex));
+            return Map.of();
+        }
+    }
+
+    private Map<LocalDate, ItineraryResponse.WeatherSummary> computeDailySummaries(
+            Map<LocalDate, Map<Integer, HourlyForecast>> hourlyWeatherMap) {
+        Map<LocalDate, ItineraryResponse.WeatherSummary> summaries = new LinkedHashMap<>();
+        hourlyWeatherMap.forEach((date, map) -> {
+            if (map == null || map.isEmpty()) return;
+            double avgTemp = map.values().stream().mapToDouble(HourlyForecast::temperatureCelsius).average().orElse(20.0);
+            List<String> conditions = map.values().stream().map(HourlyForecast::condition).toList();
+            String mainCondition = mostCommon(conditions, "Clear");
+            summaries.put(date, ItineraryResponse.WeatherSummary.builder()
+                    .condition(mainCondition)
+                    .temperatureCelsius(Math.round(avgTemp * 10.0) / 10.0)
+                    .advice(weatherAdvice(mainCondition))
+                    .build());
+        });
+        return summaries;
+    }
+
+    private Map<LocalDate, ItineraryResponse.WeatherSummary> fetchWeatherSummaries(GenerateItineraryRequest request) {
+        Map<LocalDate, Map<Integer, HourlyForecast>> hourlyMap = fetchHourlyWeatherMap(request);
+        return computeDailySummaries(hourlyMap);
+    }
+
+    private HourlyForecast findClosestHourlyForecast(Map<Integer, HourlyForecast> dayMap, int targetHour) {
+        if (dayMap == null || dayMap.isEmpty()) return null;
+        if (dayMap.containsKey(targetHour)) return dayMap.get(targetHour);
+        for (int delta = 1; delta <= 12; delta++) {
+            if (dayMap.containsKey(targetHour - delta)) return dayMap.get(targetHour - delta);
+            if (dayMap.containsKey(targetHour + delta)) return dayMap.get(targetHour + delta);
+        }
+        return dayMap.values().iterator().next();
+    }
+
+    private int parseHour(String timeStr) {
+        if (timeStr == null || timeStr.isBlank()) {
+            return 12;
+        }
+        try {
+            String clean = timeStr.trim().toUpperCase(Locale.ROOT);
+            boolean isPm = clean.contains("PM");
+            clean = clean.replaceAll("[^0-9:]", "");
+            String[] parts = clean.split(":");
+            if (parts.length > 0 && !parts[0].isBlank()) {
+                int h = Integer.parseInt(parts[0]);
+                if (isPm && h < 12) h += 12;
+                if (!isPm && clean.contains("AM") && h == 12) h = 0;
+                return Math.max(0, Math.min(23, h));
+            }
+        } catch (Exception ignored) {}
+        return 12;
+    }
+
+    private String wmoCodeToCondition(int code) {
+        return switch (code) {
+            case 0 -> "Sunny";
+            case 1, 2 -> "Partly Cloudy";
+            case 3 -> "Overcast";
+            case 45, 48 -> "Foggy";
+            case 51, 53, 55 -> "Drizzle";
+            case 56, 57 -> "Freezing Drizzle";
+            case 61, 63, 65 -> "Rain";
+            case 66, 67 -> "Freezing Rain";
+            case 71, 73, 75, 77 -> "Snow";
+            case 80, 81, 82 -> "Rain Showers";
+            case 85, 86 -> "Snow Showers";
+            case 95, 96, 99 -> "Thunderstorm";
+            default -> "Clear";
+        };
     }
 
     private JsonNode sendJsonGet(String url, Duration timeout, String description)
@@ -893,6 +1163,63 @@ public class AiService {
     private boolean isUnavailableWeather(ItineraryResponse.WeatherSummary weather) {
         return weather != null
                 && "Forecast unavailable".equalsIgnoreCase(defaultString(weather.getCondition(), ""));
+    }
+
+    private boolean isRainyWeather(ItineraryResponse.WeatherSummary weather) {
+        if (weather == null || weather.getCondition() == null) {
+            return false;
+        }
+        return isRainyCondition(weather.getCondition());
+    }
+
+    private boolean isRainyCondition(String condition) {
+        if (condition == null || condition.isBlank()) return false;
+        String cond = condition.toLowerCase(Locale.ROOT);
+        return cond.contains("rain") || cond.contains("drizzle") || cond.contains("thunderstorm")
+                || cond.contains("snow") || cond.contains("shower") || cond.contains("sleet");
+    }
+
+    private boolean wmoCodeIsRainy(int code) {
+        return (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99);
+    }
+
+    private void adaptRainyDayActivities(ItineraryResponse.DayPlan day) {
+        if (day.getActivities() == null || day.getActivities().isEmpty()) {
+            return;
+        }
+        boolean activitiesAdapted = false;
+        for (ItineraryResponse.Activity activity : day.getActivities()) {
+            if (isOutdoorActivity(activity)) {
+                adaptOutdoorActivityToIndoor(activity);
+                activitiesAdapted = true;
+            }
+        }
+        if (activitiesAdapted && day.getWeather() != null) {
+            day.getWeather().setAdvice("Rain forecasted — outdoor activities updated to indoor alternatives.");
+        }
+    }
+
+    private boolean isOutdoorActivity(ItineraryResponse.Activity activity) {
+        if (activity == null) return false;
+        String category = defaultString(activity.getCategory(), "").toUpperCase();
+        if ("NATURE".equals(category) || "BEACH".equals(category) || "OUTDOOR".equals(category)) {
+            return true;
+        }
+        String text = (defaultString(activity.getTitle(), "") + " " + defaultString(activity.getDescription(), "")).toLowerCase();
+        return text.contains("park") || text.contains("garden") || text.contains("walking tour")
+                || text.contains("hiking") || text.contains("beach") || text.contains("viewpoint")
+                || text.contains("outdoor");
+    }
+
+    private void adaptOutdoorActivityToIndoor(ItineraryResponse.Activity activity) {
+        activity.setCategory("CULTURE");
+        if (activity.getTitle() != null && !activity.getTitle().toLowerCase().contains("indoor")) {
+            activity.setTitle("Indoor Cultural & Museum Tour: " + activity.getTitle());
+        }
+        String origDesc = defaultString(activity.getDescription(), "");
+        activity.setDescription(origDesc + " (Adapted for rainy weather: shifted to indoor exhibits & galleries.)");
+        String origTips = defaultString(activity.getTips(), "");
+        activity.setTips((origTips.isBlank() ? "" : origTips + " ") + "Weather adaptation: Indoor venue selected due to forecasted rain.");
     }
 
     private String weatherAdvice(String condition) {
@@ -1310,53 +1637,127 @@ public class AiService {
         }
     }
 
+    private static class ProviderConfig {
+        final String name;
+        final String apiKey;
+        final String baseUrl;
+        final String model;
+
+        ProviderConfig(String name, String apiKey, String baseUrl, String model) {
+            this.name = name;
+            this.apiKey = apiKey;
+            this.baseUrl = baseUrl;
+            this.model = model;
+        }
+    }
+
     private String callGroqDirect(String prompt) {
-        try {
-            String actualBaseUrl = (groqBaseUrl == null || groqBaseUrl.isBlank()) ? "https://api.groq.com/openai" : groqBaseUrl;
-            String endpoint = actualBaseUrl.endsWith("/")
-                    ? actualBaseUrl + "v1/chat/completions"
-                    : actualBaseUrl + "/v1/chat/completions";
+        List<ProviderConfig> providers = new java.util.ArrayList<>();
 
-            String actualKey = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
-            if (actualKey == null || actualKey.isBlank()) {
-                throw new IllegalStateException("Groq API key is not configured (GROQ_API_KEY is empty).");
+        // 1. Groq Primary
+        String key0 = (groqApiKey == null || groqApiKey.isBlank()) ? System.getenv("GROQ_API_KEY") : groqApiKey;
+        String url0 = (groqBaseUrl == null || groqBaseUrl.isBlank()) ? "https://api.groq.com/openai" : groqBaseUrl;
+        String model0 = (groqModel == null || groqModel.isBlank()) ? "llama-3.3-70b-versatile" : groqModel;
+        providers.add(new ProviderConfig("Groq Primary", key0, url0, model0));
+
+        // 2. Groq Secondary
+        String key1 = (groqApiKey1 == null || groqApiKey1.isBlank()) ? System.getenv("GROQ_API_KEY1") : groqApiKey1;
+        providers.add(new ProviderConfig("Groq Secondary", key1, url0, model0));
+
+        // 3. OpenCode
+        String key2 = (opencodeApiKey == null || opencodeApiKey.isBlank()) ? System.getenv("Opencode_API_KEY") : opencodeApiKey;
+        String url2 = (opencodeBaseUrl == null || opencodeBaseUrl.isBlank()) ? "https://opencode.ai/zen/go/v1" : opencodeBaseUrl;
+        String model2 = (opencodeModel == null || opencodeModel.isBlank()) ? "openai/gpt-4o" : opencodeModel;
+        providers.add(new ProviderConfig("OpenCode", key2, url2, model2));
+
+        List<ProviderConfig> activeProviders = new java.util.ArrayList<>();
+        for (ProviderConfig p : providers) {
+            if (p.apiKey != null && !p.apiKey.isBlank()) {
+                activeProviders.add(p);
             }
+        }
 
-            String actualModel = (groqModel == null || groqModel.isBlank()) ? "llama-3.3-70b-versatile" : groqModel;
+        if (activeProviders.isEmpty()) {
+            throw new IllegalStateException("No AI provider API keys are configured (all keys are empty).");
+        }
 
-            Map<String, Object> payload = Map.of(
-                    "model", actualModel,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", "You are Trippy AI, a helpful travel planning assistant."),
-                            Map.of("role", "user", "content", prompt)
-                    )
-            );
+        // Cool-off check: if activeProviderIndex is not 0, check if we should reset it
+        long now = System.currentTimeMillis();
+        int currentIndex = activeProviderIndex.get();
+        if (currentIndex != 0 && now - lastFailureTime.get() > 300_000) { // 5 minutes cool-off
+            log.info("Cooldown period of 5 minutes elapsed. Resetting active provider to primary (0).");
+            activeProviderIndex.set(0);
+            currentIndex = 0;
+        }
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(ITINERARY_TIMEOUT)
-                    .header("Authorization", "Bearer " + actualKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build();
+        int startIndex = currentIndex % activeProviders.size();
+        Exception lastException = null;
 
+        for (int i = 0; i < activeProviders.size(); i++) {
+            int attemptIndex = (startIndex + i) % activeProviders.size();
+            ProviderConfig provider = activeProviders.get(attemptIndex);
+
+            log.info("Attempting AI generation with provider: {} (index: {})", provider.name, attemptIndex);
+
+            try {
+                String result = executeChatCompletion(provider, prompt);
+                // If we succeeded and we used a fallback index, log that we used fallback and stick to it
+                if (attemptIndex != activeProviderIndex.get()) {
+                    log.info("Successfully recovered using AI provider: {} (new sticky index: {})", provider.name, attemptIndex);
+                    activeProviderIndex.set(attemptIndex);
+                }
+                return result;
+            } catch (Exception ex) {
+                log.warn("AI provider {} failed (index: {}). Error: {}", provider.name, attemptIndex, ex.getMessage());
+                lastException = ex;
+                lastFailureTime.set(System.currentTimeMillis());
+                // Switch sticky index to next available index immediately
+                int nextIndex = (attemptIndex + 1) % activeProviders.size();
+                activeProviderIndex.set(nextIndex);
+            }
+        }
+
+        if (lastException instanceof AiServiceTimeoutException) {
+            throw (AiServiceTimeoutException) lastException;
+        }
+        throw new RuntimeException("All fallback AI providers failed.", lastException);
+    }
+
+    private String executeChatCompletion(ProviderConfig provider, String prompt) throws Exception {
+        String endpoint = provider.baseUrl.endsWith("/")
+                ? provider.baseUrl + "v1/chat/completions"
+                : provider.baseUrl + "/v1/chat/completions";
+
+        Map<String, Object> payload = Map.of(
+                "model", provider.model,
+                "messages", List.of(
+                        Map.of("role", "system", "content", "You are Trippy AI, a helpful travel planning assistant."),
+                        Map.of("role", "user", "content", prompt)
+                )
+        );
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(ITINERARY_TIMEOUT)
+                .header("Authorization", "Bearer " + provider.apiKey)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build();
+
+        try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Groq API returned status " + response.statusCode());
+                throw new IllegalStateException("API returned status " + response.statusCode() + ": " + response.body());
             }
 
             JsonNode root = objectMapper.readTree(response.body());
             JsonNode content = root.path("choices").path(0).path("message").path("content");
             if (content.isMissingNode() || content.asText().isBlank()) {
-                throw new RuntimeException("Groq API returned empty content");
+                throw new RuntimeException("API returned empty content");
             }
             return content.asText();
-        } catch (AiServiceTimeoutException ex) {
-            throw ex;
         } catch (HttpTimeoutException ex) {
             throw new AiServiceTimeoutException(timeoutMessage(ITINERARY_TIMEOUT), ex);
-        } catch (Exception ex) {
-            throw new RuntimeException("Direct Groq fallback failed", ex);
         }
     }
 

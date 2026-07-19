@@ -23,6 +23,7 @@ import {
   participantsApi,
   preferencesApi,
   hasTripPreferences,
+  ApiError,
   ensureTripCoverImage,
   type Trip,
   type CreateTripRequest,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/pending-trip";
 import { useToast } from "@/lib/toast";
 import { cn, tripSlug } from "@/lib/utils";
+import { ROUTES } from "@/lib/routes";
 
 const STATUS_TABS = [
   { key: "", label: "All trips" },
@@ -179,16 +181,33 @@ export default function DashboardPage() {
   ) {
     try {
       const { trip, prefsSaved } = await createTripWithPreferences(data, preferences);
+
       setCreateOpen(false);
       addToast(
         prefsSaved ? "Trip created!" : "Trip created — preferences need a retry.",
         prefsSaved ? "success" : "error",
       );
+
       router.push(`/dashboard/trips/${tripSlug(trip.title, trip.tripId)}`);
-    } catch {
+
+    } catch (err: any) {
+      console.log("TRIP ERROR:", err);
+
+      const code = err instanceof ApiError ? err.body?.error ?? err.body?.message : err?.message;
+
+      if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
+        addToast(
+          "You've reached the free plan limit. Upgrade to continue creating trips.",
+          "warning"
+        );
+        router.push("/dashboard/payments?upgradeRequired=true");
+        return;
+      }
+
       addToast("Failed to create trip", "error");
     }
   }
+
 
   async function handleJoinTrip(tripId: string) {
     setJoiningTripId(tripId);
@@ -256,6 +275,8 @@ export default function DashboardPage() {
         onCreate={handleCreateTrip}
         initialValues={createInitialValues}
       />
+
+
 
       {/* Auto-create overlay — shown while a trip drafted on the landing page is
           saved straight to the DB after sign-in, for a seamless handoff. */}
@@ -378,7 +399,7 @@ export default function DashboardPage() {
                 {greetingName ? (
                   <>
                     Welcome back,{" "}
-                    <span className="text-gradient-warm">{greetingName}</span>
+                    <span className="text-foreground">{greetingName}</span>
                   </>
                 ) : (
                   <span className="text-gradient-warm">Your journeys</span>
@@ -398,7 +419,7 @@ export default function DashboardPage() {
               className="flex flex-col items-start gap-4 lg:items-end"
             >
               <button
-                onClick={() => setCreateOpen(true)}
+                onClick={() => router.push(ROUTES.home)}
                 className={cn(
                   "group relative inline-flex items-center gap-2.5 overflow-hidden",
                   "rounded-2xl px-6 py-3.5 font-bold text-white glow-accent",
@@ -544,7 +565,7 @@ export default function DashboardPage() {
 
               {!searchQuery && (
                 <button
-                  onClick={() => setCreateOpen(true)}
+                  onClick={() => router.push(ROUTES.home)}
                   className={cn(
                     "relative mt-8 group inline-flex items-center gap-2.5 overflow-hidden",
                     "rounded-2xl px-7 py-3.5 font-bold text-white glow-accent",

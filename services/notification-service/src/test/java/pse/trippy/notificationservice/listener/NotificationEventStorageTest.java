@@ -15,6 +15,8 @@ import pse.trippy.notificationservice.model.enums.NotificationType;
 import pse.trippy.notificationservice.repository.NotificationRepository;
 import pse.trippy.notificationservice.service.EmailService;
 import pse.trippy.notificationservice.service.NotificationService;
+import pse.trippy.notificationservice.service.SseNotificationService;
+import pse.trippy.notificationservice.service.WebPushService;
 
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,12 @@ class NotificationEventStorageTest {
 
     @MockBean
     private EmailService emailService;
+
+    @MockBean
+    private WebPushService webPushService;
+
+    @MockBean
+    private SseNotificationService sseNotificationService;
 
     @Test
     @DisplayName("trip invitation event stores an in-app notification")
