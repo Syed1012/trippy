@@ -3918,13 +3918,13 @@ export default function TripDetailPage() {
 
       {/* Pending approval banner */}
       {isPendingApproval && (
-        <div className="rounded-xl border border-amber-300/50 bg-amber-50 dark:bg-amber-900/20 px-5 py-3 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/40">
-            <Clock size={16} className="text-amber-600" />
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950 px-5 py-3.5 flex items-center gap-3 shadow-sm">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-700/50">
+            <Clock size={16} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Request Pending</p>
-            <p className="text-xs text-amber-700 dark:text-amber-300">Your request to join this trip is awaiting approval from the trip owner.</p>
+            <p className="text-sm font-semibold text-amber-950 dark:text-amber-100">Request Pending</p>
+            <p className="text-xs text-amber-800 dark:text-amber-200">Your request to join this trip is awaiting approval from the trip owner.</p>
           </div>
         </div>
       )}
@@ -3934,15 +3934,15 @@ export default function TripDetailPage() {
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-blue-300/50 bg-blue-50 dark:bg-blue-900/20 px-5 py-4 flex items-center justify-between gap-4"
+          className="rounded-xl border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950 px-5 py-4 flex items-center justify-between gap-4 shadow-sm"
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800/40">
-              <Mail size={17} className="text-blue-600" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-700/50">
+              <Mail size={17} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">You&apos;ve been invited!</p>
-              <p className="text-xs text-blue-700 dark:text-blue-300">You have been invited to join this trip. Would you like to accept?</p>
+              <p className="text-sm font-semibold text-blue-950 dark:text-blue-100">You&apos;ve been invited!</p>
+              <p className="text-xs text-blue-800 dark:text-blue-200">You have been invited to join this trip. Would you like to accept?</p>
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
