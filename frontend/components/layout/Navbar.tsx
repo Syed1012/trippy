@@ -19,6 +19,7 @@ import { Avatar } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import { useNotifications } from "@/lib/notification-context";
 import { ROUTES } from "@/lib/routes";
 
 /** Primary nav links shown as labelled buttons in the center area. */
@@ -48,6 +49,7 @@ export default function Navbar({
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { notifications } = useNotifications();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,9 @@ export default function Navbar({
   const chatActive =
     pathname === ROUTES.dashboardChat ||
     pathname.startsWith(ROUTES.dashboardChat + "/");
+  const unreadChatCount = notifications.filter(
+    (notification) => notification.type === "NEW_MESSAGE" && !notification.read,
+  ).length;
 
   async function handleLogout() {
     await logout();
@@ -159,9 +164,14 @@ export default function Navbar({
           <Link
             href={ROUTES.dashboardChat}
             className={cn(iconBtnBase, chatActive ? iconBtnActive : iconBtnIdle)}
-            aria-label="Chat"
+            aria-label={unreadChatCount > 0 ? `Chat, ${unreadChatCount} unread messages` : "Chat"}
           >
             <MessageSquare size={18} />
+            {unreadChatCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white">
+                {unreadChatCount > 9 ? "9+" : unreadChatCount}
+              </span>
+            )}
           </Link>
 
           {/* Notifications — icon only */}

@@ -16,6 +16,7 @@ import {
 import { participantsApi, type Notification } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useNotifications } from "@/lib/notification-context";
+import { useToast } from "@/lib/toast";
 
 const typeIcon: Record<string, typeof Bell> = {
   TRIP_INVITE: Plane,
@@ -46,7 +47,9 @@ function timeAgo(dateStr: string): string {
 
 export default function NotificationBell({ className }: { className?: string }) {
   const router = useRouter();
+  const { addToast } = useToast();
   const [open, setOpen] = useState(false);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -57,6 +60,7 @@ export default function NotificationBell({ className }: { className?: string }) 
     markRead,
     markAllRead,
     deleteNotification,
+    setNotifications,
   } = useNotifications();
 
   // Load notifications when dropdown opens
@@ -97,11 +101,18 @@ export default function NotificationBell({ className }: { className?: string }) 
   }
 
   function isJoinRequest(n: Notification) {
-    return n.type === "TRIP_INVITE" && n.title === "Join Request" && !!n.metadata?.requesterId;
+    return n.type === "TRIP_INVITE" && n.title === "Join Request" && !!n.metadata?.requesterId && !n.metadata?.resolution;
   }
 
   function isInviteNotification(n: Notification) {
-    return n.type === "TRIP_INVITE" && n.title === "Trip Invitation" && !!n.metadata?.tripId;
+    return n.type === "TRIP_INVITE" && n.title === "Trip Invitation" && !!n.metadata?.tripId && !n.metadata?.resolution;
+  }
+
+  async function resolveNotification(n: Notification, resolution: string) {
+    setNotifications((prev) => prev.map((item) => item.id === n.id
+      ? { ...item, read: true, title: `Invitation ${resolution}`, metadata: { ...item.metadata, resolution } }
+      : item));
+    if (!n.read) await markRead(n.id);
   }
 
   async function handleApprove(e: React.MouseEvent, n: Notification) {
@@ -109,11 +120,14 @@ export default function NotificationBell({ className }: { className?: string }) 
     const tripId = n.metadata?.tripId as string;
     const requesterId = n.metadata?.requesterId as string;
     if (!tripId || !requesterId) return;
+    setProcessingIds((prev) => new Set(prev).add(n.id));
     try {
       await participantsApi.approve(tripId, requesterId);
-      await deleteNotification(n.id);
-    } catch {
-      // ignore
+      await resolveNotification(n, "Approved");
+    } catch (err: unknown) {
+      addToast(err instanceof Error ? err.message : "Failed to approve request", "error");
+    } finally {
+      setProcessingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next; });
     }
   }
 
@@ -122,11 +136,14 @@ export default function NotificationBell({ className }: { className?: string }) 
     const tripId = n.metadata?.tripId as string;
     const requesterId = n.metadata?.requesterId as string;
     if (!tripId || !requesterId) return;
+    setProcessingIds((prev) => new Set(prev).add(n.id));
     try {
       await participantsApi.reject(tripId, requesterId);
-      await deleteNotification(n.id);
-    } catch {
-      // ignore
+      await resolveNotification(n, "Rejected");
+    } catch (err: unknown) {
+      addToast(err instanceof Error ? err.message : "Failed to reject request", "error");
+    } finally {
+      setProcessingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next; });
     }
   }
 
@@ -134,11 +151,14 @@ export default function NotificationBell({ className }: { className?: string }) 
     e.stopPropagation();
     const tripId = n.metadata?.tripId as string;
     if (!tripId) return;
+    setProcessingIds((prev) => new Set(prev).add(n.id));
     try {
       await participantsApi.accept(tripId);
-      await deleteNotification(n.id);
-    } catch {
-      // ignore
+      await resolveNotification(n, "Accepted");
+    } catch (err: unknown) {
+      addToast(err instanceof Error ? err.message : "Failed to accept invitation", "error");
+    } finally {
+      setProcessingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next; });
     }
   }
 
@@ -146,11 +166,14 @@ export default function NotificationBell({ className }: { className?: string }) 
     e.stopPropagation();
     const tripId = n.metadata?.tripId as string;
     if (!tripId) return;
+    setProcessingIds((prev) => new Set(prev).add(n.id));
     try {
       await participantsApi.decline(tripId);
-      await deleteNotification(n.id);
-    } catch {
-      // ignore
+      await resolveNotification(n, "Declined");
+    } catch (err: unknown) {
+      addToast(err instanceof Error ? err.message : "Failed to decline invitation", "error");
+    } finally {
+      setProcessingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next; });
     }
   }
 
@@ -227,16 +250,23 @@ export default function NotificationBell({ className }: { className?: string }) 
                       <p className="text-[10px] text-muted mt-1">
                         {timeAgo(n.createdAt)}
                       </p>
+                      {typeof n.metadata?.resolution === "string" && (
+                        <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-green-600">
+                          <UserCheck size={12} /> {n.metadata.resolution}
+                        </p>
+                      )}
                       {isJoinRequest(n) && (
                         <div className="mt-2 flex items-center gap-2">
                           <button
                             onClick={() => handleApprove({ stopPropagation: () => {} } as React.MouseEvent, n)}
+                            disabled={processingIds.has(n.id)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600 transition-colors"
                           >
                             <UserCheck size={12} /> Approve
                           </button>
                           <button
                             onClick={() => handleReject({ stopPropagation: () => {} } as React.MouseEvent, n)}
+                            disabled={processingIds.has(n.id)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 transition-colors"
                           >
                             <UserX size={12} /> Reject
@@ -247,12 +277,14 @@ export default function NotificationBell({ className }: { className?: string }) 
                         <div className="mt-2 flex items-center gap-2">
                           <button
                             onClick={() => handleAcceptInvite({ stopPropagation: () => {} } as React.MouseEvent, n)}
+                            disabled={processingIds.has(n.id)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-accent-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-600 transition-colors"
                           >
                             <UserCheck size={12} /> Accept
                           </button>
                           <button
                             onClick={() => handleDeclineInvite({ stopPropagation: () => {} } as React.MouseEvent, n)}
+                            disabled={processingIds.has(n.id)}
                             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-muted hover:bg-shore-100 transition-colors"
                           >
                             <UserX size={12} /> Decline

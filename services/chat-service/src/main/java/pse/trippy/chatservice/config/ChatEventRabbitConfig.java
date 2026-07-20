@@ -14,6 +14,7 @@ public class ChatEventRabbitConfig {
 
     public static final String TRIP_EXCHANGE = "trippy.events";
     public static final String MEMBERSHIP_QUEUE = "chat.membership.events";
+    public static final String CHAT_MESSAGE_ROUTING_KEY = "chat.message.sent";
 
     @Bean
     TopicExchange chatTripExchange() {

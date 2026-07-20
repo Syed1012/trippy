@@ -1,27 +1,28 @@
 package pse.trippy.notificationservice.listener;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import pse.trippy.notificationservice.model.enums.NotificationType;
-import pse.trippy.notificationservice.service.EmailService;
-import pse.trippy.notificationservice.service.NotificationService;
-
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import pse.trippy.notificationservice.model.enums.NotificationType;
+import pse.trippy.notificationservice.service.EmailService;
+import pse.trippy.notificationservice.service.NotificationService;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("NotificationEventListener")
@@ -89,6 +90,38 @@ class NotificationEventListenerTest {
                 eq("Welcome to Trippy!"),
                 eq("welcome"),
                 any());
+    }
+
+    @Test
+    @DisplayName("chat.message.sent creates a notification for the recipient")
+    void chatMessageSentCreatesRecipientNotification() {
+        UUID recipientId = UUID.randomUUID();
+        UUID tripId = UUID.randomUUID();
+
+        listener.handleChatMessageSent(Map.of(
+                "recipientUserId", recipientId.toString(),
+                "tripId", tripId.toString(),
+                "messageId", UUID.randomUUID().toString(),
+                "senderId", UUID.randomUUID().toString(),
+                "senderDisplayName", "Alice"));
+
+        verify(notificationService).createNotification(
+                eq(recipientId),
+                eq(NotificationType.NEW_MESSAGE),
+                eq("New group message"),
+                eq("Alice sent a message in your trip chat"),
+                eq("/dashboard/chat/" + tripId),
+                any());
+    }
+
+    @Test
+    @DisplayName("chat.message.sent ignores malformed recipient IDs")
+    void chatMessageSentIgnoresMalformedRecipient() {
+        listener.handleChatMessageSent(Map.of(
+                "recipientUserId", "not-a-uuid",
+                "tripId", UUID.randomUUID().toString()));
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test
@@ -456,16 +489,21 @@ class NotificationEventListenerTest {
     @DisplayName("trip participant joined notifies the trip owner in-app")
     void tripParticipantJoinedNotifiesOwner() {
         UUID ownerId = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+                UUID inviteeId = UUID.fromString("323e4567-e89b-12d3-a456-426614174000");
         Map<String, Object> payload = Map.of(
                 "tripId", "223e4567-e89b-12d3-a456-426614174000",
                 "tripTitle", "Summer in Barcelona",
                 "userId", ownerId.toString(),
                 "inviterId", ownerId.toString(),
-                "inviteeId", "323e4567-e89b-12d3-a456-426614174000",
+                "inviteeId", inviteeId.toString(),
                 "inviteeName", "Bob");
 
         listener.handleTripJoined(payload);
 
+        verify(notificationService).resolveTripInvitation(
+                inviteeId,
+                "223e4567-e89b-12d3-a456-426614174000",
+                "Accepted");
         verify(notificationService).createNotification(
                 eq(ownerId),
                 eq(NotificationType.TRIP_JOINED),

@@ -145,7 +145,7 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         log.info("Join request approved for user {} on trip {}", targetUserId, tripId);
-        publishApprovalNotification(trip, targetUserId);
+        publishApprovalNotification(trip, targetUserId, approverId);
 
         return new ParticipantActionResponse("Join request approved successfully", toResponse(participant));
     }
@@ -172,7 +172,13 @@ public class ParticipantService {
             throw new InvalidTripDataException("Participant is not in a pending or invited state");
         }
 
+        ParticipantStatus previousStatus = participant.getStatus();
+        UUID rejectedUserId = participant.getUserId();
         participantRepository.delete(participant);
+
+        if (previousStatus == ParticipantStatus.PENDING_APPROVAL && rejectedUserId != null) {
+            publishJoinRequestResolution(tripId, rejectedUserId, rejecterId, "trip.participant.rejected");
+        }
 
         log.info("Invite rejected/revoked for trip {}", tripId);
 
@@ -209,7 +215,7 @@ public class ParticipantService {
     @Transactional
     public ParticipantActionResponse declineInvite(UUID tripId, UUID userId) {
         log.info("User {} declining invite for trip {}", userId, tripId);
-        findTripOrThrow(tripId);
+        Trip trip = findTripOrThrow(tripId);
 
         Participant participant = participantRepository.findByTripIdAndUserId(tripId, userId)
                 .orElseThrow(() -> new InvalidTripDataException("No invitation found for this trip"));
@@ -222,7 +228,7 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         log.info("User {} declined invite for trip {}", userId, tripId);
-        publishEvent("trip.participant.declined", tripId, userId);
+        publishInvitationDeclinedEvent(trip, userId);
 
         return new ParticipantActionResponse("Invitation declined successfully", toResponse(participant));
     }
@@ -412,15 +418,45 @@ public class ParticipantService {
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.invite_proposed", event);
     }
 
-    private void publishApprovalNotification(Trip trip, UUID approvedUserId) {
+    private void publishApprovalNotification(Trip trip, UUID approvedUserId, UUID ownerId) {
         Map<String, Object> event = new HashMap<>();
         event.put("eventType", "trip.participant.approved");
         event.put("tripId", trip.getId().toString());
         event.put("tripTitle", trip.getTitle());
         event.put("userId", approvedUserId.toString());
+        event.put("ownerId", ownerId.toString());
+        event.put("requesterId", approvedUserId.toString());
         event.put("timestamp", Instant.now().toString());
 
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.approved", event);
+    }
+
+    private void publishJoinRequestResolution(UUID tripId, UUID requesterId, UUID ownerId, String routingKey) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", routingKey);
+        event.put("tripId", tripId.toString());
+        event.put("ownerId", ownerId.toString());
+        event.put("requesterId", requesterId.toString());
+        event.put("timestamp", Instant.now().toString());
+        rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, routingKey, event);
+    }
+
+    private void publishInvitationDeclinedEvent(Trip trip, UUID inviteeId) {
+        Participant owner = participantRepository.findByTripId(trip.getId()).stream()
+                .filter(p -> p.getRole() == ParticipantRole.OWNER)
+                .findFirst()
+                .orElse(null);
+
+        Map<String, Object> event = new HashMap<>();
+        event.put("eventType", "trip.participant.declined");
+        event.put("tripId", trip.getId().toString());
+        event.put("tripTitle", trip.getTitle());
+        event.put("inviteeId", inviteeId.toString());
+        event.put("timestamp", Instant.now().toString());
+        if (owner != null && owner.getUserId() != null) {
+            event.put("ownerId", owner.getUserId().toString());
+        }
+        rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.declined", event);
     }
 
     private void publishParticipantJoinedEvent(Trip trip, UUID inviteeId, String displayName) {
