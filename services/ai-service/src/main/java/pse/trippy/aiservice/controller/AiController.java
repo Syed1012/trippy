@@ -111,7 +111,8 @@ public class AiController {
     @Operation(summary = "Retry failed itinerary generation", description = "Retries generation for an existing generation ID (maximum 3 retry attempts).")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Retried itinerary generated successfully"),
-            @ApiResponse(responseCode = "400", description = "Retry limit exceeded or invalid generation ID")
+            @ApiResponse(responseCode = "400", description = "Invalid generation ID"),
+            @ApiResponse(responseCode = "409", description = "Retry limit exceeded")
     })
     @PostMapping("/itineraries/{generationId}/retry")
     public ResponseEntity<ItineraryResponse> retryItinerary(

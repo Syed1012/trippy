@@ -1,19 +1,20 @@
 package pse.trippy.notificationservice.service;
 
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
 import nl.martijndwars.webpush.Subscription;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 import pse.trippy.notificationservice.model.WebPushSubscription;
 import pse.trippy.notificationservice.repository.WebPushSubscriptionRepository;
-
-import jakarta.annotation.PostConstruct;
-import java.security.Security;
-import java.util.List;
 
 @Service
 @Slf4j
@@ -29,18 +30,25 @@ public class WebPushService {
     @Value("${web-push.subject}")
     private String subject;
 
+    @Value("${web-push.enabled:true}")
+    private boolean enabled;
+
     private final WebPushSubscriptionRepository repository;
     private PushService pushService;
 
     @PostConstruct
     public void init() {
+        if (!enabled) {
+            log.info("Web Push is disabled by configuration");
+            return;
+        }
         try {
             if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
                 Security.addProvider(new BouncyCastleProvider());
             }
             pushService = new PushService(publicKey, privateKey, subject);
         } catch (Exception e) {
-            log.error("Failed to initialize WebPushService", e);
+            throw new IllegalStateException("Failed to initialize Web Push with the configured VAPID keys", e);
         }
     }
 
@@ -83,14 +91,20 @@ public class WebPushService {
                 
                 Notification notification = new Notification(subscription, payload);
                 pushService.send(notification);
-                log.info("Push notification sent to user {} via endpoint {}", userId, sub.getEndpoint());
+                log.info("Push notification sent to user {} via subscription {}", userId,
+                        endpointFingerprint(sub.getEndpoint()));
             } catch (Exception e) {
-                log.error("Failed to send push notification to {}", sub.getEndpoint(), e);
+                log.error("Failed to send push notification to subscription {}",
+                        endpointFingerprint(sub.getEndpoint()), e);
                 if (e.getMessage() != null && (e.getMessage().contains("410 Gone") || e.getMessage().contains("404 Not Found"))) {
-                    log.info("Removing inactive subscription {}", sub.getEndpoint());
+                    log.info("Removing inactive subscription {}", endpointFingerprint(sub.getEndpoint()));
                     repository.deleteByEndpoint(sub.getEndpoint());
                 }
             }
         }
+    }
+
+    private String endpointFingerprint(String endpoint) {
+        return endpoint == null ? "unknown" : Integer.toHexString(endpoint.hashCode());
     }
 }

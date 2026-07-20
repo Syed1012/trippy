@@ -90,6 +90,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/ItineraryGenerationResponse'
 
+  /ai/itineraries/{generationId}/retry:
+    post:
+      tags: [Itinerary]
+      summary: Retry a failed or fallback itinerary generation
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryGenerationResponse'
+        '400':
+          description: Invalid generation ID
+        '409':
+          description: Retry limit exceeded
+
   /ai/preferences/consolidate:
     post:
       tags: [Preferences]

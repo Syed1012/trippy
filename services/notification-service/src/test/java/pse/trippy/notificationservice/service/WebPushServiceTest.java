@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import pse.trippy.notificationservice.model.WebPushSubscription;
 import pse.trippy.notificationservice.repository.WebPushSubscriptionRepository;
 
@@ -17,12 +18,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 @ActiveProfiles("test")
 @Import(WebPushService.class)
 @TestPropertySource(properties = {
+    "web-push.enabled=false",
     "web-push.public-key=dummy-public-key",
     "web-push.private-key=dummy-private-key",
     "web-push.subject=mailto:dummy@example.com"
@@ -91,5 +95,19 @@ class WebPushServiceTest {
 
         webPushService.unsubscribe(USER_ID.toString(), ENDPOINT);
         assertThat(subscriptionRepository.findByEndpoint(ENDPOINT)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("enabled Web Push rejects malformed VAPID keys")
+    void enabledWebPushRejectsMalformedVapidKeys() {
+        WebPushService service = new WebPushService(mock(WebPushSubscriptionRepository.class));
+        ReflectionTestUtils.setField(service, "enabled", true);
+        ReflectionTestUtils.setField(service, "publicKey", "invalid-public-key");
+        ReflectionTestUtils.setField(service, "privateKey", "invalid-private-key");
+        ReflectionTestUtils.setField(service, "subject", "mailto:test@example.com");
+
+        assertThatThrownBy(service::init)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("configured VAPID keys");
     }
 }
