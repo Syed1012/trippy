@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import io.micrometer.core.instrument.MeterRegistry;
 import pse.trippy.aiservice.dto.request.AiChatRequest;
 import pse.trippy.aiservice.dto.request.DestinationSuggestionRequest;
@@ -198,8 +199,9 @@ public class AiService {
         }
     }
 
+    @Transactional
     public ItineraryResponse retryItinerary(UUID generationId) {
-        GenerationHistory history = generationHistoryRepository.findByGenerationId(generationId)
+        GenerationHistory history = generationHistoryRepository.findByGenerationIdForUpdate(generationId)
                 .orElseThrow(() -> new IllegalArgumentException("Generation ID not found"));
 
         if (history.getRetryCount() >= 3) {
@@ -1707,7 +1709,8 @@ public class AiService {
                 }
                 return result;
             } catch (Exception ex) {
-                log.warn("AI provider {} failed (index: {}). Error: {}", provider.name, attemptIndex, ex.getMessage());
+                log.warn("AI provider {} failed (index: {}). Error: {}", provider.name, attemptIndex,
+                    LogSanitizer.safeError(ex));
                 lastException = ex;
                 lastFailureTime.set(System.currentTimeMillis());
                 // Switch sticky index to next available index immediately
@@ -1723,9 +1726,10 @@ public class AiService {
     }
 
     private String executeChatCompletion(ProviderConfig provider, String prompt) throws Exception {
-        String endpoint = provider.baseUrl.endsWith("/")
-                ? provider.baseUrl + "v1/chat/completions"
-                : provider.baseUrl + "/v1/chat/completions";
+        String normalizedBaseUrl = provider.baseUrl.replaceAll("/+$", "");
+        String endpoint = normalizedBaseUrl.endsWith("/v1")
+            ? normalizedBaseUrl + "/chat/completions"
+            : normalizedBaseUrl + "/v1/chat/completions";
 
         Map<String, Object> payload = Map.of(
                 "model", provider.model,

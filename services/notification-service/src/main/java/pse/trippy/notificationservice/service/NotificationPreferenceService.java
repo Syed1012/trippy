@@ -1,22 +1,23 @@
 package pse.trippy.notificationservice.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import pse.trippy.notificationservice.dto.request.UpdateNotificationPreferenceRequest;
-import pse.trippy.notificationservice.dto.response.NotificationPreferenceResponse;
-import pse.trippy.notificationservice.model.entity.NotificationPreference;
-import pse.trippy.notificationservice.model.enums.NotificationChannel;
-import pse.trippy.notificationservice.model.enums.NotificationType;
-import pse.trippy.notificationservice.repository.NotificationPreferenceRepository;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import pse.trippy.notificationservice.dto.request.UpdateNotificationPreferenceRequest;
+import pse.trippy.notificationservice.dto.response.NotificationPreferenceResponse;
+import pse.trippy.notificationservice.model.entity.NotificationPreference;
+import pse.trippy.notificationservice.model.enums.NotificationChannel;
+import pse.trippy.notificationservice.model.enums.NotificationType;
+import pse.trippy.notificationservice.repository.NotificationPreferenceRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +32,7 @@ public class NotificationPreferenceService {
             NotificationType.TRIP_UPDATED,
             NotificationType.ITINERARY_READY,
             NotificationType.PAYMENT_SUCCESS,
+                NotificationType.PAYMENT_FAILED,
             NotificationType.SYSTEM
     );
 

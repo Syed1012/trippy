@@ -56,6 +56,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -875,6 +876,28 @@ class AiServiceTest {
         verify(generationHistoryRepository).save(history);
     }
 
+    @Test
+    @DisplayName("retry limit is checked using a write-locked generation history")
+    void retryLimitUsesWriteLockedHistory() {
+        UUID generationId = UUID.randomUUID();
+        GenerationHistory history = GenerationHistory.builder()
+                .generationId(generationId)
+                .destination("Kyoto")
+                .startDate(LocalDate.of(2026, 9, 1))
+                .endDate(LocalDate.of(2026, 9, 2))
+                .retryCount(3)
+                .build();
+        when(generationHistoryRepository.findByGenerationIdForUpdate(generationId))
+                .thenReturn(java.util.Optional.of(history));
+
+        assertThatThrownBy(() -> aiService.retryItinerary(generationId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Maximum retry attempts");
+
+        verify(generationHistoryRepository).findByGenerationIdForUpdate(generationId);
+        verify(generationHistoryRepository, never()).save(any());
+    }
+
     private String minimalTwoStopItinerary(boolean includeCoordinates) {
         String firstCoordinates = includeCoordinates ? """
                               "lat": 35.0394,
@@ -1075,6 +1098,27 @@ class AiServiceTest {
             assertThat(result).isEqualTo("Success from OpenCode");
             assertThat(requestCount.get()).isEqualTo(3);
         }
+
+                @Test
+                @DisplayName("does not duplicate the version segment in an OpenCode base URL")
+                void versionedOpenCodeBaseUrl() throws Exception {
+                        setField("groqApiKey", "");
+                        setField("groqApiKey1", "");
+                        setField("opencodeApiKey", "opencode-key");
+
+                        String serverUrl = startHttpServer(exchange -> {
+                                assertThat(exchange.getRequestURI().getPath()).isEqualTo("/zen/go/v1/chat/completions");
+                                writeResponse(exchange, 200, """
+                                                {"choices":[{"message":{"content":"OpenCode response"}}]}
+                                                """);
+                        });
+                        setField("opencodeBaseUrl", serverUrl + "/zen/go/v1");
+
+                        Method method = AiService.class.getDeclaredMethod("callGroqDirect", String.class);
+                        method.setAccessible(true);
+
+                        assertThat(method.invoke(aiService, "Test prompt")).isEqualTo("OpenCode response");
+                }
     }
 
     @Nested
