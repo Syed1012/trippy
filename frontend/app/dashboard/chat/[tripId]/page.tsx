@@ -19,6 +19,7 @@ import { chatApi, getValidAccessToken, tripsApi, usersApi, type ChatMessage, typ
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { useNotifications } from "@/lib/notification-context";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:8080/ws";
 
@@ -107,6 +108,7 @@ export default function ChatPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { notifications, markRead } = useNotifications();
   const tripId = params.tripId as string;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -125,6 +127,15 @@ export default function ChatPage() {
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
+
+  useEffect(() => {
+    const unreadForTrip = notifications.filter(
+      (notification) => notification.type === "NEW_MESSAGE"
+        && !notification.read
+        && notification.metadata?.tripId === tripId,
+    );
+    unreadForTrip.forEach((notification) => void markRead(notification.id));
+  }, [tripId, notifications, markRead]);
 
   const loadParticipantProfiles = useCallback(async (userIds: string[]) => {
     const profiles = await usersApi.batchProfiles(userIds).catch(() => []);

@@ -3,9 +3,14 @@ package pse.trippy.chatservice.client;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -44,4 +49,32 @@ public class TripServiceClient {
             return false;
         }
     }
+
+    public List<UUID> getAcceptedParticipantIds(UUID tripId, UUID requesterId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-User-Id", requesterId.toString());
+            ResponseEntity<List<ParticipantSummary>> response = restTemplate.exchange(
+                    tripServiceUrl + "/trips/" + tripId + "/participants",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    new ParameterizedTypeReference<>() {});
+
+            List<ParticipantSummary> participants = response.getBody();
+            if (participants == null) {
+                return List.of();
+            }
+            return participants.stream()
+                    .filter(participant -> "ACCEPTED".equals(participant.status()))
+                    .map(ParticipantSummary::userId)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+        } catch (Exception exception) {
+            log.warn("Failed to load participants tripId={} requesterId={}",
+                    tripId, requesterId, exception);
+            return List.of();
+        }
+    }
+
+    private record ParticipantSummary(UUID userId, String status) {}
 }

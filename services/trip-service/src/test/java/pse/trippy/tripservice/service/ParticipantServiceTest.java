@@ -341,7 +341,7 @@ class ParticipantServiceTest {
 
             assertThat(response.message()).isEqualTo("Invitation declined successfully");
             assertThat(response.participant().status()).isEqualTo("DECLINED");
-            verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.TRIP_EXCHANGE), eq("trip.participant.declined"), any(ParticipantEvent.class));
+            verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.TRIP_EXCHANGE), eq("trip.participant.declined"), any(java.util.Map.class));
         }
 
         @Test

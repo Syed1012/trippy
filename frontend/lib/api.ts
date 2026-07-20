@@ -182,9 +182,11 @@ async function request<T>(
     throw new ApiError(res.status, body);
   }
 
-  // 204 No Content — nothing to parse
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  if (res.status === 204 || res.status === 205) return undefined as T;
+
+  const responseText = await res.text();
+  if (!responseText.trim()) return undefined as T;
+  return JSON.parse(responseText) as T;
 }
 
 async function requestPublic<T>(path: string): Promise<T> {

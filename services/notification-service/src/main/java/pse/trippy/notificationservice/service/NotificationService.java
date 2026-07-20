@@ -1,23 +1,8 @@
 package pse.trippy.notificationservice.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import pse.trippy.notificationservice.dto.response.NotificationResponse;
-import pse.trippy.notificationservice.logging.LogSanitizer;
-import pse.trippy.notificationservice.model.entity.Notification;
-import pse.trippy.notificationservice.model.enums.NotificationChannel;
-import pse.trippy.notificationservice.model.enums.NotificationType;
-import pse.trippy.notificationservice.repository.NotificationRepository;
-
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
-
-import org.springframework.beans.factory.annotation.Value;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
@@ -25,6 +10,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import pse.trippy.notificationservice.dto.response.NotificationResponse;
+import pse.trippy.notificationservice.logging.LogSanitizer;
+import pse.trippy.notificationservice.model.entity.Notification;
+import pse.trippy.notificationservice.model.enums.NotificationChannel;
+import pse.trippy.notificationservice.model.enums.NotificationType;
+import pse.trippy.notificationservice.repository.NotificationRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -153,6 +153,47 @@ public class NotificationService {
                     n.setDeleted(true);
                     notificationRepository.save(n);
                     log.info("Soft-deleted notification {} for user {}", notificationId, userId);
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    @Transactional
+    public boolean resolveTripInvitation(UUID userId, String tripId, String resolution) {
+        return resolveTripAction(userId, tripId, null, null, resolution);
+    }
+
+    @Transactional
+    public boolean resolveJoinRequest(UUID ownerId, String tripId, String requesterId, String resolution) {
+        return resolveTripAction(ownerId, tripId, "requesterId", requesterId, resolution);
+    }
+
+    private boolean resolveTripAction(UUID userId, String tripId, String relatedKey,
+                                      String relatedId, String resolution) {
+        if (userId == null || tripId == null || tripId.isBlank()) {
+            return false;
+        }
+        if (relatedKey != null && (relatedId == null || relatedId.isBlank())) {
+            return false;
+        }
+
+        return notificationRepository
+                .findByUserIdAndTypeAndDeletedFalseOrderByCreatedAtDesc(userId, NotificationType.TRIP_INVITE)
+                .stream()
+                .filter(notification -> notification.getMetadata() != null
+                    && tripId.equals(String.valueOf(notification.getMetadata().get("tripId"))))
+                .filter(notification -> relatedKey == null
+                    || relatedId.equals(String.valueOf(notification.getMetadata().get(relatedKey))))
+                .findFirst()
+                .map(notification -> {
+                    Map<String, Object> metadata = new HashMap<>(notification.getMetadata());
+                    metadata.put("resolution", resolution);
+                    notification.setMetadata(metadata);
+                    notification.setTitle("Invitation " + resolution);
+                    notification.setRead(true);
+                    notification.setReadAt(Instant.now());
+                    notificationRepository.save(notification);
+                    log.info("Resolved trip invitation notification {} as {}", notification.getId(), resolution);
                     return true;
                 })
                 .orElse(false);

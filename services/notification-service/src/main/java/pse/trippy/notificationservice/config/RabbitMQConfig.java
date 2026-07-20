@@ -26,6 +26,9 @@ public class RabbitMQConfig {
     public static final String ROUTING_TRIP_INVITATION = "trip.invitation.created";
     public static final String ROUTING_TRIP_PARTICIPANT_INVITED = "trip.participant.invited";
     public static final String ROUTING_INVITATION_ACCEPTED = "trip.invitation.accepted";
+    public static final String ROUTING_PARTICIPANT_JOINED = "trip.participant.joined";
+    public static final String ROUTING_PARTICIPANT_DECLINED = "trip.participant.declined";
+    public static final String ROUTING_PARTICIPANT_REJECTED = "trip.participant.rejected";
     public static final String ROUTING_TRIP_UPDATED = "trip.updated";
     public static final String ROUTING_PAYMENT_COMPLETED = "payment.completed";
     public static final String ROUTING_PAYMENT_FAILED = "payment.failed";
@@ -35,6 +38,7 @@ public class RabbitMQConfig {
     public static final String ROUTING_JOIN_REQUESTED = "trip.participant.join_requested";
     public static final String ROUTING_INVITE_PROPOSED = "trip.participant.invite_proposed";
     public static final String ROUTING_JOIN_APPROVED = "trip.participant.approved";
+    public static final String ROUTING_CHAT_MESSAGE_SENT = "chat.message.sent";
 
     @Bean
     public TopicExchange trippyExchange() {
@@ -87,6 +91,27 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(notificationQueue)
                 .to(trippyExchange)
                 .with(ROUTING_INVITATION_ACCEPTED);
+    }
+
+    @Bean
+    public Binding participantJoinedBinding(Queue notificationQueue, TopicExchange trippyExchange) {
+        return BindingBuilder.bind(notificationQueue)
+                .to(trippyExchange)
+                .with(ROUTING_PARTICIPANT_JOINED);
+    }
+
+    @Bean
+    public Binding participantDeclinedBinding(Queue notificationQueue, TopicExchange trippyExchange) {
+        return BindingBuilder.bind(notificationQueue)
+                .to(trippyExchange)
+                .with(ROUTING_PARTICIPANT_DECLINED);
+    }
+
+    @Bean
+    public Binding participantRejectedBinding(Queue notificationQueue, TopicExchange trippyExchange) {
+        return BindingBuilder.bind(notificationQueue)
+                .to(trippyExchange)
+                .with(ROUTING_PARTICIPANT_REJECTED);
     }
 
     @Bean
@@ -150,6 +175,13 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(notificationQueue)
                 .to(trippyExchange)
                 .with(ROUTING_JOIN_APPROVED);
+    }
+
+    @Bean
+    public Binding chatMessageSentBinding(Queue notificationQueue, TopicExchange trippyExchange) {
+        return BindingBuilder.bind(notificationQueue)
+                .to(trippyExchange)
+                .with(ROUTING_CHAT_MESSAGE_SENT);
     }
 
     @Bean

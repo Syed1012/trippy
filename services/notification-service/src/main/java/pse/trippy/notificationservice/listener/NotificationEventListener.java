@@ -10,8 +10,8 @@ import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -111,9 +111,12 @@ public class NotificationEventListener {
             case "user.password.reset" -> handlePasswordReset(payload);
             case "trip.invitation.created", "trip.participant.invited" -> handleTripInvitation(payload);
             case "trip.invitation.accepted", "trip.joined", "trip.participant.joined" -> handleTripJoined(payload);
+            case "trip.participant.declined" -> handleInvitationDeclined(payload);
             case "trip.participant.join_requested", "trip.participant.invite_proposed" -> handleJoinRequest(payload);
             case "trip.participant.approved" -> handleJoinApproved(payload);
+            case "trip.participant.rejected" -> handleJoinRejected(payload);
             case "trip.updated" -> handleTripUpdated(payload);
+            case "chat.message.sent" -> handleChatMessageSent(payload);
             case "payment.completed" -> handlePaymentCompleted(payload);
             case "payment.failed" -> handlePaymentFailed(payload);
             case "ai.itinerary.ready", "ai.itinerary.generated", "itinerary.ready" -> handleItineraryGenerated(payload);
@@ -267,6 +270,15 @@ public class NotificationEventListener {
         handleTripJoined(payload);
     }
 
+    void handleInvitationDeclined(Object payload) {
+        if (payload instanceof Map<?, ?> map) {
+            UUID inviteeId = uuid(text(map, "inviteeId", "participantId"));
+            if (inviteeId != null) {
+                notificationService.resolveTripInvitation(inviteeId, text(map, "tripId"), "Declined");
+            }
+        }
+    }
+
     void handleTripJoined(Object payload) {
         if (payload instanceof Map<?, ?> map) {
             String email = text(map, "inviterEmail", "email", "ownerEmail");
@@ -276,6 +288,11 @@ public class NotificationEventListener {
             String userId = text(map, "inviterId", "ownerId", "userId");
             String tripId = text(map, "tripId");
             String actionUrl = fallback(text(map, "actionUrl", "link"), tripUrl(tripId));
+
+            UUID inviteeId = uuid(text(map, "inviteeId", "participantId"));
+            if (inviteeId != null) {
+                notificationService.resolveTripInvitation(inviteeId, tripId, "Accepted");
+            }
 
             log.info("Processing notification event type=trip.joined recipient={}",
                     LogSanitizer.maskEmail(email));
@@ -334,6 +351,9 @@ public class NotificationEventListener {
             String tripId = text(map, "tripId");
             String actionUrl = tripUrl(tripId);
 
+            UUID ownerId = uuid(text(map, "ownerId"));
+            notificationService.resolveJoinRequest(ownerId, tripId, text(map, "requesterId", "userId"), "Approved");
+
             log.info("Processing notification event type=trip.participant.approved tripId={}", tripId);
 
             createNotification(userId, NotificationType.TRIP_JOINED,
@@ -341,6 +361,14 @@ public class NotificationEventListener {
                     "You are now a participant of " + tripTitle + "! Start exploring the trip.",
                     actionUrl,
                     metadata(map, "tripId", "tripTitle"));
+        }
+    }
+
+    void handleJoinRejected(Object payload) {
+        if (payload instanceof Map<?, ?> map) {
+            UUID ownerId = uuid(text(map, "ownerId"));
+            notificationService.resolveJoinRequest(
+                    ownerId, text(map, "tripId"), text(map, "requesterId"), "Rejected");
         }
     }
 
@@ -371,6 +399,24 @@ public class NotificationEventListener {
                     "The trip " + tripTitle + " has been updated",
                     actionUrl,
                     metadata(map, "tripId", "updatedBy"));
+        }
+    }
+
+    void handleChatMessageSent(Object payload) {
+        if (payload instanceof Map<?, ?> map) {
+            String recipientUserId = validUuidText(map, "recipientUserId");
+            String tripId = validUuidText(map, "tripId");
+            if (recipientUserId == null || tripId == null) {
+                log.warn("Skipping chat.message.sent due to invalid recipient or trip ID");
+                return;
+            }
+
+            String senderName = fallback(text(map, "senderDisplayName"), "A trip participant");
+            createNotification(recipientUserId, NotificationType.NEW_MESSAGE,
+                    "New group message",
+                    senderName + " sent a message in your trip chat",
+                    "/dashboard/chat/" + tripId,
+                    metadata(map, "tripId", "messageId", "senderId", "senderDisplayName"));
         }
     }
 

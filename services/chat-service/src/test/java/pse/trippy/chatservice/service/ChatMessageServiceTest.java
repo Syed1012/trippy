@@ -10,6 +10,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import pse.trippy.chatservice.client.TripServiceClient;
+import pse.trippy.chatservice.config.ChatEventRabbitConfig;
 import pse.trippy.chatservice.dto.response.ChatMessageResponse;
 import pse.trippy.chatservice.dto.response.MessageHistoryResponse;
 import pse.trippy.chatservice.model.entity.ChatMessage;
@@ -28,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ChatMessageService")
@@ -47,6 +51,12 @@ class ChatMessageServiceTest {
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+
+    @Mock
+    private RabbitTemplate rabbitTemplate;
+
+    @Mock
+    private TripServiceClient tripServiceClient;
 
     @InjectMocks
     private ChatMessageService chatMessageService;
@@ -69,6 +79,9 @@ class ChatMessageServiceTest {
             return m;
         });
         when(messageAttachmentRepository.findByMessageId(any())).thenReturn(Collections.emptyList());
+        UUID recipientId = UUID.randomUUID();
+        when(tripServiceClient.getAcceptedParticipantIds(tripId, senderId))
+            .thenReturn(List.of(senderId, recipientId));
 
         ChatMessageResponse response = chatMessageService.sendMessage(
                 tripId, senderId, "Alice", content, MessageType.TEXT);
@@ -92,6 +105,10 @@ class ChatMessageServiceTest {
         verify(messagingTemplate).convertAndSend(
                 eq("/topic/trips." + tripId + ".messages"),
                 any(ChatMessageResponse.class));
+        verify(rabbitTemplate).convertAndSend(
+            eq(ChatEventRabbitConfig.TRIP_EXCHANGE),
+            eq(ChatEventRabbitConfig.CHAT_MESSAGE_ROUTING_KEY),
+            any(Object.class));
     }
 
     @Test
@@ -115,6 +132,27 @@ class ChatMessageServiceTest {
                 tripId, senderId, "Bob", "secret", MessageType.TEXT);
 
         assertThat(response.getContent()).isEqualTo("This message was deleted");
+    }
+
+    @Test
+    @DisplayName("system messages do not create user notifications")
+    void systemMessagesDoNotCreateNotifications() {
+        UUID tripId = UUID.randomUUID();
+        UUID senderId = UUID.randomUUID();
+        ChatRoom room = ChatRoom.builder().id(UUID.randomUUID()).tripId(tripId).createdAt(Instant.now()).build();
+        when(chatRoomService.getOrCreateRoomByTripId(tripId)).thenReturn(room);
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
+            ChatMessage message = invocation.getArgument(0);
+            message.setId(UUID.randomUUID());
+            message.prePersist();
+            return message;
+        });
+        when(messageAttachmentRepository.findByMessageId(any())).thenReturn(Collections.emptyList());
+
+        chatMessageService.sendMessage(tripId, senderId, "System", "Alice joined", MessageType.SYSTEM);
+
+        verify(tripServiceClient, never()).getAcceptedParticipantIds(any(), any());
+        verify(rabbitTemplate, never()).convertAndSend(any(String.class), any(String.class), any(Object.class));
     }
 
     @Test

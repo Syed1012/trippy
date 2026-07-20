@@ -64,6 +64,7 @@ export default function NotificationsPage() {
     markRead,
     markAllRead,
     deleteNotification,
+    setNotifications,
   } = useNotifications();
 
   useEffect(() => {
@@ -124,8 +125,32 @@ export default function NotificationsPage() {
     }
   }
 
+  async function resolveInvitation(n: Notification, resolution: "Accepted" | "Declined") {
+    const tripId = n.metadata?.tripId as string;
+    if (!tripId) return;
+
+    setProcessingIds((prev) => new Set(prev).add(n.id));
+    try {
+      if (resolution === "Accepted") await participantsApi.accept(tripId);
+      else await participantsApi.decline(tripId);
+      setNotifications((prev) => prev.map((item) => item.id === n.id
+        ? { ...item, read: true, title: `Invitation ${resolution}`, metadata: { ...item.metadata, resolution } }
+        : item));
+      if (!n.read) await markRead(n.id);
+      addToast(`Invitation ${resolution.toLowerCase()}.`, "success");
+    } catch (err: unknown) {
+      addToast(err instanceof Error ? err.message : `Failed to ${resolution.toLowerCase()} invitation`, "error");
+    } finally {
+      setProcessingIds((prev) => { const next = new Set(prev); next.delete(n.id); return next; });
+    }
+  }
+
   function isJoinRequest(n: Notification) {
-    return n.type === "TRIP_INVITE" && n.title === "Join Request" && !!n.metadata?.requesterId;
+    return n.type === "TRIP_INVITE" && n.title === "Join Request" && !!n.metadata?.requesterId && !n.metadata?.resolution;
+  }
+
+  function isInviteNotification(n: Notification) {
+    return n.type === "TRIP_INVITE" && n.title === "Trip Invitation" && !!n.metadata?.tripId && !n.metadata?.resolution;
   }
 
   return (
@@ -210,6 +235,11 @@ export default function NotificationsPage() {
                       </div>
                       <p className="text-sm text-muted mt-0.5">{n.message}</p>
                       <p className="text-xs text-muted mt-1">{timeAgo(n.createdAt)}</p>
+                      {typeof n.metadata?.resolution === "string" && (
+                        <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-green-600">
+                          <UserCheck size={13} /> {n.metadata.resolution}
+                        </p>
+                      )}
                       {/* Approve / Reject actions for join requests */}
                       {isJoinRequest(n) && (
                         <div className="mt-2 flex items-center gap-2">
@@ -226,6 +256,24 @@ export default function NotificationsPage() {
                             className="inline-flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
                           >
                             <UserX size={13} /> Reject
+                          </button>
+                        </div>
+                      )}
+                      {isInviteNotification(n) && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); resolveInvitation(n, "Accepted"); }}
+                            disabled={processingIds.has(n.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-600 disabled:opacity-50"
+                          >
+                            <UserCheck size={13} /> Accept
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); resolveInvitation(n, "Declined"); }}
+                            disabled={processingIds.has(n.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:bg-shore-100 disabled:opacity-50"
+                          >
+                            <UserX size={13} /> Decline
                           </button>
                         </div>
                       )}

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -12,6 +13,8 @@ import pse.trippy.chatservice.dto.response.ChatMessageResponse;
 import pse.trippy.chatservice.dto.response.FileStorageResult;
 import pse.trippy.chatservice.dto.response.MessageAttachmentResponse;
 import pse.trippy.chatservice.dto.response.MessageHistoryResponse;
+import pse.trippy.chatservice.client.TripServiceClient;
+import pse.trippy.chatservice.config.ChatEventRabbitConfig;
 import pse.trippy.chatservice.model.entity.ChatMessage;
 import pse.trippy.chatservice.model.entity.ChatRoom;
 import pse.trippy.chatservice.model.entity.MessageAttachment;
@@ -22,6 +25,7 @@ import pse.trippy.chatservice.repository.MessageAttachmentRepository;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -37,6 +41,8 @@ public class ChatMessageService {
     private final ChatRoomService chatRoomService;
     private final FileStorageService fileStorageService;
     private final SimpMessagingTemplate messagingTemplate;
+        private final RabbitTemplate rabbitTemplate;
+        private final TripServiceClient tripServiceClient;
 
     /**
      * Persists a message and broadcasts it to the STOMP topic.
@@ -64,6 +70,7 @@ public class ChatMessageService {
         // Broadcast to STOMP subscribers
         messagingTemplate.convertAndSend(
                 "/topic/trips." + tripId + ".messages", response);
+        publishMessageNotifications(tripId, senderId, senderDisplayName, message);
 
         return response;
     }
@@ -135,9 +142,33 @@ public class ChatMessageService {
 
         messagingTemplate.convertAndSend(
                 "/topic/trips." + tripId + ".messages", response);
+        publishMessageNotifications(tripId, senderId, senderDisplayName, message);
 
         return response;
     }
+
+        private void publishMessageNotifications(UUID tripId, UUID senderId,
+                                                                                         String senderDisplayName, ChatMessage message) {
+                if (message.getMessageType() == MessageType.SYSTEM) {
+                        return;
+                }
+
+                for (UUID recipientId : tripServiceClient.getAcceptedParticipantIds(tripId, senderId)) {
+                        if (senderId.equals(recipientId)) {
+                                continue;
+                        }
+                        rabbitTemplate.convertAndSend(
+                                        ChatEventRabbitConfig.TRIP_EXCHANGE,
+                                        ChatEventRabbitConfig.CHAT_MESSAGE_ROUTING_KEY,
+                                        Map.of(
+                                                        "messageId", message.getId(),
+                                                        "tripId", tripId,
+                                                        "senderId", senderId,
+                                                        "senderDisplayName", senderDisplayName,
+                                                        "recipientUserId", recipientId,
+                                                        "messageType", message.getMessageType().name()));
+                }
+        }
 
     private boolean isImageContentType(String contentType) {
         return contentType != null && contentType.startsWith("image/");
