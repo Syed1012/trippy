@@ -2,7 +2,7 @@
   "users": [
     {
       "name": "trippy_mq",
-      "password": "CHANGE_ME_RABBITMQ_PASSWORD_789!",
+      "password": "your_rabbitmq_password",
       "tags": "administrator"
     }
   ],

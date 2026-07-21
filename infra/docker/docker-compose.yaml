@@ -1,13 +1,5 @@
 # =============================================================================
-# Trippy Platform - Production-Ready Infrastructure Docker Compose
-# =============================================================================
-# Services: PostgreSQL, Redis, RabbitMQ
-#
-# Usage:
-#   cp .env.example .env  # Then edit .env with your values
-#   docker-compose up -d
-#   docker-compose logs -f
-#
+# Trippy Platform - Full Stack Docker Compose (Infra + Microservices + Frontend)
 # =============================================================================
 
 name: trippy
@@ -24,7 +16,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
       POSTGRES_USER: ${POSTGRES_USER:-trippy_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
       PGDATA: /var/lib/postgresql/data/pgdata
 
@@ -33,56 +25,19 @@ services:
       - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
 
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
 
     networks:
       - trippy-network
 
-    command: >
-      postgres 
-      -c max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
-      -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
-      -c effective_cache_size=1GB
-      -c maintenance_work_mem=128MB
-      -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
-      -c default_statistics_target=100
-      -c random_page_cost=1.1
-      -c effective_io_concurrency=200
-      -c work_mem=4MB
-      -c min_wal_size=1GB
-      -c max_wal_size=4GB
-      -c max_worker_processes=4
-      -c max_parallel_workers_per_gather=2
-      -c max_parallel_workers=4
-      -c max_parallel_maintenance_workers=2
-      -c log_statement=mod
-      -c log_duration=on
-      -c log_min_duration_statement=1000
-
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trippy_admin} -d ${POSTGRES_DB:-trippy_db}"]
-      interval: ${HEALTHCHECK_INTERVAL:-30s}
-      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
-      retries: ${HEALTHCHECK_RETRIES:-3}
-      start_period: ${HEALTHCHECK_START_PERIOD:-60s}
-
-    deploy:
-      resources:
-        limits:
-          cpus: 2
-          memory: 2g
-        reservations:
-          memory: 1g
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "${LOG_MAX_SIZE:-50m}"
-        max-file: "${LOG_MAX_FILE:-5}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ===========================================================================
-  # REDIS - Caching, Session Store, Rate Limiting, Token Blacklist
+  # REDIS - Caching, Session Store
   # ===========================================================================
   redis:
     image: redis:7-alpine
@@ -91,16 +46,10 @@ services:
 
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --requirepass ${REDIS_PASSWORD}
       --maxmemory ${REDIS_MAXMEMORY:-512mb}
       --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-allkeys-lru}
       --appendonly yes
-      --appendfsync everysec
-      --tcp-keepalive 300
-      --timeout 0
-      --tcp-backlog 511
-      --loglevel notice
-      --databases 16
 
     volumes:
       - redis_data:/data
@@ -113,27 +62,12 @@ services:
 
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: ${HEALTHCHECK_INTERVAL:-30s}
-      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
-      retries: ${HEALTHCHECK_RETRIES:-3}
-      start_period: ${HEALTHCHECK_START_PERIOD:-60s}
-
-    deploy:
-      resources:
-        limits:
-          cpus: 1
-          memory: 1g
-        reservations:
-          memory: 512m
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ===========================================================================
-  # RABBITMQ - Message Broker for Async Communication
+  # RABBITMQ - Message Broker
   # ===========================================================================
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -143,9 +77,8 @@ services:
 
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-trippy}
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit log_levels [{connection,error},{default,info}] disk_free_limit 2147483648"
 
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -154,86 +87,269 @@ services:
       - ./init-scripts/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
 
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"           # AMQP
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"  # Management UI
-      - "61613:61613"                            # STOMP (for WebSocket)
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "61613:61613"
 
     networks:
       - trippy-network
 
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      interval: ${HEALTHCHECK_INTERVAL:-30s}
-      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
-      retries: ${HEALTHCHECK_RETRIES:-3}
-      start_period: ${HEALTHCHECK_START_PERIOD:-60s}
-
-    deploy:
-      resources:
-        limits:
-          cpus: 1
-          memory: 1g
-        reservations:
-          memory: 512m
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "${LOG_MAX_SIZE:-50m}"
-        max-file: "${LOG_MAX_FILE:-5}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ===========================================================================
-  # SONARQUBE - Code Quality Analysis
-  # Disabled: not needed for the current local stack.
+  # MICROSERVICES
   # ===========================================================================
-  # sonarqube:
-  #   image: sonarqube:10.6-community
-  #   container_name: trippy-sonarqube
-  #   restart: unless-stopped
+  user-service:
+    build:
+      context: ../..
+      dockerfile: services/user-service/Dockerfile
+    container_name: trippy-user-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
+  trip-service:
+    build:
+      context: ../..
+      dockerfile: services/trip-service/Dockerfile
+    container_name: trippy-trip-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   environment:
-  #     SONAR_JDBC_URL: ${SONARQUBE_JDBC_URL:-jdbc:postgresql://postgres:5432/sonarqube_db}
-  #     SONAR_JDBC_USERNAME: ${SONARQUBE_JDBC_USERNAME:-sonar_user}
-  #     SONAR_JDBC_PASSWORD: ${SONARQUBE_JDBC_PASSWORD:?SONARQUBE_JDBC_PASSWORD is required}
-  #     SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: ${SONAR_ES_BOOTSTRAP_CHECKS_DISABLE:-true}
+  chat-service:
+    build:
+      context: ../..
+      dockerfile: services/chat-service/Dockerfile
+    container_name: trippy-chat-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   volumes:
-  #     - sonarqube_data:/opt/sonarqube/data
-  #     - sonarqube_extensions:/opt/sonarqube/extensions
-  #     - sonarqube_logs:/opt/sonarqube/logs
+  ai-service:
+    build:
+      context: ../..
+      dockerfile: services/ai-service/Dockerfile
+    container_name: trippy-ai-service
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   ports:
-  #     - "${SONARQUBE_PORT:-9000}:9000"
+  notification-service:
+    build:
+      context: ../..
+      dockerfile: services/notification-service/Dockerfile
+    container_name: trippy-notification-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   networks:
-  #     - trippy-network
+  payment-service:
+    build:
+      context: ../..
+      dockerfile: services/payment-service/Dockerfile
+    container_name: trippy-payment-service
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-trippy_db}
+      DB_USERNAME: ${POSTGRES_USER:-trippy_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      MQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-trippy_mq}
+      MQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+      STRIPE_API_KEY: ${STRIPE_API_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - trippy-network
 
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"]
-  #     interval: ${HEALTHCHECK_INTERVAL:-30s}
-  #     timeout: ${HEALTHCHECK_TIMEOUT:-10s}
-  #     retries: 10
-  #     start_period: 120s
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: trippy-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_CONFIG_IMPORT: ""
+      USER_SERVICE_URL: http://user-service:8081
+      TRIP_SERVICE_URL: http://trip-service:8082
+      CHAT_SERVICE_URL: http://chat-service:8083
+      AI_SERVICE_URL: http://ai-service:8084
+      NOTIFICATION_SERVICE_URL: http://notification-service:8085
+      PAYMENT_SERVICE_URL: http://payment-service:8086
+      CHAT_SERVICE_WS_URL: ws://chat-service:8083
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      - user-service
+      - trip-service
+      - chat-service
+      - ai-service
+      - notification-service
+      - payment-service
+    networks:
+      - trippy-network
 
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: ${SONARQUBE_CPU_LIMIT:-2}
-  #         memory: ${SONARQUBE_MEMORY_LIMIT:-4g}
-  #       reservations:
-  #         memory: ${SONARQUBE_MEMORY_RESERVATION:-2g}
-
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "${LOG_MAX_SIZE:-50m}"
-  #       max-file: "${LOG_MAX_FILE:-5}"
-
-
+  # ===========================================================================
+  # FRONTEND
+  # ===========================================================================
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+    container_name: trippy-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - api-gateway
+    networks:
+      - trippy-network
 
 # =============================================================================
 # NETWORKS
@@ -248,7 +364,7 @@ networks:
         - subnet: ${NETWORK_SUBNET:-172.28.0.0/16}
 
 # =============================================================================
-# VOLUMES - Persistent Data Storage
+# VOLUMES
 # =============================================================================
 volumes:
   postgres_data:
@@ -262,15 +378,3 @@ volumes:
   rabbitmq_data:
     driver: local
     name: trippy-rabbitmq-data
-
-  # sonarqube_data:
-  #   driver: local
-  #   name: trippy-sonarqube-data
-
-  # sonarqube_extensions:
-  #   driver: local
-  #   name: trippy-sonarqube-extensions
-
-  # sonarqube_logs:
-  #   driver: local
-  #   name: trippy-sonarqube-logs
