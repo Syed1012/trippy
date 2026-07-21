@@ -8,7 +8,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import pse.trippy.userservice.model.enums.BudgetTier;
 import pse.trippy.userservice.model.enums.PreferredWeather;
-import pse.trippy.userservice.model.enums.TripType;
 
 import java.util.UUID;
 
@@ -28,7 +27,8 @@ public class SaveTripPreferenceRequest {
     @NotNull(message = "tripId is required")
     private UUID tripId;
 
-    private TripType tripType;
+    /** Comma-separated {@code TripType} names, e.g. "BEACH,CITY" — multiple allowed. */
+    private String tripType;
 
     private BudgetTier budgetTier;
 

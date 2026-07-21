@@ -20,7 +20,6 @@ import {
   Globe,
   Utensils,
   MapPin,
-  Users,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
@@ -58,7 +57,7 @@ const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
 
-const COMPANION_OPTIONS = [NO_PREFERENCE_LABEL, "Solo", "Couple", "Friends", "Family"];
+const VISIBILITY_OPTIONS = ["Public", "Private"];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -123,7 +122,7 @@ export default function LandingPage() {
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
-  const [companionPreference, setCompanionPreference] = useState("");
+  const [tripVisibility, setTripVisibility] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
@@ -253,7 +252,7 @@ export default function LandingPage() {
       heroBudget ||
       dietPreference ||
       pacePreference ||
-      companionPreference,
+      tripVisibility,
   );
 
   const ticketReady = Boolean(
@@ -351,27 +350,20 @@ export default function LandingPage() {
     }
 
     setDateError("");
-    let peopleCount = people;
-    if (companionPreference === "Solo") {
-      peopleCount = 1;
-    } else if (companionPreference === "Couple") {
-      peopleCount = 2;
-    } else if (companionPreference === "Friends" || companionPreference === "Family") {
-      peopleCount = 4;
-    }
 
     setAiBuilderRequest({
       requestId: nextRequestId(),
       city: trimmedCity,
       startDate: start,
       endDate: normalizedEnd,
-      people: peopleCount,
+      people,
       budget: budget || undefined,
       filters,
       diet: diet || undefined,
       preferences: preferences || undefined,
       autoGenerate,
-      travelerType: companionPreference || undefined,
+      // Default to PUBLIC when nothing is chosen.
+      visibility: tripVisibility === "Private" ? "PRIVATE" : "PUBLIC",
     });
     setShowAIBuilder(true);
   };
@@ -574,12 +566,12 @@ export default function LandingPage() {
                   onChange={setPacePreference}
                 />
                 <PlannerChoiceGroup
-                  icon={<Users size={12} />}
-                  label="Group"
-                  value={companionPreference}
-                  selected={Boolean(companionPreference)}
-                  options={COMPANION_OPTIONS}
-                  onChange={setCompanionPreference}
+                  icon={<Globe size={12} />}
+                  label="Visibility"
+                  value={tripVisibility || "Public"}
+                  selected={Boolean(tripVisibility)}
+                  options={VISIBILITY_OPTIONS}
+                  onChange={setTripVisibility}
                 />
               </motion.div>
 

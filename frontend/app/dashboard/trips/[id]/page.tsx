@@ -2852,7 +2852,7 @@ function EditTripModal({
   const [status, setStatus] = useState(trip.status);
   const [visibility, setVisibility] = useState(trip.visibility);
   const [saving, setSaving] = useState(false);
-  const [tripType, setTripType] = useState<TripType | null>(null);
+  const [tripType, setTripType] = useState<TripType[]>([]);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
   const [budgetTier, setBudgetTier] = useState<BudgetTier | null>(null);
   const [preferenceNotes, setPreferenceNotes] = useState("");
@@ -2865,7 +2865,7 @@ function EditTripModal({
       .getForTrip(trip.tripId)
       .then((pref) => {
         if (cancelled) return;
-        setTripType(pref.tripType ?? null);
+        setTripType(pref.tripType ? (pref.tripType.split(",") as TripType[]) : []);
         setPreferredWeather(pref.preferredWeather ?? null);
         setBudgetTier(pref.budgetTier ?? null);
         setPreferenceNotes(pref.notes ?? "");
@@ -2886,11 +2886,11 @@ function EditTripModal({
     // Upsert preferences when the user has any set, or to clear preferences
     // that previously existed. Non-fatal: never block the trip update.
     const hasAnyPreference =
-      Boolean(tripType) || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
+      tripType.length > 0 || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
     if (hasAnyPreference || prefsExisted) {
       try {
         await preferencesApi.save(trip.tripId, {
-          tripType: tripType ?? undefined,
+          tripType: tripType.length ? tripType.join(",") : undefined,
           preferredWeather: preferredWeather ?? undefined,
           budgetTier: budgetTier ?? undefined,
           notes: preferenceNotes.trim() || undefined,
@@ -3065,18 +3065,22 @@ function EditTripModal({
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
                 Trip type{" "}
                 <span className="font-normal normal-case text-muted/60">
-                  · optional
+                  · optional, pick as many as fit
                 </span>
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {TRIP_TYPE_OPTIONS.map((opt) => {
                   const OptIcon = opt.icon;
-                  const active = tripType === opt.key;
+                  const active = tripType.includes(opt.key);
                   return (
                     <button
                       key={opt.key}
                       type="button"
-                      onClick={() => setTripType(active ? null : opt.key)}
+                      onClick={() =>
+                        setTripType(
+                          active ? tripType.filter((t) => t !== opt.key) : [...tripType, opt.key]
+                        )
+                      }
                       className={cn(
                         "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-center transition-all cursor-pointer",
                         active

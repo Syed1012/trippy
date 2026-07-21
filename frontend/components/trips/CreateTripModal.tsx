@@ -184,7 +184,7 @@ export default function CreateTripModal({
   const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [isPackage, setIsPackage] = useState(false);
   const [budget, setBudget] = useState<Budget>("MODERATE");
-  const [tripType, setTripType] = useState<TripType | null>(null);
+  const [tripType, setTripType] = useState<TripType[]>([]);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
   const [preferenceNotes, setPreferenceNotes] = useState("");
   const [budgetTier, setBudgetTier] = useState<Budget | undefined>(undefined);
@@ -204,7 +204,7 @@ export default function CreateTripModal({
     if (initialValues.destination) setDestination(formatDestinationInput(initialValues.destination));
     if (initialValues.startDate) setStartDate(initialValues.startDate);
     if (initialValues.endDate) setEndDate(initialValues.endDate);
-    if (initialValues.tripType) setTripType(initialValues.tripType);
+    if (initialValues.tripType) setTripType([initialValues.tripType]);
     if (initialValues.budgetTier) setBudgetTier(initialValues.budgetTier);
     if (initialValues.visibility) setVisibility(initialValues.visibility);
     if (initialValues.preferenceNotes) setPreferenceNotes(initialValues.preferenceNotes);
@@ -221,7 +221,7 @@ export default function CreateTripModal({
         setVisibility("PRIVATE");
         setIsPackage(false);
         setBudget("MODERATE");
-        setTripType(null);
+        setTripType([]);
         setPreferredWeather(null);
         setPreferenceNotes("");
         setBudgetTier(undefined);
@@ -259,7 +259,7 @@ export default function CreateTripModal({
           ...(isPackage ? { budgetLevel: budget } : {}),
         },
         {
-          tripType: tripType ?? undefined,
+          tripType: tripType.length ? tripType.join(",") : undefined,
           budgetTier,
           preferredWeather: preferredWeather ?? undefined,
           notes: preferenceNotes.trim() || undefined,
@@ -824,19 +824,23 @@ export default function CreateTripModal({
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Trip type{" "}
                         <span className="font-normal normal-case text-muted/60">
-                          · optional
+                          · optional, pick as many as fit
                         </span>
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         {tripTypeOptions.map((opt) => {
                           const OptIcon = opt.icon;
-                          const active = tripType === opt.key;
+                          const active = tripType.includes(opt.key);
                           return (
                             <button
                               key={opt.key}
                               type="button"
                               onClick={() =>
-                                setTripType(active ? null : opt.key)
+                                setTripType(
+                                  active
+                                    ? tripType.filter((t) => t !== opt.key)
+                                    : [...tripType, opt.key]
+                                )
                               }
                               className={cn(
                                 "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all duration-200 cursor-pointer",

@@ -257,6 +257,7 @@ export interface AIBuilderRequest {
   customNotes?: string;
   autoGenerate?: boolean;
   travelerType?: string;
+  visibility?: "PRIVATE" | "PUBLIC";
 }
 
 interface AITripBuilderModalProps {
@@ -446,7 +447,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [results, setResults] = useState<GeneratedTrip[]>([]);
   const [alsoExplore, setAlsoExplore] = useState<DestinationSuggestionItem[]>([]);
   const [savedTrips, setSavedTrips] = useState<Set<string>>(new Set());
-  const [saveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
+  const [saveVisibility, setSaveVisibility] = useState<"PRIVATE" | "PUBLIC">("PUBLIC");
   const [, setIsSaving] = useState(false);
   const [, setSaveError] = useState("");
 
@@ -501,6 +502,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       setPreferences(initialRequest.preferences || "");
       setCustomPreference(initialRequest.customNotes || "");
       setTravelerType(initialRequest.travelerType || "");
+      setSaveVisibility(initialRequest.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC");
       setShowAdvanced(Boolean(initialRequest.budget || initialRequest.diet || initialRequest.preferences || initialRequest.customNotes));
 
       if (

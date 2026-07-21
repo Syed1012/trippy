@@ -20,7 +20,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import pse.trippy.userservice.model.enums.BudgetTier;
 import pse.trippy.userservice.model.enums.PreferredWeather;
-import pse.trippy.userservice.model.enums.TripType;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -63,9 +62,9 @@ public class TripPreference {
     @Column(name = "trip_id", nullable = false, updatable = false)
     private UUID tripId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "trip_type", length = 30)
-    private TripType tripType;
+    /** Comma-separated {@code TripType} names — a user may want more than one vibe (e.g. "BEACH,CITY"). */
+    @Column(name = "trip_type", length = 100)
+    private String tripType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "budget_tier", length = 20)

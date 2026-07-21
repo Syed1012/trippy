@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS user_schema.trip_preferences (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
     trip_id UUID NOT NULL,
-    trip_type VARCHAR(30),
+    trip_type VARCHAR(100),
     budget_tier VARCHAR(20),
     preferred_weather VARCHAR(20),
     notes VARCHAR(500),

@@ -654,7 +654,8 @@ export type PreferredWeather = "WARM" | "MILD" | "COLD" | "ANY";
 
 /** Preference fields captured at trip creation and used by the AI service. */
 export interface TripPreferenceInput {
-  tripType?: TripType;
+  /** Comma-separated TripType values — a user may pick more than one vibe, e.g. "BEACH,CITY". */
+  tripType?: string;
   budgetTier?: BudgetTier;
   preferredWeather?: PreferredWeather;
   notes?: string;
