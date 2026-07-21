@@ -21,6 +21,10 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
 
+function isNotificationServiceUnavailable(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 503;
+}
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { addToast } = useToast();
@@ -39,6 +43,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setUnreadCount(data.count);
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
+      if (isNotificationServiceUnavailable(err)) {
+        setUnreadCount(0);
+        return;
+      }
       console.error("Failed to fetch unread count:", err);
     }
   }, [isAuthenticated, isAuthLoading]);
@@ -53,6 +61,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       await fetchUnreadCount();
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
+      if (isNotificationServiceUnavailable(err)) {
+        setNotifications([]);
+        setTotalPages(0);
+        setUnreadCount(0);
+        return;
+      }
       console.error("Failed to fetch notifications:", err);
     } finally {
       setLoading(false);

@@ -39,10 +39,10 @@ spring:
   ai:
     openai:
       api-key: ${GROQ_API_KEY}
-      base-url: https://api.groq.com/openai
+      base-url: ${GROQ_BASE_URL:https://api.groq.com/openai}
       chat:
         options:
-          model: llama-3.3-70b-versatile
+          model: ${GROQ_MODEL:llama-3.3-70b-versatile}
           temperature: 0.7
           max-tokens: 4096
   jackson:
@@ -53,6 +53,8 @@ trippy:
   ai:
     groq:
       api-key1: ${GROQ_API_KEY1:}
+      base-url: ${GROQ_BASE_URL:https://api.groq.com/openai}
+      model: ${GROQ_MODEL:llama-3.3-70b-versatile}
     opencode:
       api-key: ${Opencode_API_KEY:}
       base-url: ${OPENCODE_BASE_URL:https://opencode.ai/zen/go/v1}
