@@ -3671,6 +3671,20 @@ export default function TripDetailPage() {
   }
 
   // Build the trip-service payload from the working itinerary days.
+  // Backend expects strict "HH:mm". AI suggestions / typos can produce "0930",
+  // "9:30", "930" etc. — normalize or drop rather than sending garbage that 400s.
+  function normalizeTime(t?: string): string | undefined {
+    if (!t) return undefined;
+    const s = t.trim();
+    let m = /^(\d{1,2}):(\d{2})$/.exec(s);
+    if (!m) m = /^(\d{2})(\d{2})$/.exec(s);
+    if (!m) return undefined;
+    const h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (h > 23 || min > 59) return undefined;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
   function buildItineraryPayload(days: DayPlan[]): UpdateItineraryRequest {
     return {
       dayPlans: days.map((day) => ({
@@ -3681,8 +3695,8 @@ export default function TripDetailPage() {
           ...day.activities.map((a) => {
             // Parse time "09:00 - 11:00" into startTime/endTime
             const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
-            const startTime = timeParts[0] || a.startTime || undefined;
-            const endTime = timeParts[1] || a.endTime || undefined;
+            const startTime = normalizeTime(timeParts[0] || a.startTime);
+            const endTime = normalizeTime(timeParts[1] || a.endTime);
             // Map frontend "default" category to backend "OTHER"
             const rawCat = (a.category ?? "OTHER").toUpperCase();
             const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
@@ -4274,9 +4288,9 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <GlassCard className="!p-0 overflow-hidden">
+          <GlassCard className="!p-0 overflow-visible">
             <details className="group">
-              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none rounded-[inherit] [&::-webkit-details-marker]:hidden">
                 <div className="flex items-center gap-2">
                   <Users size={15} className="text-accent-500" />
                   <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
