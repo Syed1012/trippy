@@ -167,7 +167,7 @@ Trip ──┬── 0..* Participant        (role: OWNER · EDITOR · VIEWER ·
                                     └── 0..* DayPlanVote
 ```
 
-Each `Activity` carries a `location`, a `startTime`/`endTime` window, an `ActivityCategory`, and an `estimatedCost` + `currency` — enough to answer "what are we doing, where, when, and how much" without a second lookup. The full field-level diagram lives in [`architecture/mo-v2.mmd`](../../architecture/mo-v2.mmd).
+Each `Activity` carries a `location`, a `startTime`/`endTime` window, an `ActivityCategory`, and an `estimatedCost` + `currency` — enough to answer "what are we doing, where, when, and how much" without a second lookup.
 
 ## Running it
 
@@ -204,5 +204,3 @@ The service reads its database and RabbitMQ credentials from `infra/docker/.env`
 ## Related docs
 
 - [`contracts/tripServiceContract.yaml`](../../contracts/tripServiceContract.yaml) — the OpenAPI contract
-- [`architecture/mo-v2.mmd`](../../architecture/mo-v2.mmd) — full cross-service domain model
-- [Root README](../../README.md) — how `trip-service` fits into the whole Trippy platform

@@ -16,7 +16,10 @@
     <name>Trip Service</name>
     <description>Trip Service - Trip CRUD, Itinerary, Participants, Invitations</description>
 
-
+    <properties>
+        <org.mapstruct.version>1.5.5.Final</org.mapstruct.version>
+    </properties>
+    
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -99,6 +102,19 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${org.mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
             </plugin>
         </plugins>
     </build>
