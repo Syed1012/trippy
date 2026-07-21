@@ -257,7 +257,6 @@ export interface AIBuilderRequest {
   customNotes?: string;
   autoGenerate?: boolean;
   travelerType?: string;
-  visibility?: "PRIVATE" | "PUBLIC";
 }
 
 interface AITripBuilderModalProps {
@@ -447,7 +446,7 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
   const [results, setResults] = useState<GeneratedTrip[]>([]);
   const [alsoExplore, setAlsoExplore] = useState<DestinationSuggestionItem[]>([]);
   const [savedTrips, setSavedTrips] = useState<Set<string>>(new Set());
-  const [saveVisibility, setSaveVisibility] = useState<"PRIVATE" | "PUBLIC">("PUBLIC");
+  const [saveVisibility] = useState<"PRIVATE" | "PUBLIC">("PRIVATE");
   const [, setIsSaving] = useState(false);
   const [, setSaveError] = useState("");
 
@@ -502,7 +501,6 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       setPreferences(initialRequest.preferences || "");
       setCustomPreference(initialRequest.customNotes || "");
       setTravelerType(initialRequest.travelerType || "");
-      setSaveVisibility(initialRequest.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC");
       setShowAdvanced(Boolean(initialRequest.budget || initialRequest.diet || initialRequest.preferences || initialRequest.customNotes));
 
       if (
@@ -671,7 +669,16 @@ export default function AITripBuilderModal({ open, onClose, initialRequest }: AI
       setSavedTrips((prev) => new Set(prev).add(trip.title));
       addToast("Trip saved to your dashboard!", "success");
       router.push(`/dashboard/trips/${tripSlug(created.title, created.tripId)}?from=ai`);
-    } catch (err) {
+    } catch (err: unknown) {
+      const code = err instanceof ApiError ? err.body?.error ?? err.body?.message : (err as Error)?.message;
+      if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
+        addToast(
+          "You've reached the free plan limit. Upgrade to continue creating trips.",
+          "warning",
+        );
+        router.push("/dashboard/payments?upgradeRequired=true");
+        return;
+      }
       const message = err instanceof Error ? err.message : "Failed to save trip.";
       setSaveError(message);
       addToast(message, "error");

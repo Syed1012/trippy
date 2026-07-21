@@ -20,6 +20,7 @@ import {
   Globe,
   Utensils,
   MapPin,
+  Users,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
@@ -57,7 +58,7 @@ const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
 
-const VISIBILITY_OPTIONS = ["Public", "Private"];
+const COMPANION_OPTIONS = [NO_PREFERENCE_LABEL, "Solo", "Couple", "Friends", "Family"];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -122,7 +123,7 @@ export default function LandingPage() {
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
-  const [tripVisibility, setTripVisibility] = useState("");
+  const [companionPreference, setCompanionPreference] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
@@ -211,39 +212,6 @@ export default function LandingPage() {
     }
   }
 
-  async function checkLimitThenOpenAI() {
-    try {
-      // Call your existing backend trip creation API
-      await tripsApi.create({
-        title: searchQuery || "AI Trip",
-        destination: searchQuery || "AI Trip",
-        startDate,
-        endDate,
-        visibility: "PRIVATE",
-      });
-
-      // If allowed → open AI builder
-      openAIBuilder({ autoGenerate: true });
-
-    } catch (err: any) {
-      const code =
-        err instanceof ApiError
-          ? err.body?.error ?? err.body?.message
-          : err?.message;
-
-      if (code === "FREE_PLAN_LIMIT_EXCEEDED") {
-        addToast(
-          "You've reached the free plan limit. Upgrade to continue creating trips.",
-          "warning"
-        );
-        router.push("/dashboard/payments?upgradeRequired=true");
-        return;
-      }
-
-      addToast("Failed to start AI planning", "error");
-    }
-  }
-
 
   const hasTicketData = Boolean(
     searchQuery.trim() ||
@@ -252,7 +220,7 @@ export default function LandingPage() {
       heroBudget ||
       dietPreference ||
       pacePreference ||
-      tripVisibility,
+      companionPreference,
   );
 
   const ticketReady = Boolean(
@@ -350,20 +318,27 @@ export default function LandingPage() {
     }
 
     setDateError("");
+    let peopleCount = people;
+    if (companionPreference === "Solo") {
+      peopleCount = 1;
+    } else if (companionPreference === "Couple") {
+      peopleCount = 2;
+    } else if (companionPreference === "Friends" || companionPreference === "Family") {
+      peopleCount = 4;
+    }
 
     setAiBuilderRequest({
       requestId: nextRequestId(),
       city: trimmedCity,
       startDate: start,
       endDate: normalizedEnd,
-      people,
+      people: peopleCount,
       budget: budget || undefined,
       filters,
       diet: diet || undefined,
       preferences: preferences || undefined,
       autoGenerate,
-      // Default to PUBLIC when nothing is chosen.
-      visibility: tripVisibility === "Private" ? "PRIVATE" : "PUBLIC",
+      travelerType: companionPreference || undefined,
     });
     setShowAIBuilder(true);
   };
@@ -508,7 +483,7 @@ export default function LandingPage() {
                   <Button
                     type="button"
                     size="lg"
-                    onClick={checkLimitThenOpenAI}
+                    onClick={() => openAIBuilder({ autoGenerate: true })}
                     className="group cta-sheen relative min-h-16 overflow-hidden !rounded-[1.05rem] !border-transparent !bg-[linear-gradient(180deg,#e58157_0%,#d5653e_52%,#bd5537_100%)] px-5 !text-white ring-1 ring-inset ring-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_2px_5px_-1px_rgba(122,58,34,0.28),0_18px_36px_-20px_rgba(191,85,55,0.9)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-[1.05] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.38),0_26px_50px_-22px_rgba(213,101,62,0.98)] active:translate-y-0 active:brightness-100"
                   >
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-inset ring-white/20">
@@ -566,12 +541,12 @@ export default function LandingPage() {
                   onChange={setPacePreference}
                 />
                 <PlannerChoiceGroup
-                  icon={<Globe size={12} />}
-                  label="Visibility"
-                  value={tripVisibility || "Public"}
-                  selected={Boolean(tripVisibility)}
-                  options={VISIBILITY_OPTIONS}
-                  onChange={setTripVisibility}
+                  icon={<Users size={12} />}
+                  label="Group"
+                  value={companionPreference}
+                  selected={Boolean(companionPreference)}
+                  options={COMPANION_OPTIONS}
+                  onChange={setCompanionPreference}
                 />
               </motion.div>
 

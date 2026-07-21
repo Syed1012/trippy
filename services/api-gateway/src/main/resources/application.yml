@@ -3,6 +3,21 @@ server:
   servlet:
     context-path: /
 
+resilience4j:
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 30s
+        cancel-running-future: true
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
+
 spring:
   config:
     import: "optional:file:../../infra/docker/.env[.properties]"
@@ -15,7 +30,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:CHANGE_ME_REDIS_PASSWORD_456!}
+      password: ${REDIS_PASSWORD:}
   cloud:
     gateway:
       # Add Resilience4j configuration
@@ -47,7 +62,7 @@ spring:
       routes:
         # User Service Routes
         - id: auth-route
-          uri: http://localhost:8081
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/auth/**
           filters:
@@ -57,7 +72,7 @@ spring:
                 fallbackUri: forward:/fallback/user-service
 
         - id: users-route
-          uri: http://localhost:8081
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/users/**
           filters:
@@ -67,7 +82,7 @@ spring:
                 fallbackUri: forward:/fallback/user-service
 
         - id: wellknown-route
-          uri: http://localhost:8081
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/.well-known/**
 
@@ -75,7 +90,7 @@ spring:
 
         # Must be before trips-route so the more specific path matches first
         - id: trips-chat-route
-          uri: http://localhost:8083
+          uri: ${CHAT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/trips/{tripId}/chat/**
           filters:
@@ -87,7 +102,7 @@ spring:
         # Trip Service Routes
         # Public discover route must be before the general authenticated route
         - id: trips-discover-route
-          uri: http://localhost:8082
+          uri: ${TRIP_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/trips/discover
             - Method=GET
@@ -98,7 +113,7 @@ spring:
                 fallbackUri: forward:/fallback/trip-service
 
         - id: trips-route
-          uri: http://localhost:8082
+          uri: ${TRIP_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/trips/**
           filters:
@@ -109,7 +124,7 @@ spring:
 
         # Chat Service Routes (REST) - /chats/**
         - id: chats-route
-          uri: http://localhost:8083
+          uri: ${CHAT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/chats/**
           filters:
@@ -121,7 +136,7 @@ spring:
         # Chat Moderation (ADMIN-only) - /admin/chat/**
         # Ban/mute users, soft-delete messages. Role enforcement happens in chat-service.
         - id: admin-chat-route
-          uri: http://localhost:8083
+          uri: ${CHAT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/admin/chat/**
           filters:
@@ -132,20 +147,20 @@ spring:
 
         # Native WebSocket transport for SockJS/STOMP upgrades
         - id: websocket-upgrade-route
-          uri: ws://localhost:8083
+          uri: ${CHAT_SERVICE_WS_URL:ws://localhost:8083}
           predicates:
             - Path=/ws/**
             - Header=Upgrade, websocket
 
         # SockJS discovery and HTTP fallback transports
         - id: websocket-route
-          uri: http://localhost:8083
+          uri: ${CHAT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/ws/**
 
         # AI Service Routes
         - id: ai-route
-          uri: http://localhost:8084
+          uri: ${AI_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/ai/**
           filters:
@@ -156,7 +171,7 @@ spring:
 
         # Notification Service Routes
         - id: notification-route
-          uri: http://localhost:8085
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/notifications/**
           filters:
@@ -167,7 +182,7 @@ spring:
 
         # Payment Service Routes
         - id: payment-route
-          uri: http://localhost:8086
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/payments/**
           filters:
@@ -178,42 +193,42 @@ spring:
 
         # Actuator Routes for Downstream Services
         - id: user-service-actuator
-          uri: http://localhost:8081
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/services/user-service/actuator/**
           filters:
             - StripPrefix=2
 
         - id: trip-service-actuator
-          uri: http://localhost:8082
+          uri: ${TRIP_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/services/trip-service/actuator/**
           filters:
             - StripPrefix=2
 
         - id: chat-service-actuator
-          uri: http://localhost:8083
+          uri: ${CHAT_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/services/chat-service/actuator/**
           filters:
             - StripPrefix=2
 
         - id: ai-service-actuator
-          uri: http://localhost:8084
+          uri: ${AI_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/services/ai-service/actuator/**
           filters:
             - StripPrefix=2
 
         - id: notification-service-actuator
-          uri: http://localhost:8085
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/services/notification-service/actuator/**
           filters:
             - StripPrefix=2
 
         - id: payment-service-actuator
-          uri: http://localhost:8086
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/services/payment-service/actuator/**
           filters:
@@ -221,14 +236,14 @@ spring:
 
 trippy:
   gateway:
-    jwks-uri: ${JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    jwks-uri: ${JWKS_URI:${USER_SERVICE_URL:http://localhost:8081}/.well-known/jwks.json}
     downstream-services:
-      user-service: http://localhost:8081
-      trip-service: http://localhost:8082
-      chat-service: http://localhost:8083
-      ai-service: http://localhost:8084
-      notification-service: http://localhost:8085
-      payment-service: http://localhost:8086
+      user-service: ${USER_SERVICE_URL:http://localhost:8081}
+      trip-service: ${TRIP_SERVICE_URL:http://localhost:8082}
+      chat-service: ${CHAT_SERVICE_URL:http://localhost:8083}
+      ai-service: ${AI_SERVICE_URL:http://localhost:8084}
+      notification-service: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
+      payment-service: ${PAYMENT_SERVICE_URL:http://localhost:8086}
 
 management:
   endpoints:

@@ -2852,7 +2852,7 @@ function EditTripModal({
   const [status, setStatus] = useState(trip.status);
   const [visibility, setVisibility] = useState(trip.visibility);
   const [saving, setSaving] = useState(false);
-  const [tripType, setTripType] = useState<TripType[]>([]);
+  const [tripType, setTripType] = useState<TripType | null>(null);
   const [preferredWeather, setPreferredWeather] = useState<PreferredWeather | null>(null);
   const [budgetTier, setBudgetTier] = useState<BudgetTier | null>(null);
   const [preferenceNotes, setPreferenceNotes] = useState("");
@@ -2865,7 +2865,7 @@ function EditTripModal({
       .getForTrip(trip.tripId)
       .then((pref) => {
         if (cancelled) return;
-        setTripType(pref.tripType ? (pref.tripType.split(",") as TripType[]) : []);
+        setTripType(pref.tripType ?? null);
         setPreferredWeather(pref.preferredWeather ?? null);
         setBudgetTier(pref.budgetTier ?? null);
         setPreferenceNotes(pref.notes ?? "");
@@ -2886,11 +2886,11 @@ function EditTripModal({
     // Upsert preferences when the user has any set, or to clear preferences
     // that previously existed. Non-fatal: never block the trip update.
     const hasAnyPreference =
-      tripType.length > 0 || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
+      Boolean(tripType) || Boolean(preferredWeather) || Boolean(budgetTier) || Boolean(preferenceNotes.trim());
     if (hasAnyPreference || prefsExisted) {
       try {
         await preferencesApi.save(trip.tripId, {
-          tripType: tripType.length ? tripType.join(",") : undefined,
+          tripType: tripType ?? undefined,
           preferredWeather: preferredWeather ?? undefined,
           budgetTier: budgetTier ?? undefined,
           notes: preferenceNotes.trim() || undefined,
@@ -3065,22 +3065,18 @@ function EditTripModal({
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">
                 Trip type{" "}
                 <span className="font-normal normal-case text-muted/60">
-                  · optional, pick as many as fit
+                  · optional
                 </span>
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {TRIP_TYPE_OPTIONS.map((opt) => {
                   const OptIcon = opt.icon;
-                  const active = tripType.includes(opt.key);
+                  const active = tripType === opt.key;
                   return (
                     <button
                       key={opt.key}
                       type="button"
-                      onClick={() =>
-                        setTripType(
-                          active ? tripType.filter((t) => t !== opt.key) : [...tripType, opt.key]
-                        )
-                      }
+                      onClick={() => setTripType(active ? null : opt.key)}
                       className={cn(
                         "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-center transition-all cursor-pointer",
                         active
@@ -3675,20 +3671,6 @@ export default function TripDetailPage() {
   }
 
   // Build the trip-service payload from the working itinerary days.
-  // Backend expects strict "HH:mm". AI suggestions / typos can produce "0930",
-  // "9:30", "930" etc. — normalize or drop rather than sending garbage that 400s.
-  function normalizeTime(t?: string): string | undefined {
-    if (!t) return undefined;
-    const s = t.trim();
-    let m = /^(\d{1,2}):(\d{2})$/.exec(s);
-    if (!m) m = /^(\d{2})(\d{2})$/.exec(s);
-    if (!m) return undefined;
-    const h = parseInt(m[1], 10);
-    const min = parseInt(m[2], 10);
-    if (h > 23 || min > 59) return undefined;
-    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-  }
-
   function buildItineraryPayload(days: DayPlan[]): UpdateItineraryRequest {
     return {
       dayPlans: days.map((day) => ({
@@ -3699,8 +3681,8 @@ export default function TripDetailPage() {
           ...day.activities.map((a) => {
             // Parse time "09:00 - 11:00" into startTime/endTime
             const timeParts = (a.time ?? "").split("-").map((s) => s.trim());
-            const startTime = normalizeTime(timeParts[0] || a.startTime);
-            const endTime = normalizeTime(timeParts[1] || a.endTime);
+            const startTime = timeParts[0] || a.startTime || undefined;
+            const endTime = timeParts[1] || a.endTime || undefined;
             // Map frontend "default" category to backend "OTHER"
             const rawCat = (a.category ?? "OTHER").toUpperCase();
             const category = rawCat === "DEFAULT" ? "OTHER" : rawCat;
@@ -3936,13 +3918,13 @@ export default function TripDetailPage() {
 
       {/* Pending approval banner */}
       {isPendingApproval && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950 px-5 py-3.5 flex items-center gap-3 shadow-sm">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-700/50">
-            <Clock size={16} />
+        <div className="rounded-xl border border-amber-300/50 bg-amber-50 dark:bg-amber-900/20 px-5 py-3 flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/40">
+            <Clock size={16} className="text-amber-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-amber-950 dark:text-amber-100">Request Pending</p>
-            <p className="text-xs text-amber-800 dark:text-amber-200">Your request to join this trip is awaiting approval from the trip owner.</p>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Request Pending</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">Your request to join this trip is awaiting approval from the trip owner.</p>
           </div>
         </div>
       )}
@@ -3952,15 +3934,15 @@ export default function TripDetailPage() {
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950 px-5 py-4 flex items-center justify-between gap-4 shadow-sm"
+          className="rounded-xl border border-blue-300/50 bg-blue-50 dark:bg-blue-900/20 px-5 py-4 flex items-center justify-between gap-4"
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-700/50">
-              <Mail size={17} />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800/40">
+              <Mail size={17} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-blue-950 dark:text-blue-100">You&apos;ve been invited!</p>
-              <p className="text-xs text-blue-800 dark:text-blue-200">You have been invited to join this trip. Would you like to accept?</p>
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">You&apos;ve been invited!</p>
+              <p className="text-xs text-blue-700 dark:text-blue-300">You have been invited to join this trip. Would you like to accept?</p>
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -4292,9 +4274,9 @@ export default function TripDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <GlassCard className="!p-0 overflow-visible">
+          <GlassCard className="!p-0 overflow-hidden">
             <details className="group">
-              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none rounded-[inherit] [&::-webkit-details-marker]:hidden">
+              <summary className="flex items-center justify-between p-4 sm:p-5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
                 <div className="flex items-center gap-2">
                   <Users size={15} className="text-accent-500" />
                   <h3 className="text-sm font-bold text-foreground">Travel Buddies</h3>
