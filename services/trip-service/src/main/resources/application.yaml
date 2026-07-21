@@ -83,4 +83,4 @@ logging:
 
 payment:
   service:
-    url: http://localhost:8086
+    url: ${PAYMENT_SERVICE_URL:http://localhost:8086}

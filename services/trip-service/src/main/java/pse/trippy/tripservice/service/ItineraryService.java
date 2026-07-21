@@ -10,17 +10,14 @@ import pse.trippy.tripservice.dto.response.ActivityResponse;
 import pse.trippy.tripservice.dto.response.DayPlanResponse;
 import pse.trippy.tripservice.dto.response.ItineraryResponse;
 import pse.trippy.tripservice.exception.ForbiddenException;
-import pse.trippy.tripservice.exception.InvalidTripDataException;
 import pse.trippy.tripservice.exception.TripNotFoundException;
 import pse.trippy.tripservice.model.entity.Activity;
 import pse.trippy.tripservice.model.entity.DayPlan;
 import pse.trippy.tripservice.model.entity.Itinerary;
 import pse.trippy.tripservice.model.entity.Trip;
 import pse.trippy.tripservice.model.enums.ActivityCategory;
-import pse.trippy.tripservice.model.enums.ParticipantRole;
 import pse.trippy.tripservice.model.enums.ParticipantStatus;
 import pse.trippy.tripservice.model.enums.TripStatus;
-import pse.trippy.tripservice.model.enums.TripVisibility;
 import pse.trippy.tripservice.model.enums.VoteType;
 import pse.trippy.tripservice.repository.ActivityCommentRepository;
 import pse.trippy.tripservice.repository.ActivityRepository;
@@ -204,15 +201,6 @@ public class ItineraryService {
                 .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED)
                 .orElseThrow(() -> new ForbiddenException(
                         "You are not a participant of this trip"));
-    }
-
-    private void ensureOwnerOrEditor(UUID tripId, UUID userId) {
-        participantRepository.findByTripIdAndUserId(tripId, userId)
-                .filter(p -> p.getStatus() == ParticipantStatus.ACCEPTED)
-                .filter(p -> p.getRole() == ParticipantRole.OWNER
-                        || p.getRole() == ParticipantRole.EDITOR)
-                .orElseThrow(() -> new ForbiddenException(
-                        "Only the trip owner or editor can modify the itinerary"));
     }
 
     private ActivityCategory parseCategory(String category) {
