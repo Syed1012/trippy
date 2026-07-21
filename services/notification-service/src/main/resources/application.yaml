@@ -97,8 +97,9 @@ management:
       enabled: true
 
 web-push:
-  public-key: ${VAPID_PUBLIC_KEY}
-  private-key: ${VAPID_PRIVATE_KEY}
+  enabled: ${WEB_PUSH_ENABLED:false}
+  public-key: ${VAPID_PUBLIC_KEY:}
+  private-key: ${VAPID_PRIVATE_KEY:}
   subject: ${VAPID_SUBJECT:mailto:admin@trippy.com}
 
 logging:
