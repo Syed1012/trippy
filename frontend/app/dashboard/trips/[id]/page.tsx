@@ -1942,6 +1942,8 @@ function AIItinerarySidebar({
   const days = Math.max(1, numDays);
   const [activeDay, setActiveDay] = useState(1);
   const [regenning, setRegenning] = useState(false);
+  // Per-day free-text steering for Regenerate ("slow morning, street food…").
+  const [dayWishes, setDayWishes] = useState<Record<number, string>>({});
 
   // Generation lives in the dashboard-level provider, so it keeps running while
   // the user navigates away and is ready when they return to this trip.
@@ -1957,7 +1959,7 @@ function AIItinerarySidebar({
   async function regenerateDay() {
     setRegenning(true);
     try {
-      await regenerate(tripId, activeDay);
+      await regenerate(tripId, activeDay, dayWishes[activeDay]);
     } finally {
       setRegenning(false);
     }
@@ -2161,14 +2163,26 @@ function AIItinerarySidebar({
 
               {/* Suggestions */}
               <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Day {activeDay} · pick your vibe
-                  </p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">
+                  Day {activeDay} · pick your vibe
+                </p>
+                {/* Wish bar: steer what Regenerate comes back with */}
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1.5 transition-colors focus-within:border-accent-400">
+                    <Wand2 size={12} className="shrink-0 text-accent-500" />
+                    <input
+                      value={dayWishes[activeDay] ?? ""}
+                      onChange={(e) => setDayWishes((w) => ({ ...w, [activeDay]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !regenning) void regenerateDay(); }}
+                      maxLength={200}
+                      placeholder="What should this day feel like? e.g. slow morning, street food, live jazz"
+                      className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-foreground outline-none placeholder:text-muted/50"
+                    />
+                  </div>
                   <button
                     onClick={regenerateDay}
                     disabled={regenning}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1.5 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
                     {regenning ? "Reimagining…" : "Regenerate"}

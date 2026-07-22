@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import type * as LeafletTypes from "leaflet";
 import {
   Loader2, Navigation, MapPinOff, Route as RouteIcon, Search, X,
-  Sparkles, Plus, Check, Star, MessageSquareQuote,
+  Sparkles, Plus, Check, Star,
 } from "lucide-react";
 
 export interface DayMapStop {
@@ -589,7 +589,7 @@ export default function DayMap({
             </p>
             {insightsLoading && (
               <span className="flex items-center gap-1 text-[10px] font-semibold text-muted">
-                <Loader2 size={10} className="animate-spin" /> AI is reading the reviews…
+                <Loader2 size={10} className="animate-spin" /> AI is sizing up the spots…
               </span>
             )}
           </div>
@@ -624,41 +624,25 @@ export default function DayMap({
                     {p.address && <span className="truncate text-[10px] text-muted">{p.address}</span>}
                   </div>
 
-                  {/* Rating + reviews */}
+                  {/* Rating (review texts stay behind the scenes for the AI verdict) */}
                   {ins ? (
-                    <>
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <span className="flex items-center gap-0.5">
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <Star
-                              key={s}
-                              size={11}
-                              className={s <= Math.round(ins.rating) ? "fill-amber-400 text-amber-400" : "text-shore-200"}
-                            />
-                          ))}
-                        </span>
-                        <span className="text-[11px] font-black text-foreground">{ins.rating.toFixed(1)}</span>
-                        <span className="text-[10px] text-muted">({ins.reviewCount})</span>
-                      </div>
-                      <div className="mt-1.5 space-y-1.5">
-                        {ins.reviews.slice(0, 2).map((r, ri) => (
-                          <div key={ri} className="rounded-lg bg-shore-50/70 px-2 py-1.5">
-                            <p className="flex items-center gap-1 text-[9px] font-bold text-foreground/70">
-                              <MessageSquareQuote size={9} className="text-[#7c3aed]" />
-                              {r.author} · {"★".repeat(Math.max(1, Math.min(5, r.rating)))} · {r.when}
-                            </p>
-                            <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted">{r.text}</p>
-                          </div>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            size={11}
+                            className={s <= Math.round(ins.rating) ? "fill-amber-400 text-amber-400" : "text-shore-200"}
+                          />
                         ))}
-                      </div>
-                    </>
-                  ) : insightsLoading ? (
-                    <div className="mt-2 space-y-1.5">
-                      <div className="h-3 w-24 animate-pulse rounded bg-shore-100" />
-                      <div className="h-8 animate-pulse rounded-lg bg-shore-100/80" />
+                      </span>
+                      <span className="text-[11px] font-black text-foreground">{ins.rating.toFixed(1)}</span>
+                      <span className="text-[10px] text-muted">({ins.reviewCount})</span>
                     </div>
+                  ) : insightsLoading ? (
+                    <div className="mt-2 h-3 w-24 animate-pulse rounded bg-shore-100" />
                   ) : (
-                    <p className="mt-2 text-[10px] italic text-muted/70">Reviews unavailable</p>
+                    <p className="mt-2 text-[10px] italic text-muted/70">Rating unavailable</p>
                   )}
 
                   {/* Add */}

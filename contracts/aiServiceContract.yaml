@@ -132,7 +132,7 @@ paths:
     post:
       tags: [Recommendations]
       summary: Generate itinerary suggestions via local Ollama
-      description: 3 options per day. Set dayNumber to regenerate a single day only.
+      description: 3 options per day. Set dayNumber to regenerate a single day only, and dayWish to steer that day with free text.
       requestBody:
         required: true
         content:
@@ -396,6 +396,10 @@ components:
         destination: { type: string }
         days: { type: integer, minimum: 1, maximum: 60 }
         dayNumber: { type: integer }
+        dayWish:
+          type: string
+          maxLength: 300
+          description: Free-text steer for the regenerated day, e.g. "slow morning, street food, live jazz".
         preferences:
           type: object
           properties:

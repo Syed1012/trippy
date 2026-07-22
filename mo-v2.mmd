@@ -1,0 +1,496 @@
+%%{init: {'theme': 'default', 'themeVariables': {'lineColor': '#333333'}, 'flowchart': {'curve': 'linear'}}}%%
+
+classDiagram
+    direction TB
+
+    %% =========================================================================
+    %% USER SERVICE (user_schema)
+    %% =========================================================================
+
+    class User {
+        +userId : UUID
+        +email : String
+        +displayName : String
+        +bio : String
+        +phoneNumber : String
+        +country : String
+        +avatarUrl : String
+        +passwordHash : String
+        +role : UserRole
+        +plan : SubscriptionPlan
+        +emailVerified : boolean
+        +createdAt : Instant
+        +updatedAt : Instant
+    }
+
+    class RefreshToken {
+        +id : UUID
+        +token : String
+        +rememberMe : boolean
+        +expiresAt : Instant
+        +createdAt : Instant
+    }
+
+    class EmailVerificationToken {
+        +id : UUID
+        +token : String
+        +expiresAt : Instant
+        +createdAt : Instant
+    }
+
+    class TripPreference {
+        +id : UUID
+        +userId : UUID
+        +tripId : UUID
+        +tripType : TripType
+        +budgetTier : BudgetTier
+        +preferredWeather : PreferredWeather
+        +notes : String
+        +createdAt : Instant
+        +updatedAt : Instant
+    }
+
+    User "1" --> "0..*" RefreshToken : has
+    User "1" --> "0..*" EmailVerificationToken : has
+    User "1" --> "0..*" TripPreference : sets
+
+    %% =========================================================================
+    %% TRIP SERVICE (trip_schema)
+    %% =========================================================================
+
+    class Trip {
+        +tripId : UUID
+        +title : String
+        +destination : String
+        +description : String
+        +startDate : LocalDate
+        +endDate : LocalDate
+        +status : TripStatus
+        +visibility : TripVisibility
+        +maxParticipants : int
+        +coverImageUrl : String
+        +createdBy : UUID
+        +createdAt : Instant
+        +updatedAt : Instant
+    }
+
+    class Participant {
+        +id : UUID
+        +userId : UUID
+        +role : ParticipantRole
+        +status : ParticipantStatus
+        +joinedAt : Instant
+    }
+
+    class Itinerary {
+        +id : UUID
+        +createdAt : Instant
+        +updatedAt : Instant
+    }
+
+    class DayPlan {
+        +id : UUID
+        +dayNumber : int
+        +date : LocalDate
+        +title : String
+        +votingEnabled : boolean
+        +votingDeadline : Instant
+        +votingFrozen : boolean
+    }
+
+    class Activity {
+        +id : UUID
+        +title : String
+        +description : String
+        +location : String
+        +startTime : LocalTime
+        +endTime : LocalTime
+        +category : ActivityCategory
+        +notes : String
+        +estimatedCost : BigDecimal
+        +currency : String
+        +orderIndex : int
+    }
+
+    class DayPlanVote {
+        +id : UUID
+        +userId : UUID
+        +voteType : VoteType
+        +votedAt : Instant
+    }
+
+    class ActivityVote {
+        +id : UUID
+        +userId : UUID
+        +voteType : VoteType
+        +votedAt : Instant
+    }
+
+    class ActivityComment {
+        +id : UUID
+        +userId : UUID
+        +content : String
+        +createdAt : Instant
+    }
+
+    Trip "1" --> "0..1" Itinerary : has
+    Trip "1" --> "0..*" Participant : has
+    Itinerary "1" --> "1..*" DayPlan : contains
+    DayPlan "1" --> "0..*" Activity : contains
+    DayPlan "1" --> "0..*" DayPlanVote : receives
+    Activity "1" --> "0..*" ActivityVote : receives
+    Activity "1" --> "0..*" ActivityComment : receives
+
+    %% Trip.status: auto DRAFT->PLANNED when itinerary has >=2 days each with an
+    %% activity OR one day with >1 activity; else stays DRAFT. DRAFT trips are hidden
+    %% from non-participants (excluded from discovery + blocked on detail/itinerary).
+
+    %% Cross-service references (no JPA rel)
+    User "1" ..> "0..*" Trip : creates
+    User "1" ..> "0..*" Participant : "referenced by"
+    TripPreference "0..*" ..> "1" Trip : "scoped to"
+
+    %% =========================================================================
+    %% CHAT SERVICE (chat_schema)
+    %% =========================================================================
+
+    class ChatRoom {
+        +id : UUID
+        +tripId : UUID
+        +createdAt : Instant
+    }
+
+    class ChatMessage {
+        +id : UUID
+        +senderId : UUID
+        +senderDisplayName : String
+        +content : String
+        +messageType : MessageType
+        +deleted : boolean
+        +createdAt : Instant
+        +editedAt : Instant
+    }
+
+    class MessageAttachment {
+        +id : UUID
+        +messageId : UUID
+        +fileName : String
+        +fileUrl : String
+        +fileSize : long
+        +contentType : String
+        +thumbnailUrl : String
+    }
+
+    Trip "1" ..> "1" ChatRoom : "1 trip = 1 room"
+    ChatRoom "1" --> "0..*" ChatMessage : contains
+    ChatMessage "1" --> "0..1" MessageAttachment : has
+
+    %% =========================================================================
+    %% AI SERVICE (ai_schema)
+    %% =========================================================================
+
+    class AiRequestLog {
+        +id : UUID
+        +userId : UUID
+        +requestType : RequestType
+        +promptHash : String
+        +responseTimeMs : Long
+        +inputTokens : Integer
+        +outputTokens : Integer
+        +status : RequestStatus
+        +createdAt : Instant
+    }
+
+    class GenerationHistory {
+        +id : UUID
+        +generationId : UUID
+        +tripId : UUID
+        +destination : String
+        +startDate : LocalDate
+        +endDate : LocalDate
+        +promptHash : String
+        +fallbackUsed : boolean
+        +status : String
+        +requestPayload : JSON
+        +responsePayload : JSON
+        +createdAt : Instant
+    }
+
+    class ItineraryRecommendation {
+        +id : UUID
+        +tripId : UUID
+        +dayNumber : int
+        +optionIndex : int
+        +vibe : String
+        +title : String
+        +startTime : String
+        +endTime : String
+        +estimatedCost : BigDecimal
+        +currency : String
+        +mapsUrl : String
+        +notes : String
+        +model : String
+        +source : String
+        +createdAt : Instant
+    }
+
+    Trip "1" ..> "0..*" GenerationHistory : generates
+    Trip "1" ..> "0..*" ItineraryRecommendation : "AI sidebar suggestions (regenerate steered by an optional free-text dayWish)"
+    User "1" ..> "0..*" AiRequestLog : "tracked by"
+
+    %% Day-map place search: frontend /api/places (Photon, keyless) finds up to 6
+    %% places; ai-service POST /ai/places/insights writes ratings/reviews and
+    %% POST /ai/places/rank returns a top-3 verdict. Both are STATELESS — no
+    %% persisted entities; picking a place simply creates an Activity
+    %% (title + location) on the DayPlan. Nothing new to add in draw.io.
+
+    %% =========================================================================
+    %% NOTIFICATION SERVICE (notification_schema)
+    %% =========================================================================
+
+    class Notification {
+        +id : UUID
+        +userId : UUID
+        +type : NotificationType
+        +title : String
+        +message : String
+        +channel : NotificationChannel
+        +actionUrl : String
+        +metadata : JSON
+        +read : boolean
+        +readAt : Instant
+        +deleted : boolean
+        +createdAt : Instant
+    }
+
+    class EmailLog {
+        +id : UUID
+        +recipient : String
+        +subject : String
+        +templateName : String
+        +status : EmailStatus
+        +sentAt : Instant
+        +errorMessage : String
+    }
+
+    User "1" ..> "0..*" Notification : receives
+
+    %% =========================================================================
+    %% PAYMENT SERVICE (payment_schema)
+    %% =========================================================================
+
+    class Subscription {
+        +id : UUID
+        +userId : UUID
+        +plan : SubscriptionPlan
+        +status : SubscriptionStatus
+        +currentPeriodStart : LocalDate
+        +currentPeriodEnd : LocalDate
+        +cancelAtPeriodEnd : boolean
+        +priceAmount : BigDecimal
+        +currency : String
+        +createdAt : Instant
+        +updatedAt : Instant
+    }
+
+    class Transaction {
+        +id : UUID
+        +userId : UUID
+        +planId : PlanType
+        +amount : BigDecimal
+        +currency : String
+        +status : TransactionStatus
+        +type : TransactionType
+        +description : String
+        +createdAt : Instant
+    }
+
+    class PaymentMethod {
+        +id : UUID
+        +userId : UUID
+        +type : String
+        +last4 : String
+        +brand : String
+        +expiryMonth : Integer
+        +expiryYear : Integer
+        +isDefault : boolean
+        +createdAt : Instant
+    }
+
+    class WebhookEvent {
+        +id : UUID
+        +checkoutSessionId : String
+        +eventType : String
+        +processedAt : Instant
+    }
+
+    User "1" ..> "0..1" Subscription : has
+    User "1" ..> "0..*" Transaction : has
+    User "1" ..> "0..*" PaymentMethod : has
+
+    %% =========================================================================
+    %% ENUMS
+    %% =========================================================================
+
+    class UserRole {
+        <<enumeration>>
+        MEMBER
+        HOST
+        USER
+        ADMIN
+    }
+
+    class SubscriptionPlan_Enum {
+        <<enumeration>>
+        FREE
+        PREMIUM
+        ENTERPRISE
+    }
+
+    class TripType {
+        <<enumeration>>
+        BEACH
+        MOUNTAIN
+        CITY
+        NATURE
+        ADVENTURE
+        CULTURE
+    }
+
+    class BudgetTier {
+        <<enumeration>>
+        ECONOMY
+        MODERATE
+        LUXURY
+    }
+
+    class PreferredWeather {
+        <<enumeration>>
+        WARM
+        MILD
+        COLD
+        ANY
+    }
+
+    class TripStatus {
+        <<enumeration>>
+        DRAFT
+        PLANNED
+        ONGOING
+        COMPLETED
+        CANCELLED
+    }
+
+    class TripVisibility {
+        <<enumeration>>
+        PRIVATE
+        PUBLIC
+        UNLISTED
+    }
+
+    class ParticipantRole {
+        <<enumeration>>
+        OWNER
+        EDITOR
+        VIEWER
+        MEMBER
+    }
+
+    class ParticipantStatus {
+        <<enumeration>>
+        PENDING
+        PENDING_APPROVAL
+        INVITED
+        ACCEPTED
+        DECLINED
+        LEFT
+    }
+
+    class ActivityCategory {
+        <<enumeration>>
+        ACCOMMODATION
+        TRANSPORT
+        FOOD
+        SIGHTSEEING
+        ACTIVITY
+        SHOPPING
+        OTHER
+    }
+
+    class VoteType {
+        <<enumeration>>
+        UPVOTE
+        DOWNVOTE
+    }
+
+    class MessageType {
+        <<enumeration>>
+        TEXT
+        IMAGE
+        FILE
+        SYSTEM
+    }
+
+    class NotificationType {
+        <<enumeration>>
+        TRIP_INVITE
+        TRIP_JOINED
+        ITINERARY_READY
+        TRIP_INVITATION
+        INVITATION_ACCEPTED
+        INVITATION_DECLINED
+        TRIP_UPDATED
+        TRIP_CANCELLED
+        NEW_MESSAGE
+        PAYMENT_SUCCESS
+        PAYMENT_FAILED
+        SUBSCRIPTION_EXPIRING
+        SYSTEM
+        WELCOME
+        EMAIL_VERIFICATION
+        PASSWORD_RESET
+    }
+
+    class TransactionStatus {
+        <<enumeration>>
+        PENDING
+        COMPLETED
+        FAILED
+        REFUNDED
+    }
+
+    class SubscriptionStatus {
+        <<enumeration>>
+        FREE
+        ACTIVE
+        CANCELLED
+        PAST_DUE
+        TRIALING
+    }
+
+    class PlanType {
+        <<enumeration>>
+        PREMIUM
+        ENTERPRISE
+    }
+
+    class TransactionType {
+        <<enumeration>>
+        SUBSCRIPTION
+        REFUND
+    }
+
+    class RequestType {
+        <<enumeration>>
+        DESTINATION_SUGGESTION
+        ITINERARY_GENERATION
+        TRAVEL_ADVICE
+        PREFERENCE_CONSOLIDATION
+    }
+
+    class RequestStatus {
+        <<enumeration>>
+        SUCCESS
+        FAILED
+        TIMEOUT
+    }

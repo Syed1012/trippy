@@ -181,6 +181,12 @@ public class ItineraryRecommendationService {
         sb.append("Destination: ").append(request.destination().trim()).append('\n');
         sb.append("Total trip length: ").append(Math.max(1, request.days())).append(" day(s)\n");
 
+        if (isSet(request.dayWish())) {
+            sb.append("The traveller's explicit wish for the requested day(s): \"")
+                    .append(request.dayWish().trim())
+                    .append("\" — every option MUST honour this wish.\n");
+        }
+
         RecommendationRequest.PreferenceContext prefs = request.preferences();
         if (prefs != null) {
             List<String> parts = new ArrayList<>();
