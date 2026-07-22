@@ -197,7 +197,7 @@ public class PlaceInsightsService {
     /** Deterministic per-place seed so repeated searches show stable numbers. */
     private PlaceInsight fallbackInsight(PlaceInsightsRequest.PlaceRef ref) {
         int seed = Math.abs(ref.id().hashCode());
-        double rating = round1(3.6 + (seed % 12) / 10.0);
+        double rating = round1(3.6 + seed % 12 / 10.0);
         int reviewCount = 40 + seed % 420;
         String what = isSet(ref.category()) ? ref.category().toLowerCase() : "spot";
         List<Review> reviews = List.of(
