@@ -20,6 +20,7 @@ import {
   Globe,
   Utensils,
   MapPin,
+  Users,
 } from "lucide-react";
 import AITripBuilderModal, { type AIBuilderRequest } from "@/components/ai/AITripBuilderModal";
 import AuthModal from "@/components/auth/AuthModal";
@@ -43,8 +44,7 @@ const HERO_IDEAS = [
   "a 7-day food trip through Kyoto",
   "a quiet coastal week in Portugal",
   "a family adventure in Costa Rica",
-  "a luxury long weekend in Paris",
-  "a remote-work month in Barcelona",
+  "3 days exploring museum gems in Paris",
 ];
 
 const TRIP_TYPE_FILTERS = ["Beach", "Adventure", "City", "Nature", "Culture", "Wellness"];
@@ -57,7 +57,7 @@ const DIET_OPTIONS = [NO_PREFERENCE_LABEL, "Vegetarian", "Vegan", "Halal", "Jain
 
 const PACE_OPTIONS = [NO_PREFERENCE_LABEL, "Balanced pace", "Relaxed", "Packed"];
 
-const VISIBILITY_OPTIONS = ["Public", "Private"];
+const COMPANION_OPTIONS = [NO_PREFERENCE_LABEL, "Solo", "Couple", "Friends", "Family"];
 
 const DEFAULT_PEOPLE = 2;
 const DEFAULT_BUDGET = "";
@@ -122,7 +122,7 @@ export default function LandingPage() {
   const [heroBudget, setHeroBudget] = useState(DEFAULT_BUDGET);
   const [dietPreference, setDietPreference] = useState("");
   const [pacePreference, setPacePreference] = useState("");
-  const [tripVisibility, setTripVisibility] = useState("");
+  const [companionPreference, setCompanionPreference] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
   const [showAIBuilder, setShowAIBuilder] = useState(false);
@@ -258,7 +258,7 @@ export default function LandingPage() {
       heroBudget ||
       dietPreference ||
       pacePreference ||
-      tripVisibility,
+      companionPreference,
   );
 
   const ticketReady = Boolean(
@@ -277,6 +277,7 @@ export default function LandingPage() {
       budget: heroBudget || undefined,
       diet: dietPreference || undefined,
       pace: pacePreference || undefined,
+      travelerType: companionPreference && companionPreference !== NO_PREFERENCE_LABEL ? companionPreference : undefined,
     });
   };
 
@@ -357,19 +358,27 @@ export default function LandingPage() {
 
     setDateError("");
 
+    let peopleCount = people;
+    if (companionPreference === "Solo") {
+      peopleCount = 1;
+    } else if (companionPreference === "Couple") {
+      peopleCount = 2;
+    } else if (companionPreference === "Friends" || companionPreference === "Family") {
+      peopleCount = 4;
+    }
+
     setAiBuilderRequest({
       requestId: nextRequestId(),
       city: trimmedCity,
       startDate: start,
       endDate: normalizedEnd,
-      people,
+      people: peopleCount,
       budget: budget || undefined,
       filters,
       diet: diet || undefined,
       preferences: preferences || undefined,
       autoGenerate,
-      // Default to PUBLIC when nothing is chosen.
-      visibility: tripVisibility === "Private" ? "PRIVATE" : "PUBLIC",
+      travelerType: companionPreference && companionPreference !== NO_PREFERENCE_LABEL ? companionPreference : undefined,
     });
     setShowAIBuilder(true);
   };
@@ -572,12 +581,12 @@ export default function LandingPage() {
                   onChange={setPacePreference}
                 />
                 <PlannerChoiceGroup
-                  icon={<Globe size={12} />}
-                  label="Visibility"
-                  value={tripVisibility || "Public"}
-                  selected={Boolean(tripVisibility)}
-                  options={VISIBILITY_OPTIONS}
-                  onChange={setTripVisibility}
+                  icon={<Users size={12} />}
+                  label="Group"
+                  value={companionPreference}
+                  selected={Boolean(companionPreference)}
+                  options={COMPANION_OPTIONS}
+                  onChange={setCompanionPreference}
                 />
               </motion.div>
 
