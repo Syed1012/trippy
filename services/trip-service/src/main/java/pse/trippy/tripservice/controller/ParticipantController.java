@@ -84,9 +84,10 @@ public class ParticipantController {
     @PostMapping("/decline")
     public ResponseEntity<ParticipantActionResponse> decline(
             @PathVariable UUID tripId,
-            @RequestHeader("X-User-Id") UUID userId) {
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(value = "X-User-DisplayName", required = false) String displayName) {
         log.info("POST /trips/{}/participants/decline — user={}", tripId, userId);
-        ParticipantActionResponse response = participantService.declineInvite(tripId, userId);
+        ParticipantActionResponse response = participantService.declineInvite(tripId, userId, displayName);
         return ResponseEntity.ok(response);
     }
 

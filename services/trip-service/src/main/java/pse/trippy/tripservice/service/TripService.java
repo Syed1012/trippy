@@ -175,8 +175,11 @@ public class TripService {
         );
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TripDetailResponse getTripDetail(UUID tripId, UUID userId) {
+        if (userId != null) {
+            pendingInviteLinkService.linkPendingInvitesForUser(userId);
+        }
         Trip trip = findTripOrThrow(tripId);
 
         // Allow open access only to published (non-DRAFT) public trips; DRAFT
