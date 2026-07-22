@@ -212,6 +212,12 @@ export default function LandingPage() {
   }
 
   async function checkLimitThenOpenAI() {
+    if (!isAuthenticated) {
+      stashPendingTrip();
+      setShowAuthModal(true);
+      return;
+    }
+
     try {
       // Call your existing backend trip creation API
       await tripsApi.create({
