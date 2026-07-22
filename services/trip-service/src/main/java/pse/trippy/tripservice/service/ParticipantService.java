@@ -39,6 +39,7 @@ public class ParticipantService {
     private final ParticipantRepository participantRepository;
     private final TripRepository tripRepository;
     private final RabbitTemplate rabbitTemplate;
+    private final PendingInviteLinkService pendingInviteLinkService;
 
     @Transactional
     public ParticipantActionResponse inviteParticipant(UUID tripId, InviteParticipantRequest request, UUID inviterId) {
@@ -122,7 +123,7 @@ public class ParticipantService {
                 .build();
         participant = participantRepository.save(participant);
 
-        publishEmailInvitation(trip, email, inviterId, request.message(), request.inviterName());
+        publishEmailInvitation(trip, userId, email, inviterId, request.message(), request.inviterName());
 
         return new ParticipantActionResponse("Invitation email sent", toResponse(participant));
     }
@@ -195,6 +196,8 @@ public class ParticipantService {
         log.info("User {} accepting invite for trip {}", userId, tripId);
         Trip trip = findTripOrThrow(tripId);
 
+        pendingInviteLinkService.linkPendingInvitesForUser(userId);
+
         Participant participant = participantRepository.findByTripIdAndUserId(tripId, userId)
                 .orElseThrow(() -> new InvalidTripDataException("No invitation found for this trip"));
 
@@ -214,8 +217,15 @@ public class ParticipantService {
 
     @Transactional
     public ParticipantActionResponse declineInvite(UUID tripId, UUID userId) {
+        return declineInvite(tripId, userId, null);
+    }
+
+    @Transactional
+    public ParticipantActionResponse declineInvite(UUID tripId, UUID userId, String displayName) {
         log.info("User {} declining invite for trip {}", userId, tripId);
         Trip trip = findTripOrThrow(tripId);
+
+        pendingInviteLinkService.linkPendingInvitesForUser(userId);
 
         Participant participant = participantRepository.findByTripIdAndUserId(tripId, userId)
                 .orElseThrow(() -> new InvalidTripDataException("No invitation found for this trip"));
@@ -228,7 +238,7 @@ public class ParticipantService {
         participant = participantRepository.save(participant);
 
         log.info("User {} declined invite for trip {}", userId, tripId);
-        publishInvitationDeclinedEvent(trip, userId);
+        publishInvitationDeclinedEvent(trip, userId, displayName);
 
         return new ParticipantActionResponse("Invitation declined successfully", toResponse(participant));
     }
@@ -441,7 +451,7 @@ public class ParticipantService {
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, routingKey, event);
     }
 
-    private void publishInvitationDeclinedEvent(Trip trip, UUID inviteeId) {
+    private void publishInvitationDeclinedEvent(Trip trip, UUID inviteeId, String displayName) {
         Participant owner = participantRepository.findByTripId(trip.getId()).stream()
                 .filter(p -> p.getRole() == ParticipantRole.OWNER)
                 .findFirst()
@@ -453,6 +463,10 @@ public class ParticipantService {
         event.put("tripTitle", trip.getTitle());
         event.put("inviteeId", inviteeId.toString());
         event.put("timestamp", Instant.now().toString());
+        if (displayName != null && !displayName.isBlank()) {
+            event.put("inviteeName", displayName);
+            event.put("declinedBy", displayName);
+        }
         if (owner != null && owner.getUserId() != null) {
             event.put("ownerId", owner.getUserId().toString());
         }
@@ -510,7 +524,7 @@ public class ParticipantService {
         rabbitTemplate.convertAndSend(RabbitMQConfig.TRIP_EXCHANGE, "trip.participant.invited", event);
     }
 
-    private void publishEmailInvitation(Trip trip, String email, UUID inviterId, String message, String inviterName) {
+    private void publishEmailInvitation(Trip trip, UUID userId, String email, UUID inviterId, String message, String inviterName) {
         Map<String, Object> event = new HashMap<>();
         event.put("eventType", "trip.invitation.created");
         event.put("tripId", trip.getId().toString());
@@ -520,6 +534,9 @@ public class ParticipantService {
         event.put("endDate", trip.getEndDate().toString());
         if (trip.getDescription() != null && !trip.getDescription().isBlank()) {
             event.put("tripDescription", trip.getDescription());
+        }
+        if (userId != null) {
+            event.put("inviteeId", userId.toString());
         }
         event.put("inviteeEmail", email);
         event.put("inviterId", inviterId.toString());

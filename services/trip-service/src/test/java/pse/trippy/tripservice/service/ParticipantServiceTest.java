@@ -51,6 +51,8 @@ class ParticipantServiceTest {
     private TripRepository tripRepository;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private PendingInviteLinkService pendingInviteLinkService;
 
     @InjectMocks
     private ParticipantService participantService;
