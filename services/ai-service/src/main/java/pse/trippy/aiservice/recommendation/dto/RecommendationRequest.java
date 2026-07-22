@@ -3,6 +3,7 @@ package pse.trippy.aiservice.recommendation.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.UUID;
@@ -14,6 +15,7 @@ import java.util.UUID;
  * @param destination       trip destination (required for prompting)
  * @param days              total number of trip days
  * @param dayNumber         when present, regenerate suggestions for only this single day
+ * @param dayWish           free-text steer for the regenerated day, e.g. "slow morning, street food" (nullable)
  * @param preferences       captured trip travel preferences (nullable)
  * @param existingItinerary already-filled day plans to avoid duplicating (nullable/empty)
  */
@@ -22,6 +24,7 @@ public record RecommendationRequest(
         @NotBlank String destination,
         @Min(1) @Max(60) int days,
         Integer dayNumber,
+        @Size(max = 300) String dayWish,
         PreferenceContext preferences,
         List<DayContext> existingItinerary
 ) {

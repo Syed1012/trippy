@@ -33,8 +33,8 @@ interface AIGenerationContextValue {
   states: Record<string, AIGenState>;
   /** Start a whole-trip generation if one isn't already running/ready for the trip. */
   ensureStarted: (params: StartGenerationParams) => void;
-  /** Regenerate a single day's options. */
-  regenerateDay: (tripId: string, dayNumber: number) => Promise<void>;
+  /** Regenerate a single day's options, optionally steered by a free-text wish. */
+  regenerateDay: (tripId: string, dayNumber: number, dayWish?: string) => Promise<void>;
   /** Populate state from stored recommendations if nothing is in memory yet. */
   hydrate: (tripId: string, destination: string, days: number) => void;
   /** Record which suggestion the user picked for a day. */
@@ -129,7 +129,7 @@ export function AIGenerationProvider({ children }: { children: React.ReactNode }
     void runWholeTrip(params);
   }, [runWholeTrip]);
 
-  const regenerateDay = useCallback(async (tripId: string, dayNumber: number) => {
+  const regenerateDay = useCallback(async (tripId: string, dayNumber: number, dayWish?: string) => {
     const meta = metaCache.current[tripId];
     const destination = meta?.destination ?? statesRef.current[tripId]?.destination ?? "";
     const days = meta?.days ?? statesRef.current[tripId]?.days ?? 1;
@@ -145,7 +145,7 @@ export function AIGenerationProvider({ children }: { children: React.ReactNode }
 
     try {
       const preferences = await loadPreferences(tripId);
-      const res = await recommendationsApi.generate({ tripId, destination, days, dayNumber, preferences });
+      const res = await recommendationsApi.generate({ tripId, destination, days, dayNumber, dayWish: dayWish?.trim() || undefined, preferences });
       const grouped = groupRecommendations(res, destination);
       applyDay(grouped[dayNumber]?.length ? grouped[dayNumber] : buildDaySuggestions(dayNumber, destination));
     } catch {
