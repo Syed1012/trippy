@@ -3404,8 +3404,13 @@ export default function TripDetailPage() {
 
   const applyParticipantFlags = useCallback(
     (data: TripDetail) => {
-      if (user?.userId && data.participants) {
-        const me = data.participants.find((p) => p.userId === user.userId);
+      if (user && data.participants) {
+        const userEmailLower = user.email?.trim().toLowerCase();
+        const me = data.participants.find(
+          (p) =>
+            (p.userId && p.userId === user.userId) ||
+            (p.email && userEmailLower && p.email.trim().toLowerCase() === userEmailLower)
+        );
         setIsOwner(me?.role === "OWNER");
         setIsOwnerOrEditor(me?.role === "OWNER" || me?.role === "EDITOR");
         setIsParticipant(!!me && (me.status === "ACCEPTED" || me.role === "OWNER"));
@@ -3418,7 +3423,7 @@ export default function TripDetailPage() {
         setIsInvited(false);
       }
     },
-    [user?.userId]
+    [user?.userId, user?.email]
   );
 
   const enrichParticipants = useCallback(async (data: TripDetail) => {
@@ -3977,46 +3982,7 @@ export default function TripDetailPage() {
         </div>
       )}
 
-      {/* Invitation accept/decline banner */}
-      {isInvited && (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950 px-5 py-4 flex items-center justify-between gap-4 shadow-sm"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-700/50">
-              <Mail size={17} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-blue-950 dark:text-blue-100">You&apos;ve been invited!</p>
-              <p className="text-xs text-blue-800 dark:text-blue-200">You have been invited to join this trip. Would you like to accept?</p>
-            </div>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              size="sm"
-              className="text-xs"
-              disabled={decliningInvite}
-              onClick={handleDeclineInvite}
-            >
-              {decliningInvite ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
-              Decline
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              className="text-xs"
-              disabled={acceptingInvite}
-              onClick={handleAcceptInvite}
-            >
-              {acceptingInvite ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Accept & Join
-            </Button>
-          </div>
-        </motion.div>
-      )}
+
 
       {/* ─── Hero Header ──────────────────────────────────────────── */}
       <motion.div
@@ -4237,6 +4203,30 @@ export default function TripDetailPage() {
               </>
             ) : (
               <>
+                {isInvited && (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1 sm:flex-none bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center"
+                      disabled={decliningInvite}
+                      onClick={handleDeclineInvite}
+                    >
+                      {decliningInvite ? <Loader2 size={14} className="animate-spin" /> : <ThumbsDown size={14} />}
+                      Decline
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="flex-1 sm:flex-none bg-emerald-500/90 hover:bg-emerald-500 text-white border border-emerald-400/40 backdrop-blur-md shadow-md justify-center font-semibold transition-all"
+                      disabled={acceptingInvite}
+                      onClick={handleAcceptInvite}
+                    >
+                      {acceptingInvite ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                      Accept & Join
+                    </Button>
+                  </>
+                )}
                 {user?.userId && (
                   <Link href={`/dashboard/chat/${trip.tripId}`} className="flex-1 sm:flex-none">
                     <Button variant="secondary" size="sm" className="w-full bg-white/10 border-white/20 text-white hover:bg-white/20 justify-center">
