@@ -16,6 +16,9 @@ public record PlaceRankResponse(
         String summary,
         List<Ranking> rankings
 ) {
+    public PlaceRankResponse {
+        rankings = List.copyOf(rankings);
+    }
 
     public record Ranking(
             String placeId,

@@ -14,6 +14,9 @@ import java.util.List;
 public record PlaceInsightsRequest(
         @NotEmpty @Size(max = 10) @Valid List<PlaceRef> places
 ) {
+    public PlaceInsightsRequest {
+        places = List.copyOf(places);
+    }
 
     public record PlaceRef(
             @NotBlank String id,
