@@ -273,8 +273,23 @@ public class NotificationEventListener {
     void handleInvitationDeclined(Object payload) {
         if (payload instanceof Map<?, ?> map) {
             UUID inviteeId = uuid(text(map, "inviteeId", "participantId"));
-            if (inviteeId != null) {
-                notificationService.resolveTripInvitation(inviteeId, text(map, "tripId"), "Declined");
+            String tripId = text(map, "tripId");
+            if (inviteeId != null && tripId != null) {
+                notificationService.resolveTripInvitation(inviteeId, tripId, "Declined");
+            }
+
+            String userId = text(map, "ownerId", "inviterId", "userId");
+            String declinerName = fallback(text(map, "inviteeName", "participantName", "declinedBy"), "A traveler");
+            String tripTitle = fallback(text(map, "tripTitle", "tripName", "title"), "your trip");
+            String actionUrl = fallback(text(map, "actionUrl", "link"), tripUrl(tripId));
+
+            if (userId != null) {
+                log.info("Processing notification event type=trip.participant.declined recipient={}", userId);
+                createNotification(userId, NotificationType.TRIP_INVITE,
+                        "Invitation Declined",
+                        declinerName + " declined the invitation to join " + tripTitle,
+                        actionUrl,
+                        metadata(map, "tripId", "inviteeId", "participantId"));
             }
         }
     }
