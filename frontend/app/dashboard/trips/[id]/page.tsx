@@ -1505,6 +1505,18 @@ function DayCard({
     onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
   }
 
+  // A place picked from the day-map search: becomes an activity with the
+  // place's address as location, auto-timed after the last activity.
+  function addPlaceFromMap(place: { name: string; address: string; category: string }) {
+    const activity = makeActivity({
+      title: place.name,
+      location: place.address || place.name,
+      category: detectCategory(`${place.name} ${place.category}`),
+      time: nextDefaultStart(day.activities),
+    });
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
   // One-tap starter: adds a pre-categorised activity, auto-timed after the last one.
   function addFromTemplate(tpl: (typeof ACTIVITY_TEMPLATES)[number]) {
     const start = nextDefaultStart(day.activities);
@@ -1782,42 +1794,46 @@ function DayCard({
                 </button>
               )}
 
-              {/* Day map — pins + road route, lazily mounted on open */}
-              {mapStops.length > 0 && (
-                <div className="pt-1">
-                  <button
-                    onClick={() => setMapOpen((o) => !o)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
-                      mapOpen
-                        ? "border-accent-300 bg-accent-50 text-accent-700"
-                        : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
-                    )}
-                  >
-                    <Map size={15} className="text-accent-500" />
-                    {mapOpen ? "Hide day map" : "Show day map"}
-                    <span className="text-[11px] font-medium text-muted">
-                      · {mapStops.length} location{mapStops.length !== 1 ? "s" : ""} routed
-                    </span>
-                    <span className="ml-auto">
-                      {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
-                    </span>
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {mapOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.2 }}
-                        className="pt-3"
-                      >
-                        <DayMap destination={destination ?? ""} stops={mapStops} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
+              {/* Day map — pins + road route + place search, lazily mounted on open */}
+              <div className="pt-1">
+                <button
+                  onClick={() => setMapOpen((o) => !o)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
+                    mapOpen
+                      ? "border-accent-300 bg-accent-50 text-accent-700"
+                      : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
+                  )}
+                >
+                  <Map size={15} className="text-accent-500" />
+                  {mapOpen ? "Hide day map" : "Show day map"}
+                  <span className="text-[11px] font-medium text-muted">
+                    {mapStops.length > 0
+                      ? `· ${mapStops.length} location${mapStops.length !== 1 ? "s" : ""} routed`
+                      : "· search & add places"}
+                  </span>
+                  <span className="ml-auto">
+                    {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+                  </span>
+                </button>
+                <AnimatePresence initial={false}>
+                  {mapOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="pt-3"
+                    >
+                      <DayMap
+                        destination={destination ?? ""}
+                        stops={mapStops}
+                        onAddStop={isParticipant ? addPlaceFromMap : undefined}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </motion.div>
         )}

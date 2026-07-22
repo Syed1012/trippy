@@ -20,6 +20,7 @@ tags:
   - name: Preferences
   - name: Recommendations
   - name: Images
+  - name: Places
 
 paths:
   /ai/destination-suggestions:
@@ -177,6 +178,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TripImageResponse'
+
+  /ai/places/insights:
+    post:
+      tags: [Places]
+      summary: Model-written ratings + reviews for day-map place search results
+      description: >
+        Stateless. The local Ollama model writes a rating, review count and two
+        short reviews per place; falls back to deterministic seeded values
+        (source=FALLBACK) when the model is unavailable — never errors mid-demo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceInsightsRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceInsightsResponse'
+        '400':
+          description: Empty places list or invalid fields
+
+  /ai/places/rank:
+    post:
+      tags: [Places]
+      summary: Top-3 ranking of searched places with per-place reasoning
+      description: >
+        Stateless. Given the search intent and candidates (with ratings/review
+        snippets), the model picks the top 3 and explains each choice; falls
+        back to a rating-sorted ranking (source=FALLBACK) when unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceRankRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceRankResponse'
+        '400':
+          description: Blank query or empty places list
 
 components:
   schemas:
@@ -423,3 +470,86 @@ components:
         model: { type: string }
         source: { type: string, enum: [AI, FALLBACK, DISABLED] }
         status: { type: string, enum: [READY, DISABLED] }
+
+    PlaceInsightsRequest:
+      type: object
+      required: [places]
+      properties:
+        places:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string }
+              name: { type: string, maxLength: 200 }
+              category: { type: string, maxLength: 100 }
+              address: { type: string, maxLength: 300 }
+
+    PlaceInsightsResponse:
+      type: object
+      properties:
+        source: { type: string, enum: [AI, FALLBACK] }
+        model: { type: string }
+        places:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              rating: { type: number, description: "3.0-5.0, one decimal" }
+              reviewCount: { type: integer }
+              reviews:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  properties:
+                    author: { type: string }
+                    rating: { type: integer, minimum: 1, maximum: 5 }
+                    when: { type: string, description: "relative time, e.g. '3 weeks ago'" }
+                    text: { type: string }
+
+    PlaceRankRequest:
+      type: object
+      required: [query, places]
+      properties:
+        query: { type: string, maxLength: 200, description: "the user's search intent" }
+        places:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string }
+              name: { type: string, maxLength: 200 }
+              category: { type: string, maxLength: 100 }
+              address: { type: string, maxLength: 300 }
+              rating: { type: number, nullable: true }
+              reviewCount: { type: integer, nullable: true }
+              reviewSnippets:
+                type: array
+                maxItems: 6
+                nullable: true
+                items: { type: string }
+
+    PlaceRankResponse:
+      type: object
+      properties:
+        source: { type: string, enum: [AI, FALLBACK] }
+        model: { type: string }
+        summary: { type: string, nullable: true }
+        rankings:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            properties:
+              placeId: { type: string }
+              rank: { type: integer, minimum: 1, maximum: 3 }
+              name: { type: string }
+              reason: { type: string }
