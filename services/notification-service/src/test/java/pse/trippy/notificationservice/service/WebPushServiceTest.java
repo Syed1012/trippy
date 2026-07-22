@@ -98,6 +98,23 @@ class WebPushServiceTest {
         assertThat(subscriptionRepository.findByEndpoint(ENDPOINT)).isEmpty();
     }
 
+    private static String validP256dh;
+    private static String validAuth;
+
+    @org.junit.jupiter.api.BeforeAll
+    static void initKeys() throws Exception {
+        if (java.security.Security.getProvider(org.bouncycastle.jce.provider.BouncyCastleProvider.PROVIDER_NAME) == null) {
+            java.security.Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+        }
+        java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("ECDH", "BC");
+        java.security.spec.ECGenParameterSpec ecSpec = new java.security.spec.ECGenParameterSpec("prime256v1");
+        kpg.initialize(ecSpec);
+        java.security.KeyPair kp = kpg.generateKeyPair();
+        byte[] pubBytes = ((org.bouncycastle.jce.interfaces.ECPublicKey) kp.getPublic()).getQ().getEncoded(false);
+        validP256dh = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(pubBytes);
+        validAuth = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString("1234567890123456".getBytes());
+    }
+
     @Test
     @DisplayName("enabled Web Push rejects malformed VAPID keys")
     void enabledWebPushRejectsMalformedVapidKeys() {
@@ -128,8 +145,8 @@ class WebPushServiceTest {
         WebPushSubscription sub = WebPushSubscription.builder()
                 .userId("user-1")
                 .endpoint("https://push.example.com/sub1")
-                .p256dh("key1")
-                .auth("auth1")
+                .p256dh(validP256dh)
+                .auth(validAuth)
                 .build();
 
         org.mockito.Mockito.when(mockRepo.findAllByUserId("user-1"))
@@ -163,8 +180,8 @@ class WebPushServiceTest {
         WebPushSubscription sub = WebPushSubscription.builder()
                 .userId("user-2")
                 .endpoint(endpoint)
-                .p256dh("key2")
-                .auth("auth2")
+                .p256dh(validP256dh)
+                .auth(validAuth)
                 .build();
 
         org.mockito.Mockito.when(mockRepo.findAllByUserId("user-2"))
@@ -199,8 +216,8 @@ class WebPushServiceTest {
         WebPushSubscription sub = WebPushSubscription.builder()
                 .userId("user-3")
                 .endpoint("https://push.example.com/active")
-                .p256dh("key3")
-                .auth("auth3")
+                .p256dh(validP256dh)
+                .auth(validAuth)
                 .build();
 
         org.mockito.Mockito.when(mockRepo.findAllByUserId("user-3"))
