@@ -96,12 +96,23 @@ public class WebPushService {
             } catch (Exception e) {
                 log.error("Failed to send push notification to subscription {}",
                         endpointFingerprint(sub.getEndpoint()), e);
-                if (e.getMessage() != null && (e.getMessage().contains("410 Gone") || e.getMessage().contains("404 Not Found"))) {
+                if (isExpiredOrNotFound(e)) {
                     log.info("Removing inactive subscription {}", endpointFingerprint(sub.getEndpoint()));
                     repository.deleteByEndpoint(sub.getEndpoint());
                 }
             }
         }
+    }
+
+    private boolean isExpiredOrNotFound(Throwable throwable) {
+        while (throwable != null) {
+            String message = throwable.getMessage();
+            if (message != null && (message.contains("410 Gone") || message.contains("404 Not Found"))) {
+                return true;
+            }
+            throwable = throwable.getCause();
+        }
+        return false;
     }
 
     private String endpointFingerprint(String endpoint) {

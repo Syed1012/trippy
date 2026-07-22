@@ -20,7 +20,7 @@
 - **Group voting** — participants vote on a whole day plan or on a single activity; owners/editors can enable voting, set a deadline, and freeze it.
 - **Discovery** — a public feed of published trips, and a read-only shareable itinerary link that needs no authentication.
 
-It does **not** generate itineraries (that's `ai-service`), send emails or push notifications (`notification-service`), or store chat history (`chat-service`) — it just owns the trip data those services react to.
+It does **not** generate itineraries or write place reviews/rankings for the day-map search (that's `ai-service`, via `/ai/places/*`), send emails or push notifications (`notification-service`), or store chat history (`chat-service`) — it just owns the trip data those services react to. A place picked on the day-map lands here only as a plain `Activity` (title + location) via the normal itinerary save.
 
 ## The mechanism worth knowing about
 

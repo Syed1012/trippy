@@ -14,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import pse.trippy.notificationservice.model.WebPushSubscription;
 import pse.trippy.notificationservice.repository.WebPushSubscriptionRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -109,5 +110,109 @@ class WebPushServiceTest {
         assertThatThrownBy(service::init)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("configured VAPID keys");
+    }
+
+    @Test
+    @DisplayName("sendPushNotification does not throw when exception has null message")
+    void sendPushNotificationHandlesNullExceptionMessage() throws Exception {
+        WebPushSubscriptionRepository mockRepo = mock(WebPushSubscriptionRepository.class);
+        WebPushService service = new WebPushService(mockRepo);
+        ReflectionTestUtils.setField(service, "enabled", false);
+        ReflectionTestUtils.setField(service, "publicKey", "dummy");
+        ReflectionTestUtils.setField(service, "privateKey", "dummy");
+        ReflectionTestUtils.setField(service, "subject", "mailto:test@example.com");
+
+        nl.martijndwars.webpush.PushService mockPush = mock(nl.martijndwars.webpush.PushService.class);
+        ReflectionTestUtils.setField(service, "pushService", mockPush);
+
+        WebPushSubscription sub = WebPushSubscription.builder()
+                .userId("user-1")
+                .endpoint("https://push.example.com/sub1")
+                .p256dh("key1")
+                .auth("auth1")
+                .build();
+
+        org.mockito.Mockito.when(mockRepo.findAllByUserId("user-1"))
+                .thenReturn(List.of(sub));
+
+        org.mockito.Mockito.doThrow(new NullPointerException())
+                .when(mockPush).send(org.mockito.ArgumentMatchers.any(nl.martijndwars.webpush.Notification.class));
+
+        // Should NOT throw — the null-safe handling should catch the NPE gracefully
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+                () -> service.sendPushNotification("user-1", "{\"title\":\"test\"}"));
+
+        // Subscription should NOT be deleted (NPE is not a 410/404)
+        org.mockito.Mockito.verify(mockRepo, org.mockito.Mockito.never()).deleteByEndpoint(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("sendPushNotification removes subscription when cause chain contains 410 Gone")
+    void sendPushNotificationRemovesSubscriptionOn410InCauseChain() throws Exception {
+        WebPushSubscriptionRepository mockRepo = mock(WebPushSubscriptionRepository.class);
+        WebPushService service = new WebPushService(mockRepo);
+        ReflectionTestUtils.setField(service, "enabled", false);
+        ReflectionTestUtils.setField(service, "publicKey", "dummy");
+        ReflectionTestUtils.setField(service, "privateKey", "dummy");
+        ReflectionTestUtils.setField(service, "subject", "mailto:test@example.com");
+
+        nl.martijndwars.webpush.PushService mockPush = mock(nl.martijndwars.webpush.PushService.class);
+        ReflectionTestUtils.setField(service, "pushService", mockPush);
+
+        String endpoint = "https://push.example.com/expired";
+        WebPushSubscription sub = WebPushSubscription.builder()
+                .userId("user-2")
+                .endpoint(endpoint)
+                .p256dh("key2")
+                .auth("auth2")
+                .build();
+
+        org.mockito.Mockito.when(mockRepo.findAllByUserId("user-2"))
+                .thenReturn(List.of(sub));
+
+        // Wrap the 410 in a cause chain: RuntimeException -> IOException("410 Gone")
+        Exception cause = new java.io.IOException("410 Gone");
+        Exception wrapper = new RuntimeException("Push failed", cause);
+
+        org.mockito.Mockito.doThrow(wrapper)
+                .when(mockPush).send(org.mockito.ArgumentMatchers.any(nl.martijndwars.webpush.Notification.class));
+
+        service.sendPushNotification("user-2", "{\"title\":\"test\"}");
+
+        // Subscription should be cleaned up because cause contains "410 Gone"
+        org.mockito.Mockito.verify(mockRepo).deleteByEndpoint(endpoint);
+    }
+
+    @Test
+    @DisplayName("sendPushNotification does NOT delete subscription for unrelated error containing '404' substring")
+    void sendPushNotificationDoesNotFalsePositiveOnSubstring() throws Exception {
+        WebPushSubscriptionRepository mockRepo = mock(WebPushSubscriptionRepository.class);
+        WebPushService service = new WebPushService(mockRepo);
+        ReflectionTestUtils.setField(service, "enabled", false);
+        ReflectionTestUtils.setField(service, "publicKey", "dummy");
+        ReflectionTestUtils.setField(service, "privateKey", "dummy");
+        ReflectionTestUtils.setField(service, "subject", "mailto:test@example.com");
+
+        nl.martijndwars.webpush.PushService mockPush = mock(nl.martijndwars.webpush.PushService.class);
+        ReflectionTestUtils.setField(service, "pushService", mockPush);
+
+        WebPushSubscription sub = WebPushSubscription.builder()
+                .userId("user-3")
+                .endpoint("https://push.example.com/active")
+                .p256dh("key3")
+                .auth("auth3")
+                .build();
+
+        org.mockito.Mockito.when(mockRepo.findAllByUserId("user-3"))
+                .thenReturn(List.of(sub));
+
+        // This message contains "404" as a substring but is NOT a 404 Not Found
+        org.mockito.Mockito.doThrow(new RuntimeException("Timeout after 40400ms"))
+                .when(mockPush).send(org.mockito.ArgumentMatchers.any(nl.martijndwars.webpush.Notification.class));
+
+        service.sendPushNotification("user-3", "{\"title\":\"test\"}");
+
+        // Should NOT delete — "40400" contains "404" but is not "404 Not Found"
+        org.mockito.Mockito.verify(mockRepo, org.mockito.Mockito.never()).deleteByEndpoint(org.mockito.ArgumentMatchers.any());
     }
 }

@@ -83,7 +83,7 @@ export function useWebPush() {
         
         // Remove from backend
         if (user) {
-          await api.post('/notifications/push/unsubscribe', subscription);
+          await api.post('/notifications/push/unsubscribe', { endpoint: subscription.endpoint });
         }
       }
       setIsSubscribed(false);

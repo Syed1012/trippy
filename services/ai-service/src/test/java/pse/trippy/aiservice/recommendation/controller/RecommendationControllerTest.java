@@ -53,7 +53,7 @@ class RecommendationControllerTest {
         UUID tripId = UUID.randomUUID();
         when(recommendationService.generate(any())).thenReturn(stub(tripId));
 
-        RecommendationRequest request = new RecommendationRequest(tripId, "Paris, France", 2, null, null, null);
+        RecommendationRequest request = new RecommendationRequest(tripId, "Paris, France", 2, null, null, null, null);
 
         mockMvc.perform(post("/ai/recommendations")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -66,7 +66,7 @@ class RecommendationControllerTest {
     @Test
     @DisplayName("POST /ai/recommendations with a blank destination → 400")
     void generate_blankDestination_returns400() throws Exception {
-        RecommendationRequest request = new RecommendationRequest(UUID.randomUUID(), "  ", 2, null, null, null);
+        RecommendationRequest request = new RecommendationRequest(UUID.randomUUID(), "  ", 2, null, null, null, null);
 
         mockMvc.perform(post("/ai/recommendations")
                         .contentType(MediaType.APPLICATION_JSON)

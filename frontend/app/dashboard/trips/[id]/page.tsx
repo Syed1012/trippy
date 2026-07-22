@@ -1505,6 +1505,18 @@ function DayCard({
     onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
   }
 
+  // A place picked from the day-map search: becomes an activity with the
+  // place's address as location, auto-timed after the last activity.
+  function addPlaceFromMap(place: { name: string; address: string; category: string }) {
+    const activity = makeActivity({
+      title: place.name,
+      location: place.address || place.name,
+      category: detectCategory(`${place.name} ${place.category}`),
+      time: nextDefaultStart(day.activities),
+    });
+    onUpdateDay({ ...day, activities: sortByTime([...day.activities, activity]) });
+  }
+
   // One-tap starter: adds a pre-categorised activity, auto-timed after the last one.
   function addFromTemplate(tpl: (typeof ACTIVITY_TEMPLATES)[number]) {
     const start = nextDefaultStart(day.activities);
@@ -1782,42 +1794,46 @@ function DayCard({
                 </button>
               )}
 
-              {/* Day map — pins + road route, lazily mounted on open */}
-              {mapStops.length > 0 && (
-                <div className="pt-1">
-                  <button
-                    onClick={() => setMapOpen((o) => !o)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
-                      mapOpen
-                        ? "border-accent-300 bg-accent-50 text-accent-700"
-                        : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
-                    )}
-                  >
-                    <Map size={15} className="text-accent-500" />
-                    {mapOpen ? "Hide day map" : "Show day map"}
-                    <span className="text-[11px] font-medium text-muted">
-                      · {mapStops.length} location{mapStops.length !== 1 ? "s" : ""} routed
-                    </span>
-                    <span className="ml-auto">
-                      {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
-                    </span>
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {mapOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.2 }}
-                        className="pt-3"
-                      >
-                        <DayMap destination={destination ?? ""} stops={mapStops} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
+              {/* Day map — pins + road route + place search, lazily mounted on open */}
+              <div className="pt-1">
+                <button
+                  onClick={() => setMapOpen((o) => !o)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer",
+                    mapOpen
+                      ? "border-accent-300 bg-accent-50 text-accent-700"
+                      : "border-border bg-white text-foreground hover:border-accent-300 hover:text-accent-600",
+                  )}
+                >
+                  <Map size={15} className="text-accent-500" />
+                  {mapOpen ? "Hide day map" : "Show day map"}
+                  <span className="text-[11px] font-medium text-muted">
+                    {mapStops.length > 0
+                      ? `· ${mapStops.length} location${mapStops.length !== 1 ? "s" : ""} routed`
+                      : "· search & add places"}
+                  </span>
+                  <span className="ml-auto">
+                    {mapOpen ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+                  </span>
+                </button>
+                <AnimatePresence initial={false}>
+                  {mapOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="pt-3"
+                    >
+                      <DayMap
+                        destination={destination ?? ""}
+                        stops={mapStops}
+                        onAddStop={isParticipant ? addPlaceFromMap : undefined}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </motion.div>
         )}
@@ -1926,6 +1942,8 @@ function AIItinerarySidebar({
   const days = Math.max(1, numDays);
   const [activeDay, setActiveDay] = useState(1);
   const [regenning, setRegenning] = useState(false);
+  // Per-day free-text steering for Regenerate ("slow morning, street food…").
+  const [dayWishes, setDayWishes] = useState<Record<number, string>>({});
 
   // Generation lives in the dashboard-level provider, so it keeps running while
   // the user navigates away and is ready when they return to this trip.
@@ -1941,7 +1959,7 @@ function AIItinerarySidebar({
   async function regenerateDay() {
     setRegenning(true);
     try {
-      await regenerate(tripId, activeDay);
+      await regenerate(tripId, activeDay, dayWishes[activeDay]);
     } finally {
       setRegenning(false);
     }
@@ -2145,14 +2163,26 @@ function AIItinerarySidebar({
 
               {/* Suggestions */}
               <div className="relative z-10 flex-1 overflow-y-auto px-5 py-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-muted">
-                    Day {activeDay} · pick your vibe
-                  </p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">
+                  Day {activeDay} · pick your vibe
+                </p>
+                {/* Wish bar: steer what Regenerate comes back with */}
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1.5 transition-colors focus-within:border-accent-400">
+                    <Wand2 size={12} className="shrink-0 text-accent-500" />
+                    <input
+                      value={dayWishes[activeDay] ?? ""}
+                      onChange={(e) => setDayWishes((w) => ({ ...w, [activeDay]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !regenning) void regenerateDay(); }}
+                      maxLength={200}
+                      placeholder="What should this day feel like? e.g. slow morning, street food, live jazz"
+                      className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-foreground outline-none placeholder:text-muted/50"
+                    />
+                  </div>
                   <button
                     onClick={regenerateDay}
                     disabled={regenning}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1.5 text-[11px] font-bold text-muted transition hover:border-accent-300 hover:text-foreground disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw size={12} className={cn(regenning && "animate-spin")} />
                     {regenning ? "Reimagining…" : "Regenerate"}

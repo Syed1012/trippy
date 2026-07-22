@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pse.trippy.notificationservice.dto.WebPushSubscriptionRequest;
+import pse.trippy.notificationservice.dto.WebPushUnsubscribeRequest;
 import pse.trippy.notificationservice.service.WebPushService;
 
 import java.util.Map;
@@ -63,7 +64,7 @@ public class WebPushController {
     @PostMapping("/unsubscribe")
     public ResponseEntity<Void> unsubscribe(
             @Parameter(description = "Authenticated user ID header") @RequestHeader("X-User-Id") String userId,
-            @Valid @RequestBody WebPushSubscriptionRequest request) {
+            @Valid @RequestBody WebPushUnsubscribeRequest request) {
         log.info("Removing web push subscription for user: {}", userId);
         webPushService.unsubscribe(userId, request.getEndpoint());
         return ResponseEntity.noContent().build();

@@ -718,6 +718,8 @@ export interface RecommendationInput {
   days: number;
   /** When set, regenerate suggestions for only this day. */
   dayNumber?: number;
+  /** Free-text wish for the regenerated day, e.g. "slow morning, street food, live jazz". */
+  dayWish?: string;
   preferences?: TripPreferenceInput;
   existingItinerary?: {
     dayNumber: number;

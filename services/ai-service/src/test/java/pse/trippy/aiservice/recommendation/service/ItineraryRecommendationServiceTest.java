@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pse.trippy.aiservice.recommendation.dto.RecommendationRequest;
@@ -45,7 +46,7 @@ class ItineraryRecommendationServiceTest {
     }
 
     private RecommendationRequest wholeTrip(UUID tripId, int days) {
-        return new RecommendationRequest(tripId, "Paris, France", days, null, null, null);
+        return new RecommendationRequest(tripId, "Paris, France", days, null, null, null, null);
     }
 
     private String aiJsonForDays(int... days) {
@@ -130,13 +131,31 @@ class ItineraryRecommendationServiceTest {
         when(ollama.model()).thenReturn("llama3.2:3b");
         when(ollama.chatJson(anyString(), anyString(), any(Duration.class))).thenReturn(aiJsonForDays(3));
 
-        RecommendationRequest request = new RecommendationRequest(tripId, "Paris, France", 5, 3, null, null);
+        RecommendationRequest request = new RecommendationRequest(tripId, "Paris, France", 5, 3, null, null, null);
         RecommendationResponse response = service.generate(request);
 
         assertThat(response.days()).hasSize(1);
         assertThat(response.days().get(0).dayNumber()).isEqualTo(3);
         verify(persistence).replaceForDay(eq(tripId), eq(3), any());
         verify(persistence, never()).replaceForTrip(any(), any());
+    }
+
+    @Test
+    @DisplayName("the day wish is passed to the model prompt on regenerate")
+    void generate_dayWish_reachesPrompt() {
+        when(ollama.isEnabled()).thenReturn(true);
+        when(ollama.model()).thenReturn("llama3.2:3b");
+        when(ollama.chatJson(anyString(), anyString(), any(Duration.class))).thenReturn(aiJsonForDays(3));
+
+        RecommendationRequest request = new RecommendationRequest(
+                UUID.randomUUID(), "Paris, France", 5, 3,
+                "slow morning, street food, live jazz", null, null);
+        service.generate(request);
+
+        ArgumentCaptor<String> userPrompt = ArgumentCaptor.forClass(String.class);
+        verify(ollama).chatJson(anyString(), userPrompt.capture(), any(Duration.class));
+        assertThat(userPrompt.getValue()).contains("slow morning, street food, live jazz");
+        assertThat(userPrompt.getValue()).contains("MUST honour this wish");
     }
 
     @Test

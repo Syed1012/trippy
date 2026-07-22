@@ -67,6 +67,17 @@ class WebPushControllerTest {
         verify(webPushService).unsubscribe(USER_ID, ENDPOINT);
     }
 
+    @Test
+    void unsubscribeAcceptsPayloadWithoutKeys() throws Exception {
+        mockMvc.perform(post("/notifications/push/unsubscribe")
+                        .header("X-User-Id", USER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"endpoint\":\"" + ENDPOINT + "\"}"))
+                .andExpect(status().isNoContent());
+
+        verify(webPushService).unsubscribe(USER_ID, ENDPOINT);
+    }
+
     private String validSubscriptionPayload() throws Exception {
         return objectMapper.writeValueAsString(new SubscriptionPayload(
                 ENDPOINT, new SubscriptionKeys("p256dh-key", "auth-key")));
