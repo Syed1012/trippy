@@ -223,8 +223,8 @@ export default function LandingPage() {
       await tripsApi.create({
         title: searchQuery || "AI Trip",
         destination: searchQuery || "AI Trip",
-        startDate,
-        endDate,
+        startDate: startDate || undefined,
+        endDate: endDate || startDate || undefined,
         visibility: "PRIVATE",
       });
 
