@@ -14,6 +14,9 @@ public record PlaceInsightsResponse(
         String model,
         List<PlaceInsight> places
 ) {
+    public PlaceInsightsResponse {
+        places = List.copyOf(places);
+    }
 
     public record PlaceInsight(
             String id,
@@ -21,6 +24,9 @@ public record PlaceInsightsResponse(
             int reviewCount,
             List<Review> reviews
     ) {
+        public PlaceInsight {
+            reviews = List.copyOf(reviews);
+        }
     }
 
     public record Review(

@@ -2,7 +2,6 @@ package pse.trippy.aiservice.places.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import pse.trippy.aiservice.places.dto.PlaceInsightsRequest;
@@ -30,7 +29,6 @@ import java.util.Map;
  * persisted.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PlaceInsightsService {
 
@@ -62,6 +60,12 @@ public class PlaceInsightsService {
 
     private final OllamaRecommendationClient ollama;
     private final ObjectMapper mapper;
+
+    public PlaceInsightsService(OllamaRecommendationClient ollama, ObjectMapper mapper) {
+        this.ollama = ollama;
+        // Defensive copy so an externally shared, mutable ObjectMapper isn't stored.
+        this.mapper = mapper == null ? new ObjectMapper() : mapper.copy();
+    }
 
     public PlaceInsightsResponse insights(PlaceInsightsRequest request) {
         if (ollama.isEnabled()) {
@@ -196,7 +200,7 @@ public class PlaceInsightsService {
 
     /** Deterministic per-place seed so repeated searches show stable numbers. */
     private PlaceInsight fallbackInsight(PlaceInsightsRequest.PlaceRef ref) {
-        int seed = Math.abs(ref.id().hashCode());
+        int seed = ref.id().hashCode() & Integer.MAX_VALUE;
         double rating = round1(3.6 + seed % 12 / 10.0);
         int reviewCount = 40 + seed % 420;
         String what = isSet(ref.category()) ? ref.category().toLowerCase() : "spot";

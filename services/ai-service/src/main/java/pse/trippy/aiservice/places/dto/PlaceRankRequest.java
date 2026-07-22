@@ -15,6 +15,9 @@ public record PlaceRankRequest(
         @NotBlank @Size(max = 200) String query,
         @NotEmpty @Size(max = 10) @Valid List<RankPlace> places
 ) {
+    public PlaceRankRequest {
+        places = List.copyOf(places);
+    }
 
     public record RankPlace(
             @NotBlank String id,
@@ -25,5 +28,8 @@ public record PlaceRankRequest(
             Integer reviewCount,
             @Size(max = 6) List<String> reviewSnippets
     ) {
+        public RankPlace {
+            reviewSnippets = reviewSnippets == null ? null : List.copyOf(reviewSnippets);
+        }
     }
 }
