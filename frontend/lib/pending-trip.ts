@@ -13,6 +13,7 @@ export interface PendingTrip {
   budget?: string;
   diet?: string;
   pace?: string;
+  travelerType?: string;
   savedAt: number;
 }
 
