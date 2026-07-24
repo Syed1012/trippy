@@ -1,4 +1,12 @@
 {
+  "users": [
+    {
+      "name": "trippy_mq",
+      "password_hash": "/6ZNJOxqoJ9wcpS15fCHUAE7KOQMVC0n7LulZ6T8/vCd65Lw",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator"
+    }
+  ],
   "vhosts": [
     {
       "name": "trippy"
