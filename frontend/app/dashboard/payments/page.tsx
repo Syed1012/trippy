@@ -67,14 +67,13 @@ export default function PaymentPage() {
     setCheckoutLoading(plan.planId);
     try {
       const response = await paymentsApi.checkout(plan.planId, "");
-      if (response.transactionId) {
-        addToast("Checkout initiated. Transaction ID: " + response.transactionId, "success");
-        void loadData();
+      if (response.url) {
+        window.location.href = response.url;
+      } else {
+        throw new Error("No checkout URL received");
       }
-      else throw new Error("No transaction ID received");
     } catch {
       addToast("Failed to initiate checkout. Please try again.", "error");
-    } finally {
       setCheckoutLoading(null);
     }
   }

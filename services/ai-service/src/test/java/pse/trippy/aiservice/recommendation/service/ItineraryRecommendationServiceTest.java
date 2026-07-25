@@ -92,6 +92,46 @@ class ItineraryRecommendationServiceTest {
     }
 
     @Test
+    @DisplayName("messy AI time formats (12h, dots, compact) are normalized to HH:mm")
+    void generate_messyTimeFormats_normalizedToHHmm() {
+        when(ollama.isEnabled()).thenReturn(true);
+        when(ollama.model()).thenReturn("llama3.2:3b");
+        String json = "{\"days\":[{\"dayNumber\":1,\"options\":["
+                + option("Morning walk", "9:00 AM", "12:30 PM", 20) + ","
+                + option("Lunch", "13.15", "14.00", 30) + ","
+                + option("Museum", "1530", "1800", 15)
+                + "]}]}";
+        when(ollama.chatJson(anyString(), anyString(), any(Duration.class))).thenReturn(json);
+
+        RecommendationResponse response = service.generate(wholeTrip(UUID.randomUUID(), 1));
+
+        List<RecommendationResponse.RecommendationOption> options = response.days().get(0).options();
+        assertThat(options.get(0).startTime()).isEqualTo("09:00");
+        assertThat(options.get(0).endTime()).isEqualTo("12:30");
+        assertThat(options.get(1).startTime()).isEqualTo("13:15");
+        assertThat(options.get(1).endTime()).isEqualTo("14:00");
+        assertThat(options.get(2).startTime()).isEqualTo("15:30");
+        assertThat(options.get(2).endTime()).isEqualTo("18:00");
+    }
+
+    @Test
+    @DisplayName("unparseable AI time text falls back to the default window instead of vanishing")
+    void generate_unparseableTime_fallsBackInsteadOfBlank() {
+        when(ollama.isEnabled()).thenReturn(true);
+        when(ollama.model()).thenReturn("llama3.2:3b");
+        String json = "{\"days\":[{\"dayNumber\":1,\"options\":["
+                + option("Free roam", "Morning", "Whenever", 10)
+                + "]}]}";
+        when(ollama.chatJson(anyString(), anyString(), any(Duration.class))).thenReturn(json);
+
+        RecommendationResponse response = service.generate(wholeTrip(UUID.randomUUID(), 1));
+
+        RecommendationResponse.RecommendationOption opt = response.days().get(0).options().get(0);
+        assertThat(opt.startTime()).isEqualTo("09:00");
+        assertThat(opt.endTime()).isEqualTo("18:00");
+    }
+
+    @Test
     @DisplayName("whole-trip generation falls back to templates when Ollama fails")
     void generate_wholeTrip_ollamaFails_usesFallback() throws Exception {
         UUID tripId = UUID.randomUUID();

@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
 /**
@@ -273,8 +275,8 @@ public class ItineraryRecommendationService {
 
     private RecommendationOption toOption(JsonNode node, int index, RecommendationRequest request) {
         String title = textOrDefault(node.path("title"), "Day plan " + (index + 1));
-        String start = textOrDefault(node.path("startTime"), "09:00");
-        String end = textOrDefault(node.path("endTime"), "18:00");
+        String start = parseClockTime(node.path("startTime"), "09:00");
+        String end = parseClockTime(node.path("endTime"), "18:00");
         String currency = textOrDefault(node.path("currency"), DEFAULT_CURRENCY);
         String notes = textOrDefault(node.path("notes"), "");
         String location = textOrDefault(node.path("location"), request.destination().trim());
@@ -440,6 +442,68 @@ public class ItineraryRecommendationService {
         }
         String value = node.asText("").trim();
         return value.isEmpty() ? fallback : value;
+    }
+
+    // A small local model rarely sticks to the requested "HH:MM" shape verbatim —
+    // it drifts to "9:00 AM", "09.00", "0930", or prose like "Start around 9am".
+    // Extract a clock time wherever it appears rather than rejecting the option
+    // outright, so the frontend's strict HH:mm save-time parser always gets a
+    // value it can store instead of silently dropping the activity's time.
+    private static final Pattern TIME_WITH_SEPARATOR =
+            Pattern.compile("(\\d{1,2})\\s*[:.hH]\\s*(\\d{2})\\s*([AaPp][Mm])?");
+    private static final Pattern TIME_HOUR_ONLY =
+            Pattern.compile("\\b(\\d{1,2})\\s*([AaPp][Mm])\\b");
+    private static final Pattern TIME_COMPACT =
+            Pattern.compile("\\b([01]\\d|2[0-3])([0-5]\\d)\\b");
+
+    private String parseClockTime(JsonNode node, String fallback) {
+        String raw = textOrDefault(node, "");
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+
+        Matcher m = TIME_WITH_SEPARATOR.matcher(raw);
+        if (m.find()) {
+            int minute = Integer.parseInt(m.group(2));
+            if (minute <= 59) {
+                int hour = to24Hour(Integer.parseInt(m.group(1)), m.group(3));
+                if (hour >= 0) {
+                    return String.format("%02d:%02d", hour, minute);
+                }
+            }
+        }
+
+        m = TIME_HOUR_ONLY.matcher(raw);
+        if (m.find()) {
+            int hour = to24Hour(Integer.parseInt(m.group(1)), m.group(2));
+            if (hour >= 0) {
+                return String.format("%02d:00", hour);
+            }
+        }
+
+        m = TIME_COMPACT.matcher(raw);
+        if (m.find()) {
+            return m.group(1) + ":" + m.group(2);
+        }
+
+        log.debug("Could not parse AI-provided time '{}', using fallback {}", raw, fallback);
+        return fallback;
+    }
+
+    /** Resolves a possibly 12-hour hour + optional am/pm marker to 24-hour; -1 if out of range. */
+    private int to24Hour(int hour, String meridiem) {
+        if (meridiem != null) {
+            if (hour < 1 || hour > 12) {
+                return -1;
+            }
+            boolean pm = meridiem.equalsIgnoreCase("pm");
+            hour = hour % 12;
+            if (pm) {
+                hour += 12;
+            }
+            return hour;
+        }
+        return hour <= 23 ? hour : -1;
     }
 
     private String clamp(String value, int max) {
