@@ -1109,7 +1109,7 @@ export interface TransactionRecord {
 export const paymentsApi = {
   getSubscription: () => api.get<SubscriptionInfo>("/payments/subscription"),
   checkout: (planId: string, paymentMethodId: string) =>
-    api.post<{ transactionId: string; status: string }>("/payments/checkout", {
+    api.post<{ url: string }>("/payments/checkout", {
       planId,
       paymentMethodId,
     }),
