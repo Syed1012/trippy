@@ -38,9 +38,8 @@ frontend/
 
 ### Adding a New Page
 
-1. Create a folder under `app/`, e.g. `app/trips/[tripId]/page.tsx`
-2. Use the shared layout — `app/layout.tsx` provides fonts and theme globals
-3. For authenticated pages, create under `app/dashboard/` to inherit the dashboard layout
+1. **Public page** — create a folder under `app/`, e.g. `app/how-it-works/page.tsx` (see `about/`, `privacy/`, `terms/` for existing examples). It inherits only the root `app/layout.tsx` (fonts, theme flash-prevention).
+2. **Authenticated page** — create it under `app/dashboard/`, e.g. `app/dashboard/trips/[id]/page.tsx`. Anything nested under `dashboard/` automatically inherits `app/dashboard/layout.tsx`, which wraps it in `ProtectedRoute` (redirects unauthenticated users) plus the shell (`Navbar`, ambient background, right-rail providers) — no manual wiring needed.
 
 ### Using UI Primitives
 

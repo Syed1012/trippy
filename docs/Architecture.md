@@ -10,11 +10,17 @@ Trippy is an AI-powered collaborative travel planning platform built using a mod
 
 ### Architecture Diagrams
 
-#### C3 Component & Container Model
-![Trippy C3 System Architecture](../architecture/c3_architecture-Trippy.png)
+#### Component Diagram
+![Trippy Component Diagram](../architecture/component-diagram.png)
 
-#### UML Architecture & Service Map
-![Trippy UML System Diagram](../architecture/UML_architect.png)
+#### Bounded Context Map
+![Trippy Bounded Context Map](../architecture/bounded-context.png)
+
+#### Domain Model
+![Trippy Domain Model](../architecture/domain-model.png)
+
+#### GORE Goal Model
+![Trippy GORE Goal Model](../architecture/gore.png)
 
 ---
 
